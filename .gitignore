@@ -6,11 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
-
 # Local project files
 .claude/
 GEMINI.md
-
-
 STATUS.md
 ROADMAP.md
