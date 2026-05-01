@@ -543,10 +543,22 @@ private:
 };
 
 //==============================================================================
-class Inspector : public DAWPanel
+class Inspector : public DAWPanel,
+                  public juce::ValueTree::Listener
 {
 public:
-    Inspector (AudioEngineManager& ae) : DAWPanel ("Inspector"), audioEngine (ae) {}
+    Inspector (AudioEngineManager& ae, ProjectData& pd) 
+        : DAWPanel ("Inspector"), audioEngine (ae), projectData (pd) 
+    {
+        projectData.getProjectTree().addListener (this);
+    }
+
+    ~Inspector() override { projectData.getProjectTree().removeListener (this); }
+
+    void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override { repaint(); }
+    void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { repaint(); }
+    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { repaint(); }
+    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override { repaint(); }
 
     juce::String trackName  { "(no selection)" };
     int          trackIndex { -1 };
@@ -684,6 +696,7 @@ public:
 
 private:
     AudioEngineManager& audioEngine;
+    ProjectData& projectData;
     juce::Array<juce::Rectangle<int>> insertRows;
     juce::Array<tracktion::ExternalPlugin*> insertPlugins;
     juce::Array<juce::Rectangle<int>> sendRows;
@@ -999,7 +1012,8 @@ private:
 //==============================================================================
 class Timeline : public juce::Component,
                  public juce::FileDragAndDropTarget,
-                 public juce::ScrollBar::Listener
+                 public juce::ScrollBar::Listener,
+                 public juce::ValueTree::Listener
 {
 public:
     static constexpr int kHeaderWidth = 250;
@@ -1015,8 +1029,10 @@ public:
     std::function<void()> onAddFolder;
     std::function<void(const juce::File&)> onImportFile;
 
-    Timeline(AudioEngineManager& ae) : audioEngine(ae)
+    Timeline(AudioEngineManager& ae, ProjectData& pd) : audioEngine(ae), projectData(pd)
     {
+        projectData.getProjectTree().addListener (this);
+
         addAndMakeVisible (horizontalScrollBar);
         horizontalScrollBar.setRangeLimits (0.0, 3600.0); // 1 hour max
         horizontalScrollBar.addListener (this);
@@ -2048,6 +2064,11 @@ public:
         }
     }
 
+    void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override { repaint(); }
+    void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { repaint(); }
+    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { repaint(); }
+    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override { repaint(); }
+
 private:
     tracktion::Clip* getClipAt(juce::Point<int> p)
     {
@@ -2074,6 +2095,7 @@ private:
     }
 
     AudioEngineManager& audioEngine;
+    ProjectData& projectData;
     double dragOffset = 0.0;
     juce::StringArray selectedIds;
     juce::StringArray automationVisibleTracks;
@@ -2099,7 +2121,8 @@ private:
 // Reaper-style mixer: each strip has a clickable inserts list, a functional pan
 // knob, M/S buttons, a fader with dB readout and meter. Detachable to a floating
 // window via the header pop-out button.
-class Mixer : public juce::Component
+class Mixer : public juce::Component,
+              public juce::ValueTree::Listener
 {
 public:
     static constexpr int kStripW       = 110;
@@ -2116,7 +2139,17 @@ public:
     std::function<void()> onDetachRequested;
     bool detached = false;
 
-    Mixer(AudioEngineManager& ae) : audioEngine(ae) {}
+    Mixer(AudioEngineManager& ae, ProjectData& pd) : audioEngine(ae), projectData(pd)
+    {
+        projectData.getProjectTree().addListener (this);
+    }
+
+    ~Mixer() override { projectData.getProjectTree().removeListener (this); }
+
+    void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override { repaint(); }
+    void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { repaint(); }
+    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { repaint(); }
+    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override { repaint(); }
 
     void paint(juce::Graphics& g) override
     {
@@ -2526,6 +2559,7 @@ private:
     }
 
     AudioEngineManager& audioEngine;
+    ProjectData& projectData;
 
     juce::Rectangle<int>     detachBtn;
     juce::Array<StripHit>    stripHits;
@@ -2539,10 +2573,21 @@ private:
 
 //==============================================================================
 // Bottom transport bar — buttons + bars/beats counter + tempo + time signature.
-class Transport : public juce::Component
+class Transport : public juce::Component,
+                  public juce::ValueTree::Listener
 {
 public:
-    Transport(AudioEngineManager& ae) : audioEngine(ae) {}
+    Transport(AudioEngineManager& ae, ProjectData& pd) : audioEngine(ae), projectData(pd)
+    {
+        projectData.getProjectTree().addListener (this);
+    }
+
+    ~Transport() override { projectData.getProjectTree().removeListener (this); }
+
+    void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override { repaint(); }
+    void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { repaint(); }
+    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { repaint(); }
+    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override { repaint(); }
 
     void paint(juce::Graphics& g) override
     {
@@ -2685,5 +2730,6 @@ public:
 
 private:
     AudioEngineManager& audioEngine;
+    ProjectData& projectData;
     juce::Rectangle<int> playBounds, stopBounds, recBounds, rewindBounds, forwardBounds, loopBounds;
 };

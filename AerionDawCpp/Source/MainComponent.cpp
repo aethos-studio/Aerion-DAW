@@ -13,6 +13,7 @@ MainComponent::MainComponent()
     addAndMakeVisible (transport);
 
     audioEngine.addListener (this);
+    audioEngine.getEdit().state.addListener (this);
     addKeyListener (this);
     setWantsKeyboardFocus (true);
 
@@ -330,4 +331,24 @@ void MainComponent::reattachMixer()
     mixer.detached = false;
     addAndMakeVisible (mixer);
     resized();
+}
+
+void MainComponent::editStateChanged()
+{
+    timeline.repaint();
+    mixer.repaint();
+    inspector.repaint();
+    browser.repaint();
+}
+
+void MainComponent::valueTreePropertyChanged (juce::ValueTree& v, const juce::Identifier& i)
+{
+    // Reactive: If a track property (mute/solo/vol) changed in the engine,
+    // we can update ProjectData here, and the UI will automatically repaint
+    // because it's listening to ProjectData.
+    
+    // For now, simple repaint is still valid as we transition.
+    timeline.repaint();
+    mixer.repaint();
+    inspector.repaint();
 }

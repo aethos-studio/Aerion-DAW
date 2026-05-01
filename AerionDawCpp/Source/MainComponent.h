@@ -9,7 +9,8 @@
 class MainComponent  : public juce::Component,
                        public juce::Timer,
                        public juce::KeyListener,
-                       public AudioEngineManager::Listener
+                       public AudioEngineManager::Listener,
+                       public juce::ValueTree::Listener
 {
 public:
     MainComponent();
@@ -22,15 +23,14 @@ public:
     bool keyPressed (const juce::KeyPress& key, juce::Component* origin) override;
 
     // AudioEngineManager::Listener
-    void editStateChanged() override
-    {
-        // JUCE does not cascade repaint() to children, so invalidate the
-        // engine-driven views explicitly.
-        timeline.repaint();
-        mixer.repaint();
-        inspector.repaint();
-        browser.repaint();
-    }
+    void editStateChanged() override;
+
+    // juce::ValueTree::Listener
+    void valueTreePropertyChanged (juce::ValueTree& v, const juce::Identifier& i) override;
+    void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override {}
+    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override {}
+    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override {}
+    void valueTreeParentChanged (juce::ValueTree&) override {}
 
 private:
     void createNewProject();
@@ -49,12 +49,12 @@ private:
 
     DAWMenuBar menuBar;
     DAWToolbar toolbar;
-    Inspector  inspector { audioEngine };
+    Inspector  inspector { audioEngine, projectData };
     Browser    browser   { audioEngine };
 
-    Timeline   timeline  { audioEngine };
-    Mixer      mixer     { audioEngine };
-    Transport  transport { audioEngine };
+    Timeline   timeline  { audioEngine, projectData };
+    Mixer      mixer     { audioEngine, projectData };
+    Transport  transport { audioEngine, projectData };
 
     MetalLookAndFeel metalLookAndFeel;
 

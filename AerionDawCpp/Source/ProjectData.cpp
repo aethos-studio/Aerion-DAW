@@ -5,6 +5,30 @@ ProjectData::ProjectData()
     createMockData();
 }
 
+juce::ValueTree ProjectData::getTrackTree (int id) const
+{
+    auto tracks = projectTree.getChildWithName (IDs::Tracks);
+    for (int i = 0; i < tracks.getNumChildren(); ++i)
+    {
+        auto t = tracks.getChild (i);
+        if ((int) t.getProperty (IDs::id) == id)
+            return t;
+    }
+    return {};
+}
+
+juce::ValueTree ProjectData::getTrackTree (const juce::String& name) const
+{
+    auto tracks = projectTree.getChildWithName (IDs::Tracks);
+    for (int i = 0; i < tracks.getNumChildren(); ++i)
+    {
+        auto t = tracks.getChild (i);
+        if (t.getProperty (IDs::name).toString() == name)
+            return t;
+    }
+    return {};
+}
+
 void ProjectData::createMockData()
 {
     juce::ValueTree tracksTree (IDs::Tracks);
@@ -23,6 +47,9 @@ void ProjectData::createMockData()
         track.setProperty (IDs::type, type, nullptr);
         track.setProperty (IDs::level, level, nullptr);
         track.setProperty (IDs::pan, pan, nullptr);
+        track.setProperty (IDs::mute, false, nullptr);
+        track.setProperty (IDs::solo, false, nullptr);
+        track.setProperty (IDs::armed, false, nullptr);
         return track;
     };
 
@@ -120,6 +147,8 @@ void ProjectData::createMockData()
         track.setProperty (IDs::color, color, nullptr);
         track.setProperty (IDs::level, level, nullptr);
         track.setProperty (IDs::pan, pan, nullptr);
+        track.setProperty (IDs::mute, false, nullptr);
+        track.setProperty (IDs::solo, false, nullptr);
         return track;
     };
 

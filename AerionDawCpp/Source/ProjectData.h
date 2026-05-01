@@ -22,6 +22,9 @@ namespace IDs
     DECLARE_ID (type);
     DECLARE_ID (level);
     DECLARE_ID (pan);
+    DECLARE_ID (mute);
+    DECLARE_ID (solo);
+    DECLARE_ID (armed);
 
     DECLARE_ID (start);
     DECLARE_ID (width);
@@ -35,6 +38,9 @@ public:
 
     juce::ValueTree getProjectTree() const { return projectTree; }
     
+    juce::ValueTree getTrackTree (int id) const;
+    juce::ValueTree getTrackTree (const juce::String& name) const;
+
     // Creates the initial mock data representing src/data.ts
     void createMockData();
 
