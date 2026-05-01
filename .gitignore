@@ -10,5 +10,7 @@ coverage/
 # Local project files
 .claude/
 GEMINI.md
+
+
 STATUS.md
 ROADMAP.md

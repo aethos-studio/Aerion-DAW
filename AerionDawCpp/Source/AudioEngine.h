@@ -35,6 +35,9 @@ public:
     }
     void setTransportPosition (double seconds) { edit->getTransport().setPosition(tracktion::TimePosition::fromSeconds(seconds)); }
 
+    void setTempo (double bpm);
+    void setTimeSig (int numerator, int denominator);
+
     juce::Array<tracktion::AudioTrack*> getAudioTracks();
     juce::Array<tracktion::Track*>      getTopLevelTracks();
 
@@ -49,6 +52,7 @@ public:
     // Record-arm state (per track itemID).
     void setTrackArmed (tracktion::Track*, bool);
     bool isTrackArmed (tracktion::Track*) const;
+    float getTrackPeak (tracktion::Track*);
 
     void toggleTrackMute (tracktion::Track*);
     void toggleTrackSolo (tracktion::Track*);
@@ -90,6 +94,17 @@ public:
     enum class AutomationParamKind { Volume, Pan };
     tracktion::AutomatableParameter* getAutomationParam (tracktion::Track* track, AutomationParamKind kind);
 
+    // Volume Helpers
+    static constexpr float kMinVolumeDb = -60.0f;
+    static constexpr float kMaxVolumeDb = 12.0f;
+    static constexpr float kFaderRangeDb = kMaxVolumeDb - kMinVolumeDb;
+
+    void  setTrackVolumeDb (tracktion::Track* track, float db);
+    float getTrackVolumeDb (tracktion::Track* track);
+
+    static float getFaderPosFromDb (float db)    { return juce::jlimit (0.0f, 1.0f, (db - kMinVolumeDb) / kFaderRangeDb); }
+    static float getDbFromFaderPos (float pos)   { return (pos * kFaderRangeDb) + kMinVolumeDb; }
+
 private:
     static std::unique_ptr<tracktion::UIBehaviour> makeUIBehaviour();
 
@@ -114,6 +129,26 @@ private:
 
     std::atomic<bool> scanInFlight { false };
     std::unique_ptr<juce::Thread> scanThread;
+
+    // Per-track meter subscription. Holds a Plugin::Ptr to keep the
+    // LevelMeterPlugin (and its measurer) alive for the lifetime of the
+    // Client we registered with it — so removeClient in the destructor is
+    // always safe, even if the plugin has been removed from the track or
+    // the Edit has been torn down.
+    struct TrackMeter
+    {
+        juce::ReferenceCountedObjectPtr<tracktion::LevelMeterPlugin> plugin;
+        tracktion::LevelMeasurer::Client client;
+        float lastPeakDb = -100.0f;
+        juce::uint32 lastUpdateMs = 0;
+
+        ~TrackMeter()
+        {
+            if (plugin != nullptr)
+                plugin->measurer.removeClient (client);
+        }
+    };
+    std::map<juce::String, std::unique_ptr<TrackMeter>> trackMeters;
 
     void setupInitialEdit();
 };

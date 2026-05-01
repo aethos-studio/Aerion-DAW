@@ -122,6 +122,7 @@ std::unique_ptr<te::UIBehaviour> AudioEngineManager::makeUIBehaviour()
 AudioEngineManager::AudioEngineManager()
 {
     engine.getDeviceManager().initialise (0, 2);
+    engine.getDeviceManager().enableOutputClipping (true);
     setupInitialEdit();
 }
 
@@ -152,6 +153,13 @@ void AudioEngineManager::setupInitialEdit()
     // Start with an empty session — remove the track that createSingleTrackEdit added.
     for (auto* t : te::getAudioTracks (*edit))
         edit->deleteTrack (t);
+
+    // Ensure master track is clean
+    if (auto master = edit->getMasterTrack())
+    {
+        for (int i = master->pluginList.size(); --i >= 0;)
+            master->pluginList.getPlugins()[i]->deleteFromParent();
+    }
 }
 
 juce::Array<te::AudioTrack*> AudioEngineManager::getAudioTracks()
@@ -171,9 +179,86 @@ juce::Array<te::Track*> AudioEngineManager::getTopLevelTracks()
     return result;
 }
 
+float AudioEngineManager::getTrackPeak (te::Track* track)
+{
+    if (track == nullptr) return -100.0f;
+
+    // Find this track's LevelMeterPlugin, lazily creating one if absent.
+    // The plugin's getLevelCache() is unused — Tracktion never writes to it.
+    // Live levels arrive via measurer.processBuffer() into registered clients.
+    te::LevelMeterPlugin* meterPlugin = nullptr;
+    for (auto* p : track->pluginList)
+        if (auto* m = dynamic_cast<te::LevelMeterPlugin*> (p))
+        {
+            meterPlugin = m;
+            break;
+        }
+
+    if (meterPlugin == nullptr)
+    {
+        if (auto p = edit->getPluginCache().createNewPlugin (te::LevelMeterPlugin::xmlTypeName, {}))
+        {
+            track->pluginList.insertPlugin (p, 0, nullptr);
+            meterPlugin = dynamic_cast<te::LevelMeterPlugin*> (p.get());
+        }
+    }
+
+    if (meterPlugin == nullptr) return -100.0f;
+
+    auto key = track->itemID.toString();
+    auto it = trackMeters.find (key);
+    if (it == trackMeters.end())
+        it = trackMeters.emplace (key, std::make_unique<TrackMeter>()).first;
+
+    auto& tm = *it->second;
+    if (tm.plugin.get() != meterPlugin)
+    {
+        // Move the Client onto the new measurer. We deliberately keep the
+        // previous plugin alive via the Plugin::Ptr above so that removing
+        // the client from the old measurer here is always safe.
+        if (tm.plugin != nullptr)
+            tm.plugin->measurer.removeClient (tm.client);
+
+        tm.plugin = meterPlugin;
+        tm.client.reset();
+        meterPlugin->measurer.addClient (tm.client);
+    }
+
+    auto l = tm.client.getAndClearAudioLevel (0).dB;
+    auto r = tm.client.getAndClearAudioLevel (1).dB;
+    float latest = juce::jmax (l, r);
+
+    // Decay the displayed peak at 48 dB/s with a 50 ms hold — same shape
+    // FourOscPlugin uses for its built-in meter, so the visual feels right.
+    auto now = juce::Time::getApproximateMillisecondCounter();
+    int  elapsedMs = (int) (now - tm.lastUpdateMs);
+    float decayed  = tm.lastPeakDb - 48.0f * (juce::jmax (0, elapsedMs - 50) / 1000.0f);
+
+    if (latest > decayed)
+    {
+        tm.lastPeakDb   = latest;
+        tm.lastUpdateMs = now;
+    }
+    else
+    {
+        tm.lastPeakDb = decayed;
+    }
+
+    return juce::jlimit (-100.0f, 0.0f, tm.lastPeakDb);
+}
+
 te::AudioTrack* AudioEngineManager::addAudioTrack()
 {
     auto t = edit->insertNewAudioTrack (te::TrackInsertPoint::getEndOfTracks (*edit), nullptr);
+    if (auto* at = t.get())
+    {
+        // Ensure every new track has a level meter plugin for UI feedback.
+        if (at->getLevelMeterPlugin() == nullptr)
+        {
+            auto p = edit->getPluginCache().createNewPlugin (te::LevelMeterPlugin::xmlTypeName, {});
+            at->pluginList.insertPlugin (p, 0, nullptr);
+        }
+    }
     return t.get();
 }
 
@@ -248,27 +333,68 @@ void AudioEngineManager::removePlugin (te::Plugin* plugin)
 
 void AudioEngineManager::setTrackPan (te::Track* track, float pan)
 {
-    if (track == nullptr) return;
-    if (auto* a = dynamic_cast<te::AudioTrack*> (track))
-        if (auto* vp = a->getVolumePlugin())
-            vp->setPan (juce::jlimit (-1.0f, 1.0f, pan));
+    if (auto* p = getAutomationParam (track, AutomationParamKind::Pan))
+        p->setParameter (juce::jlimit (-1.0f, 1.0f, pan), juce::sendNotification);
 }
 
 float AudioEngineManager::getTrackPan (te::Track* track)
 {
-    if (auto* a = dynamic_cast<te::AudioTrack*> (track))
-        if (auto* vp = a->getVolumePlugin())
-            return vp->getPan();
+    if (auto* p = getAutomationParam (track, AutomationParamKind::Pan))
+        return p->getCurrentValue();
     return 0.0f;
 }
 
 te::AutomatableParameter* AudioEngineManager::getAutomationParam (te::Track* track, AutomationParamKind kind)
 {
     if (track == nullptr) return nullptr;
+
+    te::VolumeAndPanPlugin::Ptr vp;
     if (auto* a = dynamic_cast<te::AudioTrack*> (track))
-        if (auto* vp = a->getVolumePlugin())
-            return (kind == AutomationParamKind::Volume) ? vp->volParam.get() : vp->panParam.get();
+        vp = a->getVolumePlugin();
+    else if (track->isMasterTrack())
+        vp = edit->getMasterVolumePlugin();
+
+    if (vp != nullptr)
+        return (kind == AutomationParamKind::Volume) ? vp->volParam.get() : vp->panParam.get();
+
     return nullptr;
+}
+
+void AudioEngineManager::setTrackVolumeDb (te::Track* track, float db)
+{
+    if (track == nullptr) return;
+    db = juce::jlimit (kMinVolumeDb, kMaxVolumeDb, db);
+
+    if (auto* vp = getAutomationParam (track, AutomationParamKind::Volume))
+    {
+        // Hack: The engine defaults to 0..1 range (max +6dB).
+        // Bypass this by extending the parameter range using const_cast.
+        if (vp->valueRange.end < 2.0f)
+            const_cast<juce::NormalisableRange<float>&> (vp->valueRange).end = 2.0f;
+
+        // Bypassing vp->setVolumeDb() because it has a hardcoded jlimit(0, 1) inside.
+        // We use the same math as the engine to convert dB to slider position.
+        float pos = (db > -100.0f) ? std::exp ((db - 6.0f) * (1.0f / 20.0f)) : 0.0f;
+        vp->setParameter (pos, juce::sendNotification);
+    }
+}
+
+float AudioEngineManager::getTrackVolumeDb (te::Track* track)
+{
+    if (track == nullptr) return 0.0f;
+
+    if (auto* a = dynamic_cast<te::AudioTrack*> (track))
+    {
+        if (auto* vp = a->getVolumePlugin())
+            return vp->getVolumeDb();
+    }
+    else if (track->isMasterTrack())
+    {
+        if (auto vp = edit->getMasterVolumePlugin())
+            return vp->getVolumeDb();
+    }
+
+    return 0.0f;
 }
 
 void AudioEngineManager::toggleTrackSolo (te::Track* t)
@@ -287,6 +413,20 @@ juce::String AudioEngineManager::getTimeSigAtPosition (double seconds)
     if (edit == nullptr) return "4/4";
     auto& ts = edit->tempoSequence.getTimeSigAt (te::TimePosition::fromSeconds (seconds));
     return juce::String::formatted ("%d/%d", (int) ts.numerator, (int) ts.denominator);
+}
+
+void AudioEngineManager::setTempo (double bpm)
+{
+    if (edit == nullptr) return;
+    auto& ts = edit->tempoSequence;
+    ts.getTempoAt (te::TimePosition()).setBpm (bpm);
+}
+
+void AudioEngineManager::setTimeSig (int numerator, int denominator)
+{
+    if (edit == nullptr) return;
+    auto& ts = edit->tempoSequence;
+    ts.getTimeSigAt (te::TimePosition()).setStringTimeSig (juce::String::formatted ("%d/%d", numerator, denominator));
 }
 
 juce::String AudioEngineManager::getBarsBeatsString (double seconds)
@@ -314,6 +454,7 @@ void AudioEngineManager::importAudioFile (const juce::File& file)
     auto* track = addAudioTrack();
     if (track != nullptr)
     {
+        track->setName (file.getFileNameWithoutExtension());
         te::AudioFile af (engine, file);
         auto len = af.getLength();
         

@@ -1,5 +1,7 @@
 #include "MainComponent.h"
 
+namespace te = tracktion;
+
 MainComponent::MainComponent()
 {
     juce::LookAndFeel::setDefaultLookAndFeel (&metalLookAndFeel);
@@ -51,6 +53,7 @@ MainComponent::MainComponent()
     menuBar.onNew      = [this] { createNewProject(); };
     menuBar.onOpen     = [this] { openProject(); };
     menuBar.onSave     = [this] { saveProject(); };
+    menuBar.onSaveAs   = [this] { saveProjectAs(); };
     menuBar.onImport   = [this] { importAudioFile(); };
     menuBar.onSettings = [this] { showAudioSettings(); };
 
@@ -84,7 +87,7 @@ MainComponent::MainComponent()
         {
             auto* t = top[idx];
             inspector.trackIndex   = idx;
-            inspector.trackName    = juce::String::formatted ("%02d. ", idx + 1) + t->getName();
+            inspector.trackName    = t->getName();
             inspector.armed        = audioEngine.isTrackArmed (t);
             inspector.muted        = t->isMuted (false);
             inspector.solo         = t->isSolo  (false);
@@ -119,6 +122,12 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component*)
         {
             if (key.getModifiers().isShiftDown()) audioEngine.redo();
             else                                  audioEngine.undo();
+            return true;
+        }
+
+        if (key.getKeyCode() == 's' || key.getKeyCode() == 'S')
+        {
+            saveProject();
             return true;
         }
     }
@@ -187,26 +196,40 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component*)
 void MainComponent::createNewProject()
 {
     audioEngine.createNewProject();
+    currentProjectFile = juce::File();
 }
 
 void MainComponent::openProject()
 {
-    auto chooser = std::make_unique<juce::FileChooser> ("Open Project...", juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.aerion");
-    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+    fileChooser = std::make_unique<juce::FileChooser> ("Open Project...", juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.aerion");
+    fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                           [this] (const juce::FileChooser& fc)
                           {
                               auto file = fc.getResult();
                               if (file.existsAsFile())
                               {
                                   audioEngine.loadProject (file);
+                                  currentProjectFile = file;
                               }
                           });
 }
 
 void MainComponent::saveProject()
 {
-    auto chooser = std::make_unique<juce::FileChooser> ("Save Project...", juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.aerion");
-    chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+    if (currentProjectFile.existsAsFile())
+    {
+        audioEngine.saveProject (currentProjectFile);
+    }
+    else
+    {
+        saveProjectAs();
+    }
+}
+
+void MainComponent::saveProjectAs()
+{
+    fileChooser = std::make_unique<juce::FileChooser> ("Save Project As...", juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.aerion");
+    fileChooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
                           [this] (const juce::FileChooser& fc)
                           {
                               auto file = fc.getResult();
@@ -215,14 +238,15 @@ void MainComponent::saveProject()
                                   if (file.getFileExtension() != ".aerion")
                                       file = file.withFileExtension (".aerion");
                                   audioEngine.saveProject (file);
+                                  currentProjectFile = file;
                               }
                           });
 }
 
 void MainComponent::importAudioFile()
 {
-    auto chooser = std::make_unique<juce::FileChooser> ("Import Audio...", juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.wav;*.mp3;*.aif;*.flac");
-    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+    fileChooser = std::make_unique<juce::FileChooser> ("Import Audio...", juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.wav;*.mp3;*.aif;*.flac");
+    fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                           [this] (const juce::FileChooser& fc)
                           {
                               auto file = fc.getResult();
@@ -262,10 +286,13 @@ void MainComponent::timerCallback()
         lastIsPlaying = playing;
     }
 
+    // Always repaint mixer and inspector for real-time metering and UI state.
+    mixer.repaint();
+    inspector.repaint();
+
     if (playing)
     {
         timeline.repaint();
-        mixer.repaint();
     }
 }
 
@@ -343,11 +370,29 @@ void MainComponent::editStateChanged()
 
 void MainComponent::valueTreePropertyChanged (juce::ValueTree& v, const juce::Identifier& i)
 {
-    // Reactive: If a track property (mute/solo/vol) changed in the engine,
-    // we can update ProjectData here, and the UI will automatically repaint
-    // because it's listening to ProjectData.
+    // Reactive synchronization: Tracktion Engine -> ProjectData
+    // If a property like volume, pan, mute, or solo changes in the engine,
+    // update our ProjectData to keep the UI in sync.
     
-    // For now, simple repaint is still valid as we transition.
+    if (v.hasType (tracktion::IDs::TRACK) || v.hasType (tracktion::IDs::FOLDERTRACK))
+    {
+        int trackID = v.getProperty (tracktion::IDs::id);
+        auto trackTree = projectData.getTrackTree (trackID);
+        
+        if (trackTree.isValid())
+        {
+            if (i == tracktion::IDs::mute)
+                trackTree.setProperty (IDs::mute, v.getProperty (i), nullptr);
+            else if (i == tracktion::IDs::solo)
+                trackTree.setProperty (IDs::solo, v.getProperty (i), nullptr);
+            else if (i == tracktion::IDs::volume)
+                trackTree.setProperty (IDs::level, v.getProperty (i), nullptr);
+            else if (i == tracktion::IDs::pan)
+                trackTree.setProperty (IDs::pan, v.getProperty (i), nullptr);
+        }
+    }
+
+    // Trigger repaints for all reactive components.
     timeline.repaint();
     mixer.repaint();
     inspector.repaint();

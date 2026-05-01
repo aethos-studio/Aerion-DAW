@@ -36,6 +36,7 @@ private:
     void createNewProject();
     void openProject();
     void saveProject();
+    void saveProjectAs();
     void importAudioFile();
     void showAudioSettings();
 
@@ -63,6 +64,10 @@ private:
 
     class MixerWindow;
     std::unique_ptr<MixerWindow> mixerWindow;
+
+    std::unique_ptr<juce::FileChooser> fileChooser;
+
+    juce::File currentProjectFile;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };
