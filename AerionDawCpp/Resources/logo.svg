@@ -1,45 +1,44 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Dark Stone/Forest Background -->
-  <rect width="1024" height="1024" fill="#0d110d"/>
+  <!-- No background rect to allow for transparency -->
 
   <!-- Logo Icon Section -->
   <g transform="translate(512, 512)">
-    <!-- Moss and Earth Glow Rings -->
-    <circle cx="0" cy="0" r="480" fill="url(#glow_moss)" fill-opacity="0.4" />
-    <circle cx="0" cy="0" r="420" fill="url(#glow_earth)" fill-opacity="0.5" />
-    <circle cx="0" cy="0" r="360" fill="url(#glow_stone)" fill-opacity="0.6" />
+    <!-- Arctic Blue and Steel Glow Rings -->
+    <circle cx="0" cy="0" r="480" fill="url(#glow_arctic)" fill-opacity="0.4" />
+    <circle cx="0" cy="0" r="420" fill="url(#glow_steel)" fill-opacity="0.5" />
+    <circle cx="0" cy="0" r="360" fill="url(#glow_ice)" fill-opacity="0.6" />
     
-    <!-- Central Stone Core -->
-    <circle cx="0" cy="0" r="300" fill="#151a15" />
+    <!-- Central Metallic Core -->
+    <circle cx="0" cy="0" r="300" fill="#11141a" />
     <circle cx="0" cy="0" r="300" fill="url(#core_shadow)" />
     
-    <!-- The 'A' - Cold Iron / Runic Steel (Scaled to fit circle) -->
+    <!-- The 'A' - Brushed Runic Steel -->
     <path d="M0 -200 L-160 220 L-100 220 L0 -140 L100 220 L160 220 Z" fill="url(#iron_gradient_icon)" />
     
-    <!-- Single centered molten gold bar with diagonal cuts (Scaled) -->
-    <path d="M-100 80 L100 80 L120 100 L-120 100 Z" fill="url(#gold_gradient)"/>
+    <!-- Single centered ice blue accent bar -->
+    <path d="M-100 80 L100 80 L120 100 L-120 100 Z" fill="url(#ice_accent_gradient)"/>
 
     <!-- Sharp Highlight Edges -->
-    <path d="M0 -200 L0 220" stroke="#ffffff" stroke-width="1.5" opacity="0.3"/>
+    <path d="M0 -200 L0 220" stroke="#ffffff" stroke-width="1.5" opacity="0.5"/>
 
-    <!-- Thorns/Branches (Scaled and centered) -->
-    <line x1="-60" y1="160" x2="-60" y2="250" stroke="#4A5D4E" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
-    <line x1="60" y1="160" x2="60" y2="250" stroke="#4A5D4E" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
-    <line x1="0" y1="110" x2="0" y2="270" stroke="#8C7853" stroke-width="6" stroke-linecap="round" opacity="0.9"/>
+    <!-- Metallic Accents -->
+    <line x1="-60" y1="160" x2="-60" y2="250" stroke="#63b3ed" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
+    <line x1="60" y1="160" x2="60" y2="250" stroke="#63b3ed" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
+    <line x1="0" y1="110" x2="0" y2="270" stroke="#a0aec0" stroke-width="6" stroke-linecap="round" opacity="0.9"/>
   </g>
 
   <defs>
-    <radialGradient id="glow_moss" cx="512" cy="512" r="480" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#2E4732"/>
-      <stop offset="100%" stop-color="#2E4732" stop-opacity="0"/>
+    <radialGradient id="glow_arctic" cx="512" cy="512" r="480" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3182ce"/>
+      <stop offset="100%" stop-color="#3182ce" stop-opacity="0"/>
     </radialGradient>
-    <radialGradient id="glow_earth" cx="512" cy="512" r="420" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#5D4A31"/>
-      <stop offset="100%" stop-color="#5D4A31" stop-opacity="0"/>
+    <radialGradient id="glow_steel" cx="512" cy="512" r="420" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2d3748"/>
+      <stop offset="100%" stop-color="#2d3748" stop-opacity="0"/>
     </radialGradient>
-    <radialGradient id="glow_stone" cx="512" cy="512" r="360" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#4A4A48"/>
-      <stop offset="100%" stop-color="#4A4A48" stop-opacity="0"/>
+    <radialGradient id="glow_ice" cx="512" cy="512" r="360" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#63b3ed"/>
+      <stop offset="100%" stop-color="#63b3ed" stop-opacity="0"/>
     </radialGradient>
     
     <radialGradient id="core_shadow" cx="512" cy="512" r="300" gradientUnits="userSpaceOnUse">
@@ -48,20 +47,15 @@
     </radialGradient>
 
     <linearGradient id="iron_gradient_icon" x1="512" y1="280" x2="512" y2="744" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#d0d0d0"/>
-      <stop offset="50%" stop-color="#707070"/>
-      <stop offset="100%" stop-color="#303030"/>
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="50%" stop-color="#a0aec0"/>
+      <stop offset="100%" stop-color="#4a5568"/>
     </linearGradient>
 
-    <linearGradient id="copper_gradient" x1="380" y1="620" x2="660" y2="620" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#8C4A32"/>
-      <stop offset="50%" stop-color="#B87333"/>
-      <stop offset="100%" stop-color="#8C4A32"/>
-    </linearGradient>
-    <linearGradient id="gold_gradient" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#D4AF37"/>
-      <stop offset="50%" stop-color="#F9E076"/>
-      <stop offset="100%" stop-color="#D4AF37"/>
+    <linearGradient id="ice_accent_gradient" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#63b3ed"/>
+      <stop offset="50%" stop-color="#ebf8ff"/>
+      <stop offset="100%" stop-color="#3182ce"/>
     </linearGradient>
   </defs>
 </svg>

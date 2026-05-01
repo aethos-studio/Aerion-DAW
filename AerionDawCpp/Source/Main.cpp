@@ -1,6 +1,7 @@
 #include <JuceHeader.h>
 #include "MainComponent.h"
 #include "SplashWindow.h"
+#include "UIComponents.h"
 
 class AerionDawApplication  : public juce::JUCEApplication
 {
@@ -42,7 +43,7 @@ public:
     public:
         MainWindow (juce::String name)
             : DocumentWindow (name,
-                              juce::Colour::fromString ("#ff0e0e11"),
+                              Theme::bgBase,
                               DocumentWindow::allButtons)
         {
             setUsingNativeTitleBar (false);

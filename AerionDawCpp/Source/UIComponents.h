@@ -6,27 +6,27 @@
 
 namespace Theme
 {
-    const juce::Colour bgBase        = juce::Colour::fromString("#ff0d110d"); // Dark Stone
-    const juce::Colour bgPanel       = juce::Colour::fromString("#ff151a15"); // Deep Moss
-    const juce::Colour surface       = juce::Colour::fromString("#ff1f261f"); // Granite
-    const juce::Colour border        = juce::Colour::fromString("#ff37474f"); // Iron
-    const juce::Colour accent        = juce::Colour::fromString("#ff8c4a32"); // Copper
-    const juce::Colour active        = juce::Colour::fromString("#ff2e4732"); // Moss Green
-    const juce::Colour textMain      = juce::Colour::fromString("#ffcfd8dc"); // Light Iron
-    const juce::Colour textMuted     = juce::Colour::fromString("#ff78909c"); // Dull Steel
-    const juce::Colour playhead      = juce::Colour::fromString("#ffd4af37"); // Gold
-    const juce::Colour meterGreen    = juce::Colour::fromString("#ff2e4732"); // Moss
-    const juce::Colour meterYellow   = juce::Colour::fromString("#ff8c7853"); // Bronze
-    const juce::Colour meterRed      = juce::Colour::fromString("#ff5d1010"); // Oxblood
-    const juce::Colour recordRed     = juce::Colour::fromString("#ff8c4a32"); // Copper
+    const juce::Colour bgBase        = juce::Colour::fromString("#ff080a0e"); // Deep Charcoal
+    const juce::Colour bgPanel       = juce::Colour::fromString("#ff11141a"); // Cool Dark Blue-Gray
+    const juce::Colour surface       = juce::Colour::fromString("#ff1c212b"); // Dark Slate
+    const juce::Colour border        = juce::Colour::fromString("#ff2d3748"); // Metallic Slate
+    const juce::Colour accent        = juce::Colour::fromString("#ff63b3ed"); // Arctic Blue (Faint)
+    const juce::Colour active        = juce::Colour::fromString("#ff3182ce"); // Ice Blue
+    const juce::Colour textMain      = juce::Colour::fromString("#fff0f4f8"); // Off-White
+    const juce::Colour textMuted     = juce::Colour::fromString("#ff8a99a8"); // Steel Gray
+    const juce::Colour playhead      = juce::Colour::fromString("#ffebf8ff"); // Polar White
+    const juce::Colour meterGreen    = juce::Colour::fromString("#ff48bb78"); // Arctic Emerald
+    const juce::Colour meterYellow   = juce::Colour::fromString("#ffecc94b"); // Gold-Tinted Steel
+    const juce::Colour meterRed      = juce::Colour::fromString("#fff56565"); // Cold Crimson
+    const juce::Colour recordRed     = juce::Colour::fromString("#ffe53e3e"); // Warning Red
 
     const juce::Colour trackColours[6] = {
-        juce::Colour::fromString("#ff5d1010"), // Oxblood
-        juce::Colour::fromString("#ff2e4732"), // Moss Green
-        juce::Colour::fromString("#ff8c7853"), // Bronze
-        juce::Colour::fromString("#ff37474f"), // Iron Blue
-        juce::Colour::fromString("#ff8c4a32"), // Copper
-        juce::Colour::fromString("#ff4a4a48")  // Slate
+        juce::Colour::fromString("#ff3182ce"), // Ice Blue
+        juce::Colour::fromString("#ff4a5568"), // Deep Steel
+        juce::Colour::fromString("#ff63b3ed"), // Arctic Blue
+        juce::Colour::fromString("#ffa0aec0"), // Silver
+        juce::Colour::fromString("#ff2c5282"), // Dark Arctic
+        juce::Colour::fromString("#ff4299e1")  // Sky Steel
     };
 
     inline juce::Colour colourForTrack (int idx) { return trackColours[((unsigned)idx) % 6]; }
@@ -44,6 +44,107 @@ enum class EditTool
 {
     select,
     razor
+};
+
+//==============================================================================
+/** A custom LookAndFeel that implements the "Metal" arctic theme for all
+    standard JUCE widgets, including window title bar buttons.
+*/
+class MetalLookAndFeel : public juce::LookAndFeel_V4
+{
+public:
+    MetalLookAndFeel()
+    {
+        auto scheme = getDarkColourScheme();
+        scheme.setUIColour (juce::LookAndFeel_V4::ColourScheme::windowBackground, Theme::bgBase);
+        scheme.setUIColour (juce::LookAndFeel_V4::ColourScheme::widgetBackground, Theme::bgPanel);
+        scheme.setUIColour (juce::LookAndFeel_V4::ColourScheme::menuBackground, Theme::bgPanel);
+        scheme.setUIColour (juce::LookAndFeel_V4::ColourScheme::outline, Theme::border);
+        scheme.setUIColour (juce::LookAndFeel_V4::ColourScheme::defaultText, Theme::textMain);
+        scheme.setUIColour (juce::LookAndFeel_V4::ColourScheme::defaultFill, Theme::accent);
+        scheme.setUIColour (juce::LookAndFeel_V4::ColourScheme::highlightedFill, Theme::active);
+        setColourScheme (scheme);
+
+        setColour (juce::TextButton::buttonColourId, Theme::surface);
+        setColour (juce::TextButton::textColourOffId, Theme::textMain);
+        setColour (juce::ListBox::backgroundColourId, Theme::bgPanel);
+        setColour (juce::Label::textColourId, Theme::textMain);
+    }
+
+    // Custom button for window decorations
+    class WindowButton : public juce::Button
+    {
+    public:
+        WindowButton (const juce::String& name, juce::Colour c) : juce::Button (name), color (c) {}
+        void paintButton (juce::Graphics& g, bool isMouseOver, bool isMouseDown) override
+        {
+            // Use precise integer coordinates for maximum crispness
+            auto b = getLocalBounds().toFloat();
+            auto c = color;
+            if (isMouseDown)      c = c.darker (0.3f);
+            else if (isMouseOver) c = c.brighter (0.1f);
+            
+            // Subtle, sharp circle
+            g.setColour (c.withAlpha (isMouseOver ? 0.95f : 0.75f));
+            g.fillEllipse (b);
+
+            // Hairline outline
+            g.setColour (c.brighter (0.3f).withAlpha (0.4f));
+            g.drawEllipse (b, 1.0f);
+
+            // Modern, pixel-perfect icons
+            g.setColour (Theme::bgBase.withAlpha (0.9f));
+            auto iconArea = b.reduced (b.getWidth() * 0.32f);
+            const float thickness = 1.0f; // Hairline thickness for elegance
+
+            if (getName() == "close") {
+                g.drawLine (iconArea.getX(), iconArea.getY(), iconArea.getRight(), iconArea.getBottom(), thickness);
+                g.drawLine (iconArea.getRight(), iconArea.getY(), iconArea.getX(), iconArea.getBottom(), thickness);
+            } else if (getName() == "min") {
+                g.drawLine (iconArea.getX(), iconArea.getCentreY(), iconArea.getRight(), iconArea.getCentreY(), thickness);
+            } else { // max
+                g.drawRect (iconArea, thickness);
+            }
+        }
+    private:
+        juce::Colour color;
+    };
+
+    juce::Button* createDocumentWindowButton (int buttonType) override
+    {
+        if (buttonType == juce::DocumentWindow::closeButton)
+            return new WindowButton ("close", Theme::accent); // Arctic Blue
+        if (buttonType == juce::DocumentWindow::minimiseButton)
+            return new WindowButton ("min", Theme::textMuted); // Steel Gray
+        if (buttonType == juce::DocumentWindow::maximiseButton)
+            return new WindowButton ("max", Theme::trackColours[3]); // Silver
+        return nullptr;
+    }
+
+    void positionDocumentWindowButtons (juce::DocumentWindow&, int x, int y, int w, int h,
+                                        juce::Button* minimiseButton,
+                                        juce::Button* maximiseButton,
+                                        juce::Button* closeButton,
+                                        bool positionOnLeft) override
+    {
+        // Make buttons significantly smaller and more compact (14x14 instead of default ~24x24)
+        const int size = 14;
+        const int gap = 8;
+        int curX = positionOnLeft ? x + 8 : x + w - size - 8;
+        const int curY = y + (h - size) / 2;
+
+        juce::Button* buttons[] = { closeButton, maximiseButton, minimiseButton };
+        if (positionOnLeft) std::reverse (std::begin(buttons), std::end(buttons));
+
+        for (auto* b : buttons)
+        {
+            if (b != nullptr)
+            {
+                b->setBounds (curX, curY, size, size);
+                curX += positionOnLeft ? (size + gap) : -(size + gap);
+            }
+        }
+    }
 };
 
 //==============================================================================

@@ -2,6 +2,8 @@
 
 MainComponent::MainComponent()
 {
+    juce::LookAndFeel::setDefaultLookAndFeel (&metalLookAndFeel);
+
     addAndMakeVisible (menuBar);
     addAndMakeVisible (toolbar);
     addAndMakeVisible (inspector);
@@ -239,7 +241,7 @@ void MainComponent::showAudioSettings()
     juce::DialogWindow::LaunchOptions options;
     options.content.setOwned (selector);
     options.dialogTitle                   = "Audio Settings";
-    options.dialogBackgroundColour        = juce::Colour::fromString ("#ff1e1e24");
+    options.dialogBackgroundColour        = Theme::bgPanel;
     options.escapeKeyTriggersCloseButton  = true;
     options.useNativeTitleBar             = true;
     options.resizable                     = false;
@@ -268,7 +270,7 @@ void MainComponent::timerCallback()
 
 void MainComponent::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour::fromString ("#ff0e0e11"));
+    g.fillAll (Theme::bgBase);
 }
 
 void MainComponent::resized()
@@ -293,7 +295,7 @@ class MainComponent::MixerWindow : public juce::DocumentWindow
 {
 public:
     MixerWindow (MainComponent& mc)
-        : DocumentWindow ("Mixer", juce::Colour::fromString ("#ff17171a"),
+        : DocumentWindow ("Mixer", Theme::bgBase,
                           juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton),
           owner (mc)
     {

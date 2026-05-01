@@ -56,6 +56,8 @@ private:
     Mixer      mixer     { audioEngine };
     Transport  transport { audioEngine };
 
+    MetalLookAndFeel metalLookAndFeel;
+
     double lastTransportPos = -1.0;
     bool lastIsPlaying = false;
 
