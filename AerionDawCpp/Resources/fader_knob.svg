@@ -1,23 +1,40 @@
 <svg width="64" height="24" viewBox="0 0 64 24" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <!-- Main Body Gradient: Dark Gray to Black, simulating plastic/metal -->
-    <linearGradient id="bodyGradient" x1="0" y1="0" x2="0" y2="1">
+    <!-- Realistic dark plastic/metal gradient -->
+    <linearGradient id="faderBody" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#4a4a4a"/>
-      <stop offset="100%" stop-color="#1a1a1a"/>
+      <stop offset="20%" stop-color="#2a2a2a"/>
+      <stop offset="80%" stop-color="#1a1a1a"/>
+      <stop offset="100%" stop-color="#0a0a0e"/>
     </linearGradient>
-    <!-- Top Concave Highlight: Light Gray, simulating reflection -->
-    <linearGradient id="highlightGradient" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#a0a0a0" stop-opacity="0.8"/>
-      <stop offset="100%" stop-color="#606060" stop-opacity="0.6"/>
+    
+    <!-- Concave top surface shadow to give depth -->
+    <linearGradient id="innerDepth" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#000000" stop-opacity="0.6"/>
+      <stop offset="50%" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.6"/>
+    </linearGradient>
+
+    <!-- Subtle edge highlight -->
+    <linearGradient id="edgeHighlight" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.1"/>
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.1"/>
     </linearGradient>
   </defs>
-
-  <!-- Main rectangular body of the knob -->
-  <rect x="0" y="0" width="64" height="24" rx="3" ry="3" fill="url(#bodyGradient)"/>
   
-  <!-- Subtle top highlight to simulate concave shape -->
-  <rect x="2" y="1" width="60" height="10" rx="2" ry="2" fill="url(#highlightGradient)" opacity="0.7"/>
-
+  <!-- Main rectangular body -->
+  <rect width="64" height="24" rx="2" fill="url(#faderBody)"/>
+  
+  <!-- Concave finger rest area -->
+  <rect x="2" y="1" width="60" height="22" rx="10" fill="url(#innerDepth)"/>
+  
+  <!-- Side highlights -->
+  <rect width="64" height="24" rx="2" fill="url(#edgeHighlight)" opacity="0.5"/>
+  
   <!-- Prominent white indicator line -->
-  <rect x="18" y="10" width="28" height="4" fill="#ebf8ff"/>
+  <rect x="31" y="2" width="2" height="20" fill="#ffffff" opacity="0.9"/>
+  
+  <!-- Slight glow for the indicator line -->
+  <rect x="30" y="2" width="4" height="20" fill="#ffffff" opacity="0.2"/>
 </svg>
