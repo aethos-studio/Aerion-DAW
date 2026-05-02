@@ -46,8 +46,9 @@ public:
     tracktion::FolderTrack* groupTracks (const juce::Array<tracktion::Track*>& tracks);
     void deleteTrack (tracktion::Track*);
 
-    // Reorder a top-level track to a new index in the top-level list.
-    void moveTrackToIndex (tracktion::Track*, int newIndex);
+    // Move track after `preceding` within `folder` (nullptr = top level).
+    // preceding = nullptr means insert as first child/top-level item.
+    void moveTrackAfter (tracktion::Track* t, tracktion::Track* preceding, tracktion::FolderTrack* folder = nullptr);
 
     // Record-arm state (per track itemID).
     void setTrackArmed (tracktion::Track*, bool);
@@ -98,27 +99,23 @@ public:
     tracktion::AutomatableParameter* getAutomationParam (tracktion::Track* track, AutomationParamKind kind);
 
     // Volume Helpers
-    static constexpr float kMinVolumeDb = -60.0f;
-    static constexpr float kMaxVolumeDb = 12.0f;
+    static constexpr float kMinVolumeDb  = -60.0f;
+    static constexpr float kMaxVolumeDb  =  12.0f;
     static constexpr float kFaderRangeDb = kMaxVolumeDb - kMinVolumeDb;
-    static constexpr float kMaxGain = 3.98107f; // 10^(12/20)
 
     void  setTrackVolumeDb (tracktion::Track* track, float db);
     float getTrackVolumeDb (tracktion::Track* track);
     void  ensureVolumeRange (tracktion::Track* track);
 
+    // Linear dB fader: position 0..1 maps uniformly to kMinVolumeDb..kMaxVolumeDb.
     static float getFaderPosFromDb (float db)
     {
-        if (db <= kMinVolumeDb) return 0.0f;
-        float gain = std::pow (10.0f, db / 20.0f);
-        return std::pow (gain / kMaxGain, 0.25f);
+        return juce::jlimit (0.0f, 1.0f, (db - kMinVolumeDb) / kFaderRangeDb);
     }
 
     static float getDbFromFaderPos (float pos)
     {
-        if (pos <= 0.0f) return -100.0f;
-        float gain = std::pow (pos, 4.0f) * kMaxGain;
-        return 20.0f * std::log10 (gain);
+        return kMinVolumeDb + juce::jlimit (0.0f, 1.0f, pos) * kFaderRangeDb;
     }
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;

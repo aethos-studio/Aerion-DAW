@@ -1156,10 +1156,10 @@ class Timeline : public juce::Component,
 public:
     static constexpr int kHeaderWidth = 250;
     static constexpr int kRulerH      = 32;
-    static constexpr int kHeaderBarH  = 32;   // +Track / +Folder bar above ruler in header column
+    static constexpr int kHeaderBarH  = 32;
     static constexpr int kTrackH      = 80;
-    static constexpr int kFooterH     = 28;   // bottom band reserved for zoom slider + horizontal scrollbar
-    static constexpr int kVScrollW    = 12;   // right-side vertical scroll bar width
+    static constexpr int kFooterH     = 28;
+    static constexpr int kVScrollW    = 12;
 
     std::function<void(int)> onTrackSelected;
     std::function<void(juce::Array<tracktion::Track*>)> onSelectionChanged;
@@ -1313,9 +1313,8 @@ public:
 
     void paint(juce::Graphics& g) override
     {
-        currentTooltip.isValid = false; // Clear tooltip at start of paint cycle
+        currentTooltip.isValid = false;
         g.fillAll(Theme::bgBase);
-        updateScrollBar();
 
         // Header column action bar (+ Track / + Folder)
         addTrackBtn  = juce::Rectangle<int>(8,  4, kHeaderWidth/2 - 12, kHeaderBarH - 8);
@@ -1378,9 +1377,28 @@ public:
                             0, kRulerH, getWidth(), 60, juce::Justification::centred);
             }
 
-            if (dragging && dropPreviewY >= 0) {
-                g.setColour (Theme::active);
-                g.fillRect (0.0f, (float) dropPreviewY, (float) kHeaderWidth, 2.0f);
+            if (dragging)
+            {
+                if (dropFolderTarget != nullptr)
+                {
+                    for (auto& row : getVisibleRows())
+                    {
+                        if (row.track == dropFolderTarget)
+                        {
+                            int ry = kRulerH + row.y - scrollY;
+                            g.setColour (Theme::active.withAlpha (0.18f));
+                            g.fillRect (0, ry, getWidth() - kVScrollW, row.height);
+                            g.setColour (Theme::active);
+                            g.drawRect (0, ry, getWidth() - kVScrollW, row.height, 2);
+                            break;
+                        }
+                    }
+                }
+                else if (dropPreviewY >= 0)
+                {
+                    g.setColour (Theme::active);
+                    g.fillRect (0.0f, (float) dropPreviewY - 1.0f, (float) (getWidth() - kVScrollW), 2.0f);
+                }
             }
         }
 
@@ -1444,6 +1462,7 @@ public:
 
     struct RowInfo {
         tracktion::Track* track;
+        tracktion::FolderTrack* parent;  // nullptr = top-level
         int y;
         int height;
         int indent;
@@ -1455,21 +1474,20 @@ public:
         int currentRowY = 0;
         auto top = audioEngine.getTopLevelTracks();
 
-        std::function<void(tracktion::Track*, int)> addTrack = 
-            [&](tracktion::Track* t, int indent) {
-            int th = getTrackHeight(t);
-            rows.add({t, currentRowY, th, indent});
+        std::function<void(tracktion::Track*, tracktion::FolderTrack*, int)> addTrack =
+            [&](tracktion::Track* t, tracktion::FolderTrack* parentFolder, int indent) {
+            int th = getTrackHeight (t);
+            rows.add ({ t, parentFolder, currentRowY, th, indent });
             currentRowY += th;
-            
-            if (auto* f = dynamic_cast<tracktion::FolderTrack*>(t)) {
-                for (auto* child : f->getAllAudioSubTracks(false))
-                    addTrack(child, indent + 16);
-            }
+
+            if (auto* f = dynamic_cast<tracktion::FolderTrack*>(t))
+                for (auto* child : f->getAllAudioSubTracks (false))
+                    addTrack (child, f, indent + 16);
         };
 
         for (auto* t : top)
-            addTrack(t, 0);
-            
+            addTrack (t, nullptr, 0);
+
         return rows;
     }
 
@@ -1634,7 +1652,7 @@ public:
     }
 
     float valueToY (tracktion::AutomatableParameter* param,
-                    float value, // raw gain or pan
+                    float value,
                     juce::Rectangle<int> area) const
     {
         if (param->getParameterName().contains ("Pan"))
@@ -1643,8 +1661,8 @@ public:
             return (float) area.getCentreY() - (norm * (float) area.getHeight() * 0.45f);
         }
 
-        // Volume: Map gain to dB, then dB to 0..1 fader position, then to Y
-        float db = (value > 0.0001f) ? 20.0f * std::log10 (value) : -100.0f;
+        // Volume: native param value → dB via Tracktion formula, then linear fader position → Y
+        float db = (value > 0.0f) ? (20.0f * std::log (value)) + 6.0f : -100.0f;
         float sPos = AudioEngineManager::getFaderPosFromDb (db);
         return (float) area.getBottom() - (sPos * (float) area.getHeight());
     }
@@ -1659,10 +1677,10 @@ public:
             return juce::jlimit (-1.0f, 1.0f, norm);
         }
 
-        // Volume: Map Y to 0..1 fader position, then to dB, then to gain
+        // Volume: Y → linear fader position → dB → native param value via Tracktion formula
         float sPos = juce::jlimit (0.0f, 1.0f, (float) (area.getBottom() - y) / (float) area.getHeight());
         float db = AudioEngineManager::getDbFromFaderPos (sPos);
-        return std::pow (10.0f, db / 20.0f);
+        return (db > -100.0f) ? std::exp ((db - 6.0f) / 20.0f) : 0.0f;
     }
 
     void drawAutomationLane (juce::Graphics& g, tracktion::Track* track, int /*topIndex*/, int laneTopY)
@@ -1777,7 +1795,7 @@ public:
                 }
                 else
                 {
-                    float db = (val > 0.0001f) ? 20.0f * std::log10 (val) : -100.0f;
+                    float db = (val > 0.0f) ? (20.0f * std::log (val)) + 6.0f : -100.0f;
                     if (db < AudioEngineManager::kMinVolumeDb + 1.0f) currentTooltip.text = "-inf dB";
                     else currentTooltip.text = juce::String::formatted ("%+.1f dB", db);
                 }
@@ -1869,6 +1887,9 @@ public:
 
             if (hit < 0)
             {
+                // Ensure the volume param range is extended before storing the point value.
+                if (paramKindFor (row.track) == AudioEngineManager::AutomationParamKind::Volume)
+                    audioEngine.ensureVolumeRange (row.track);
                 float val = yToValue (param, (float) e.y, curveArea);
                 auto t = tracktion::TimePosition::fromSeconds (juce::jmax (0.0, xToTime ((float) e.x)));
                 hit = curve.addPoint (t, val, 0.0f);
@@ -1993,9 +2014,11 @@ public:
 
                     if (onTrackSelected)    onTrackSelected(topIdx);
 
-                    dragging      = true;
-                    dragSourceIdx = topIdx;
-                    dropPreviewY  = -1;
+                    dragging             = true;
+                    dragSourceTrack      = clickedTrack;
+                    dropInsertBeforeRowIdx = -1;
+                    dropFolderTarget     = nullptr;
+                    dropPreviewY         = -1;
                     repaint();
                     return;
                 }
@@ -2046,13 +2069,39 @@ public:
 
     void showTrackContextMenu (tracktion::Track* track, juce::Point<int> screenPos)
     {
+        auto rows = getVisibleRows();
+
+        // Find the row for this track to check its parent
+        tracktion::FolderTrack* parentFolder = nullptr;
+        for (auto& row : rows)
+            if (row.track == track) { parentFolder = row.parent; break; }
+
+        // Collect available folder targets (exclude the track itself if it is a folder)
+        juce::Array<tracktion::FolderTrack*> folders;
+        for (auto& row : rows)
+            if (auto* f = dynamic_cast<tracktion::FolderTrack*>(row.track))
+                if (f != track) folders.add (f);
+
         juce::PopupMenu m;
         m.addItem (1, "Add Plugin...");
+        m.addSeparator();
+
+        if (parentFolder != nullptr)
+            m.addItem (3, "Detach from folder");
+
+        if (!folders.isEmpty())
+        {
+            juce::PopupMenu folderSub;
+            for (int i = 0; i < folders.size(); ++i)
+                folderSub.addItem (100 + i, folders[i]->getName());
+            m.addSubMenu ("Move into folder", folderSub);
+        }
+
         m.addSeparator();
         m.addItem (2, "Delete Track");
 
         m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ screenPos.x, screenPos.y, 1, 1 }),
-            [this, track] (int chosen) {
+            [this, track, parentFolder, folders] (int chosen) {
                 if (chosen == 1)
                 {
                     auto here = juce::Rectangle<int> (juce::Desktop::getMousePosition(), juce::Desktop::getMousePosition()).expanded (8);
@@ -2069,6 +2118,21 @@ public:
                     if (onTrackSelected) onTrackSelected (-1);
                     repaint();
                 }
+                else if (chosen == 3)
+                {
+                    // Detach: move to top level after the parent folder
+                    audioEngine.moveTrackAfter (track, parentFolder, nullptr);
+                    repaint();
+                }
+                else if (chosen >= 100 && chosen < 100 + folders.size())
+                {
+                    auto* targetFolder = folders[chosen - 100];
+                    tracktion::Track* lastChild = nullptr;
+                    for (auto* child : targetFolder->getAllAudioSubTracks (false))
+                        lastChild = child;
+                    audioEngine.moveTrackAfter (track, lastChild, targetFolder);
+                    repaint();
+                }
             });
     }
 
@@ -2083,16 +2147,26 @@ public:
                 double t = juce::jmax (0.0, xToTime ((float) e.x));
                 float v;
                 
-                if (e.mods.isShiftDown())
+                // Delta-based drag: default 0.1 dB/pixel, Shift = 0.01 dB/pixel (fine)
+                bool isPanDrag = draggingParam->getParameterName().contains ("Pan");
+                int deltaY = e.y - automationDragStartY;
+
+                if (isPanDrag)
                 {
-                    // Fine control: 1/10th speed
-                    int deltaY = e.y - automationDragStartY;
-                    float virtualY = automationDragStartY + (deltaY * 0.1f);
-                    v = yToValue (draggingParam, virtualY, draggingCurveArea);
+                    float sens = e.mods.isShiftDown() ? 0.001f : 0.01f;
+                    v = juce::jlimit (-1.0f, 1.0f, automationDragStartVal - (float) deltaY * sens);
                 }
                 else
                 {
-                    v = yToValue (draggingParam, (float) e.y, draggingCurveArea);
+                    float sens = e.mods.isShiftDown() ? 0.01f : 0.1f;
+                    float startDb = (automationDragStartVal > 0.0f)
+                                  ? (20.0f * std::log (automationDragStartVal)) + 6.0f
+                                  : AudioEngineManager::kMinVolumeDb;
+                    float newDb = juce::jlimit (AudioEngineManager::kMinVolumeDb,
+                                               AudioEngineManager::kMaxVolumeDb,
+                                               startDb - (float) deltaY * sens);
+                    v = (newDb > AudioEngineManager::kMinVolumeDb)
+                      ? std::exp ((newDb - 6.0f) / 20.0f) : 0.0f;
                 }
 
                 draggingPointIdx = curve.movePoint (draggingPointIdx,
@@ -2108,11 +2182,54 @@ public:
             repaint();
             return;
         }
-        if (dragging) {
-            auto top = audioEngine.getTopLevelTracks();
+        if (dragging && dragSourceTrack != nullptr)
+        {
             int virtualY = e.y - kRulerH + scrollY;
-            int target = juce::jlimit(0, top.size(), (virtualY + kTrackH/2) / kTrackH);
-            dropPreviewY = kRulerH + target * kTrackH - scrollY;
+            auto rows = getVisibleRows();
+
+            dropInsertBeforeRowIdx = rows.size();  // default: after all rows
+            dropFolderTarget       = nullptr;
+
+            for (int i = 0; i < rows.size(); ++i)
+            {
+                auto& row = rows.getReference (i);
+                if (virtualY < row.y + row.height)
+                {
+                    // Hovering over the middle third of a folder → drop inside it
+                    if (auto* f = dynamic_cast<tracktion::FolderTrack*>(row.track))
+                    {
+                        int midTop = row.y + row.height / 4;
+                        int midBot = row.y + row.height * 3 / 4;
+                        if (virtualY >= midTop && virtualY < midBot && f != dragSourceTrack)
+                        {
+                            dropFolderTarget       = f;
+                            dropInsertBeforeRowIdx = -1;
+                            break;
+                        }
+                    }
+                    // Top half → insert before; bottom half → insert after
+                    dropInsertBeforeRowIdx = (virtualY < row.y + row.height / 2) ? i : i + 1;
+                    break;
+                }
+            }
+
+            // Compute the screen Y of the insert line
+            if (dropInsertBeforeRowIdx >= 0)
+            {
+                if (rows.isEmpty())
+                    dropPreviewY = laneTop();
+                else if (dropInsertBeforeRowIdx == 0)
+                    dropPreviewY = kRulerH + rows[0].y - scrollY;
+                else if (dropInsertBeforeRowIdx >= rows.size())
+                    dropPreviewY = kRulerH + rows.getLast().y + rows.getLast().height - scrollY;
+                else
+                    dropPreviewY = kRulerH + rows[dropInsertBeforeRowIdx].y - scrollY;
+            }
+            else
+            {
+                dropPreviewY = -1;
+            }
+
             repaint();
             return;
         }
@@ -2183,17 +2300,51 @@ public:
             return;
         }
 
-        if (dragging) {
-            auto top = audioEngine.getTopLevelTracks();
-            if (dragSourceIdx >= 0 && dragSourceIdx < top.size())
+        if (dragging)
+        {
+            if (dragSourceTrack != nullptr)
             {
-                int virtualY = e.y - kRulerH + scrollY;
-                int target = juce::jlimit(0, top.size(), (virtualY + kTrackH/2) / kTrackH);
-                if (target != dragSourceIdx && target != dragSourceIdx + 1)
-                    audioEngine.moveTrackToIndex(top[dragSourceIdx], target);
+                auto rows = getVisibleRows();
+
+                if (dropFolderTarget != nullptr)
+                {
+                    // Drop into folder as its last child
+                    tracktion::Track* lastChild = nullptr;
+                    for (auto* child : dropFolderTarget->getAllAudioSubTracks (false))
+                        lastChild = child;
+                    audioEngine.moveTrackAfter (dragSourceTrack, lastChild, dropFolderTarget);
+                }
+                else if (dropInsertBeforeRowIdx >= 0)
+                {
+                    // Determine parent context at the insertion point
+                    tracktion::FolderTrack* targetParent =
+                        (dropInsertBeforeRowIdx < rows.size()) ? rows[dropInsertBeforeRowIdx].parent : nullptr;
+
+                    // Walk backwards to find the nearest preceding track at the same level
+                    tracktion::Track* preceding = nullptr;
+                    for (int j = dropInsertBeforeRowIdx - 1; j >= 0; --j)
+                    {
+                        if (rows[j].parent == targetParent)
+                        {
+                            preceding = rows[j].track;
+                            break;
+                        }
+                    }
+
+                    // Don't move if nothing changed
+                    bool alreadyThere = (preceding == dragSourceTrack) ||
+                                        (preceding == nullptr && dropInsertBeforeRowIdx == 0 &&
+                                         !rows.isEmpty() && rows[0].track == dragSourceTrack);
+                    if (!alreadyThere)
+                        audioEngine.moveTrackAfter (dragSourceTrack, preceding, targetParent);
+                }
             }
-            dragging = false;
-            dropPreviewY = -1;
+
+            dragging             = false;
+            dragSourceTrack      = nullptr;
+            dropInsertBeforeRowIdx = -1;
+            dropFolderTarget     = nullptr;
+            dropPreviewY         = -1;
             repaint();
             return;
         }
@@ -2305,10 +2456,10 @@ public:
         }
     }
 
-    void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override { repaint(); }
-    void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { repaint(); }
-    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { repaint(); }
-    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override { repaint(); }
+    void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override { updateScrollBar(); repaint(); }
+    void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { updateScrollBar(); repaint(); }
+    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { updateScrollBar(); repaint(); }
+    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override { updateScrollBar(); repaint(); }
 
 private:
     tracktion::Clip* getClipAt(juce::Point<int> p)
@@ -2349,7 +2500,9 @@ private:
     int   automationDragStartY   = 0;
     bool automationGestureActive = false;
     bool dragging = false;
-    int  dragSourceIdx = -1;
+    tracktion::Track*      dragSourceTrack      = nullptr;
+    int                    dropInsertBeforeRowIdx = -1;
+    tracktion::FolderTrack* dropFolderTarget    = nullptr;
     int  dropPreviewY  = -1;
     juce::Rectangle<int> addTrackBtn, addFolderBtn;
 
@@ -2639,10 +2792,12 @@ public:
                 return;
             }
 
-            // Pan slider: clicking jumps to value, drag updates.
+            // Pan slider: click sets initial position, drag continues from there.
             if (hit.panArea.contains(e.getPosition())) {
-                activePanTrack = hit.track;
-                activePanArea  = hit.panArea;
+                activePanTrack  = hit.track;
+                activePanArea   = hit.panArea;
+                dragStartY      = e.y;
+                panAtDragStart  = audioEngine.getTrackPan (hit.track);
                 setPanFromX(activePanTrack, activePanArea, e.x);
                 return;
             }
@@ -2683,12 +2838,10 @@ public:
                 }
             }
 
-            // Fader area drag.
+            // Fader area: capture for drag only, do not jump on click.
             if (hit.faderArea.contains(e.getPosition()))
             {
                 activeFaderTrack = hit.track;
-                if (activeFaderTrack)
-                    ::setFaderFromY(audioEngine, activeFaderTrack, hit.faderArea, e.y);
                 return;
             }
         }

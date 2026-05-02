@@ -70,7 +70,7 @@ private:
     Mixer      mixer     { audioEngine, projectData };
     Transport  transport { audioEngine, projectData };
 
-    int mixerHeight = 260;
+    int mixerHeight = 320;
     MixerResizer mixerResizer { *this };
 
     MetalLookAndFeel metalLookAndFeel;

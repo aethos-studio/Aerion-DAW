@@ -14,12 +14,12 @@ public:
 
         addAndMakeVisible (logo);
 
-        const int size = 400;
-        setSize (size, size);
+        const int w = 400, h = 550;  // portrait to match logo_vert.svg aspect ratio (1024:1400)
+        setSize (w, h);
 
         // Center on screen
         if (auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
-            centreWithSize (size, size);
+            centreWithSize (w, h);
 
         // Make it a frameless OS window
         addToDesktop (juce::ComponentPeer::windowIsTemporary |
@@ -86,19 +86,19 @@ public:
             g.fillEllipse (tip.x - 2.0f, tip.y - 2.0f, 4.0f, 4.0f);
         };
 
-        // Top-Left path
-        drawCircuit ({80, 80}, {120, 80}, {120, 40}, arctic, 1.5f, grow);
-        // Bottom-Right path
-        drawCircuit ({320, 320}, {280, 320}, {280, 360}, arctic, 1.5f, grow);
-        // Top-Right path
-        drawCircuit ({320, 80}, {320, 120}, {360, 120}, silver, 1.0f, grow * 0.8f);
-        // Bottom-Left path
-        drawCircuit ({80, 320}, {80, 280}, {40, 280}, silver, 1.0f, grow * 0.8f);
+        float W = (float) getWidth();
+        float H = (float) getHeight();
+
+        // Corner circuit lines — positions relative to window size
+        drawCircuit ({80, 80}, {120, 80}, {120, 40}, arctic, 1.5f, grow);                                  // Top-Left
+        drawCircuit ({W-80, H-80}, {W-120, H-80}, {W-120, H-40}, arctic, 1.5f, grow);                     // Bottom-Right
+        drawCircuit ({W-80, 80}, {W-80, 120}, {W-40, 120}, silver, 1.0f, grow * 0.8f);                    // Top-Right
+        drawCircuit ({80, H-80}, {80, H-120}, {40, H-120}, silver, 1.0f, grow * 0.8f);                    // Bottom-Left
     }
 
     void resized() override
     {
-        logo.setBounds (getLocalBounds().reduced (60)); // Extra padding for circuit lines
+        logo.setBounds (getLocalBounds().reduced (20));
     }
 
     void setReady() { isReady = true; }

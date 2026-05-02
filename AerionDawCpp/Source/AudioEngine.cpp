@@ -130,9 +130,9 @@ AudioEngineManager::AudioEngineManager()
 
     std::unique_ptr<juce::XmlElement> savedAudioState (appProperties.getUserSettings()->getXmlValue ("audioDeviceState"));
     if (savedAudioState != nullptr)
-        engine.getDeviceManager().deviceManager.initialise (0, 2, savedAudioState.get(), true);
+        engine.getDeviceManager().deviceManager.initialise (2, 2, savedAudioState.get(), true);
     else
-        engine.getDeviceManager().initialise (0, 2);
+        engine.getDeviceManager().initialise (2, 2);
     
     engine.getDeviceManager().enableOutputClipping (true);
     engine.getDeviceManager().deviceManager.addChangeListener (this);
@@ -323,20 +323,10 @@ void AudioEngineManager::deleteTrack (te::Track* t)
         edit->deleteTrack (t);
 }
 
-void AudioEngineManager::moveTrackToIndex (te::Track* t, int newIndex)
+void AudioEngineManager::moveTrackAfter (te::Track* t, te::Track* preceding, te::FolderTrack* folder)
 {
-    if (t == nullptr)
-        return;
-
-    auto top = te::getTopLevelTracks (*edit);
-    juce::Array<te::Track*> without;
-    without.ensureStorageAllocated (top.size());
-    for (auto* x : top) if (x != t) without.add (x);
-
-    newIndex = juce::jlimit (0, without.size(), newIndex);
-    te::Track* preceding = (newIndex <= 0) ? nullptr : without[newIndex - 1];
-
-    edit->moveTrack (t, te::TrackInsertPoint (nullptr, preceding));
+    if (t == nullptr) return;
+    edit->moveTrack (t, te::TrackInsertPoint (folder, preceding));
 }
 
 void AudioEngineManager::setTrackArmed (te::Track* t, bool enabled)
@@ -344,8 +334,32 @@ void AudioEngineManager::setTrackArmed (te::Track* t, bool enabled)
     if (t == nullptr) return;
     armedTracks.set (t->itemID.toString(), enabled);
 
-    for (auto* in : edit->getAllInputDevices())
-        in->setRecordingEnabled (t->itemID, enabled);
+    if (enabled)
+    {
+        // Enable all physical wave inputs so they appear as InputDeviceInstances.
+        auto& dm = engine.getDeviceManager();
+        for (int i = 0; i < dm.getNumWaveInDevices(); ++i)
+            if (auto* wip = dm.getWaveInDevice (i))
+                wip->setEnabled (true);
+
+        // Ensure the playback context exists — this creates InputDeviceInstances.
+        edit->getTransport().ensureContextAllocated();
+
+        // Target each wave input to this track and enable recording.
+        for (auto* in : edit->getAllInputDevices())
+        {
+            if (in->getInputDevice().getDeviceType() == te::InputDevice::waveDevice)
+            {
+                [[maybe_unused]] auto setTargetResult = in->setTarget (t->itemID, true, &edit->getUndoManager(), 0);
+                in->setRecordingEnabled (t->itemID, true);
+            }
+        }
+    }
+    else
+    {
+        for (auto* in : edit->getAllInputDevices())
+            in->setRecordingEnabled (t->itemID, false);
+    }
 }
 
 bool AudioEngineManager::isTrackArmed (te::Track* t) const
@@ -439,8 +453,9 @@ void AudioEngineManager::setTrackVolumeDb (te::Track* track, float db)
     if (auto* vp = getAutomationParam (track, AutomationParamKind::Volume))
     {
         ensureVolumeRange (track);
-        float gain = std::pow (10.0f, db / 20.0f);
-        vp->setParameter (vp->valueRange.convertTo0to1 (gain), juce::sendNotification);
+        // Tracktion's native fader-position formula: pos = exp((dB - 6) / 20)
+        float nativeVal = std::exp ((db - 6.0f) / 20.0f);
+        vp->setParameter (nativeVal, juce::sendNotification);
     }
 }
 
@@ -450,8 +465,9 @@ float AudioEngineManager::getTrackVolumeDb (te::Track* track)
 
     if (auto* vp = getAutomationParam (track, AutomationParamKind::Volume))
     {
-        float gain = vp->getCurrentValue();
-        return (gain > 0.0001f) ? 20.0f * std::log10 (gain) : -100.0f;
+        // Tracktion's native inverse: dB = 20 * ln(pos) + 6
+        float nativeVal = vp->getCurrentValue();
+        return (nativeVal > 0.0f) ? (20.0f * std::log (nativeVal)) + 6.0f : -100.0f;
     }
 
     return 0.0f;
@@ -463,13 +479,13 @@ void AudioEngineManager::ensureVolumeRange (te::Track* track)
 
     if (auto* vp = getAutomationParam (track, AutomationParamKind::Volume))
     {
-        // Tracktion defaults to 0..2.0 (+6dB). Extend to 4.0 (+12dB).
-        if (vp->valueRange.end < 4.0f)
+        // Tracktion defaults to 0..1 (= 0..+6 dB). Extend upper bound to kMaxVolumeDb.
+        const float nativeMax = std::exp ((kMaxVolumeDb - 6.0f) / 20.0f);
+        if (vp->valueRange.end < nativeMax)
         {
-            float currentGain = vp->getCurrentValue();
-            const_cast<juce::NormalisableRange<float>&> (vp->valueRange).end = 4.0f;
-            // Restore the gain value so extending the range doesn't boost the volume
-            vp->setParameter (vp->valueRange.convertTo0to1 (currentGain), juce::sendNotification);
+            float currentVal = vp->getCurrentValue();
+            const_cast<juce::NormalisableRange<float>&> (vp->valueRange).end = nativeMax;
+            vp->setParameter (currentVal, juce::sendNotification);
         }
     }
 }
