@@ -465,7 +465,12 @@ void AudioEngineManager::ensureVolumeRange (te::Track* track)
     {
         // Tracktion defaults to 0..2.0 (+6dB). Extend to 4.0 (+12dB).
         if (vp->valueRange.end < 4.0f)
+        {
+            float currentGain = vp->getCurrentValue();
             const_cast<juce::NormalisableRange<float>&> (vp->valueRange).end = 4.0f;
+            // Restore the gain value so extending the range doesn't boost the volume
+            vp->setParameter (vp->valueRange.convertTo0to1 (currentGain), juce::sendNotification);
+        }
     }
 }
 

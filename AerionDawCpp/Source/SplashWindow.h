@@ -110,8 +110,8 @@ private:
 
         repaint(); // Force repaint for line animation
 
-        const int minFrames = 90; // ~1.5 seconds at 60Hz
-        const int fadeDuration = 40;  // ~0.6 seconds fade
+        const int minFrames = 180; // ~3.0 seconds at 60Hz
+        const int fadeDuration = 30;  // ~0.5 seconds fade
 
         // Only begin fading if the app is ready AND minimum time has passed
         if (isReady && elapsedFrames >= minFrames)

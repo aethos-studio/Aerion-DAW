@@ -50,7 +50,9 @@ enum class EditTool
 inline void setFaderFromY (AudioEngineManager& audioEngine, tracktion::Track* t, juce::Rectangle<int> area, int y)
 {
     if (! t) return;
-    float sPos = 1.0f - juce::jlimit(0.0f, 1.0f, (float)(y - area.getY()) / (float)area.getHeight());
+    int faderTop = area.getY() + 4;
+    int faderH   = area.getHeight() - 28;
+    float sPos = 1.0f - juce::jlimit(0.0f, 1.0f, (float)(y - faderTop) / (float)juce::jmax(1, faderH));
     audioEngine.setTrackVolumeDb (t, AudioEngineManager::getDbFromFaderPos (sPos));
 }
 
@@ -1775,7 +1777,7 @@ public:
                 }
                 else
                 {
-                    float db = AudioEngineManager::getDbFromFaderPos (val);
+                    float db = (val > 0.0001f) ? 20.0f * std::log10 (val) : -100.0f;
                     if (db < AudioEngineManager::kMinVolumeDb + 1.0f) currentTooltip.text = "-inf dB";
                     else currentTooltip.text = juce::String::formatted ("%+.1f dB", db);
                 }
@@ -1877,6 +1879,8 @@ public:
             draggingParam     = param;
             draggingPointIdx  = hit;
             draggingCurveArea = curveArea;
+            automationDragStartY   = e.y;
+            automationDragStartVal = curve.getPointValue (hit);
             repaint();
             return true;
         }
@@ -2077,7 +2081,20 @@ public:
             if (draggingPointIdx < curve.getNumPoints())
             {
                 double t = juce::jmax (0.0, xToTime ((float) e.x));
-                float v = yToValue (draggingParam, (float) e.y, draggingCurveArea);
+                float v;
+                
+                if (e.mods.isShiftDown())
+                {
+                    // Fine control: 1/10th speed
+                    int deltaY = e.y - automationDragStartY;
+                    float virtualY = automationDragStartY + (deltaY * 0.1f);
+                    v = yToValue (draggingParam, virtualY, draggingCurveArea);
+                }
+                else
+                {
+                    v = yToValue (draggingParam, (float) e.y, draggingCurveArea);
+                }
+
                 draggingPointIdx = curve.movePoint (draggingPointIdx,
                                                     tracktion::TimePosition::fromSeconds (t),
                                                     v, false);
@@ -2328,6 +2345,8 @@ private:
     tracktion::AutomatableParameter* draggingParam = nullptr;
     int draggingPointIdx = -1;
     juce::Rectangle<int> draggingCurveArea;
+    float automationDragStartVal = 0.0f;
+    int   automationDragStartY   = 0;
     bool automationGestureActive = false;
     bool dragging = false;
     int  dragSourceIdx = -1;
@@ -2740,13 +2759,6 @@ private:
         juce::Array<juce::Rectangle<int>>      insertEmptySlots;
         juce::Array<tracktion::Plugin*>        insertPlugins;
     };
-
-    void setFaderFromY(tracktion::Track* t, juce::Rectangle<int> area, int y)
-    {
-        if (! t) return;
-        float sPos = 1.0f - juce::jlimit(0.0f, 1.0f, (float)(y - area.getY()) / (float)area.getHeight());
-        audioEngine.setTrackVolumeDb (t, AudioEngineManager::getDbFromFaderPos (sPos));
-    }
 
     void setPanFromX(tracktion::Track* t, juce::Rectangle<int> area, int x)
     {
