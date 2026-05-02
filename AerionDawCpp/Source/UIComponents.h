@@ -1242,13 +1242,21 @@ public:
 
     int contentHeight() const
     {
-        // Top-level rows (incl. expanded folder children, indented).
+        int totalH = 0;
         auto top = audioEngine.getTopLevelTracks();
-        int rows = top.size();
+        
+        std::function<void(tracktion::Track*)> addHeight = [&](tracktion::Track* t) {
+            totalH += getTrackHeight (t);
+            if (auto* f = dynamic_cast<tracktion::FolderTrack*>(t)) {
+                for (auto* child : f->getAllAudioSubTracks(false))
+                    addHeight (child);
+            }
+        };
+
         for (auto* t : top)
-            if (auto* f = dynamic_cast<tracktion::FolderTrack*>(t))
-                rows += f->getAllAudioSubTracks(false).size();
-        return rows * kTrackH;
+            addHeight (t);
+
+        return totalH;
     }
 
     int laneTop()    const { return kRulerH; }
