@@ -395,7 +395,9 @@ void MainComponent::valueTreePropertyChanged (juce::ValueTree& v, const juce::Id
                     {
                         if (i == tracktion::IDs::volume)
                         {
-                            float db = AudioEngineManager::getDbFromFaderPos (vp->volParam->getCurrentValue());
+                            // Tracktion sends raw gain values. Convert to dB for our linear-dB UI state.
+                            float gain = v.getProperty (i);
+                            float db = (gain > 0.0001f) ? 20.0f * std::log10 (gain) : -100.0f;
                             trackTree.setProperty (IDs::level, db, nullptr);
                         }
                         else if (i == tracktion::IDs::pan)

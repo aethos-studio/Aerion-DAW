@@ -104,6 +104,7 @@ public:
 
     void  setTrackVolumeDb (tracktion::Track* track, float db);
     float getTrackVolumeDb (tracktion::Track* track);
+    void  ensureVolumeRange (tracktion::Track* track);
 
     static float getFaderPosFromDb (float db)    { return juce::jlimit (0.0f, 1.0f, (db - kMinVolumeDb) / kFaderRangeDb); }
     static float getDbFromFaderPos (float pos)   { return (pos * kFaderRangeDb) + kMinVolumeDb; }

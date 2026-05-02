@@ -1619,25 +1619,35 @@ public:
     }
 
     float valueToY (tracktion::AutomatableParameter* param,
-                    float value,
-                    juce::Rectangle<int> curveArea) const
+                    float value, // raw gain or pan
+                    juce::Rectangle<int> area) const
     {
-        const float pad = 6.0f;
-        float norm = juce::jlimit (0.0f, 1.0f, param->valueRange.convertTo0to1 (value));
-        float top    = (float) curveArea.getY() + pad;
-        float bottom = (float) curveArea.getBottom() - pad;
-        return bottom - norm * (bottom - top);
+        if (param->getParameterName().contains ("Pan"))
+        {
+            float norm = juce::jlimit (-1.0f, 1.0f, value);
+            return (float) area.getCentreY() - (norm * (float) area.getHeight() * 0.45f);
+        }
+
+        // Volume: Map gain to dB, then dB to 0..1 fader position, then to Y
+        float db = (value > 0.0001f) ? 20.0f * std::log10 (value) : -100.0f;
+        float sPos = AudioEngineManager::getFaderPosFromDb (db);
+        return (float) area.getBottom() - (sPos * (float) area.getHeight());
     }
 
     float yToValue (tracktion::AutomatableParameter* param,
                     float y,
-                    juce::Rectangle<int> curveArea) const
+                    juce::Rectangle<int> area) const
     {
-        const float pad = 6.0f;
-        float top    = (float) curveArea.getY() + pad;
-        float bottom = (float) curveArea.getBottom() - pad;
-        float norm = juce::jlimit (0.0f, 1.0f, (bottom - y) / juce::jmax (1.0f, bottom - top));
-        return param->valueRange.convertFrom0to1 (norm);
+        if (param->getParameterName().contains ("Pan"))
+        {
+            float norm = (float) (area.getCentreY() - y) / (area.getHeight() * 0.45f);
+            return juce::jlimit (-1.0f, 1.0f, norm);
+        }
+
+        // Volume: Map Y to 0..1 fader position, then to dB, then to gain
+        float sPos = juce::jlimit (0.0f, 1.0f, (float) (area.getBottom() - y) / (float) area.getHeight());
+        float db = AudioEngineManager::getDbFromFaderPos (sPos);
+        return std::pow (10.0f, db / 20.0f);
     }
 
     void drawAutomationLane (juce::Graphics& g, tracktion::Track* track, int /*topIndex*/, int laneTopY)
@@ -2575,67 +2585,6 @@ public:
                     juce::Rectangle<int> (b.getX(), b.getY() + 10, b.getWidth(), b.getHeight() - 10),
                     juce::Justification::centred);
     }
-
-    void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
-                     tracktion::Track* track, juce::Colour tColor, bool isMaster)
-    {
-        if (area.getHeight() < 30) return;
-
-        int track_x   = area.getCentreX() - 3;
-        int meter_w   = 12;
-        int meter_x   = area.getCentreX() + 18;
-        int track_w   = 6;
-        int faderTop  = area.getY() + 4;
-        int faderH    = area.getHeight() - 28;
-
-        g.setColour (juce::Colours::black.withAlpha (0.6f));
-        g.fillRoundedRectangle ((float) track_x, (float) faderTop, (float) track_w, (float) faderH, 3.0f);
-
-        // 0dB tick mark.
-        float zeroPos = AudioEngineManager::getFaderPosFromDb (0.0f);
-        int   zeroY   = faderTop + (int) (faderH * (1.0f - zeroPos));
-        g.setColour (Theme::border.withAlpha (0.4f));
-        g.drawHorizontalLine (zeroY, (float) (track_x - 4), (float) (track_x + track_w + 4));
-
-        // Meter
-        float peak = audioEngine.getTrackPeak (track);
-        float pPos = AudioEngineManager::getFaderPosFromDb (peak);
-        
-        // Meter background slot (always visible)
-        g.setColour (juce::Colours::black.withAlpha (0.5f));
-        g.fillRoundedRectangle ((float) meter_x, (float) faderTop, (float) meter_w, (float) faderH, 2.0f);
-        g.setColour (Theme::border.withAlpha (0.6f));
-        g.drawRoundedRectangle ((float) meter_x, (float) faderTop, (float) meter_w, (float) faderH, 2.0f, 1.0f);
-
-        if (pPos > 0.0f)
-        {
-            int mY = faderTop + (int) (faderH * (1.0f - pPos));
-            juce::ColourGradient mg (Theme::meterRed, 0, (float) faderTop,
-                                     Theme::meterGreen, 0, (float) (faderTop + faderH), false);
-            mg.addColour (0.2, Theme::meterYellow);
-            g.setGradientFill (mg);
-            g.fillRoundedRectangle ((float) meter_x, (float) mY, (float) meter_w, (float) (faderTop + faderH - mY), 2.0f);
-        }
-
-        // Fader cap.
-        float db    = audioEngine.getTrackVolumeDb (track);
-        float sPos  = AudioEngineManager::getFaderPosFromDb (db);
-        int   capY  = faderTop + (int) (faderH * (1.0f - sPos));
-        juce::Rectangle<float> cap ((float) (area.getCentreX() - 18), (float) (capY - 7), 36.0f, 14.0f);
-        juce::ColourGradient cg (Theme::surface.brighter (0.2f), cap.getX(), 0,
-                                 Theme::surface.darker (0.3f),  cap.getRight(), 0, false);
-        g.setGradientFill (cg);
-        g.fillRoundedRectangle (cap, 3.0f);
-        g.setColour (tColor);
-        g.fillRect (cap.getX() + 4.0f, cap.getCentreY() - 1.0f, cap.getWidth() - 8.0f, 2.0f);
-
-        // dB readout.
-        g.setColour (Theme::textMuted);
-        g.setFont (juce::Font (9.0f).withStyle (juce::Font::bold));
-        juce::String dbText = track ? juce::String::formatted ("%+.1f dB", db) : juce::String ("MASTER");
-        g.drawText (dbText, area.withY (area.getBottom() - 16).withHeight (14), juce::Justification::centred);
-        }
-
 
     void mouseDown(const juce::MouseEvent& e) override
     {

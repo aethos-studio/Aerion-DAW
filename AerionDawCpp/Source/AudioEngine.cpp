@@ -435,15 +435,9 @@ void AudioEngineManager::setTrackVolumeDb (te::Track* track, float db)
 
     if (auto* vp = getAutomationParam (track, AutomationParamKind::Volume))
     {
-        // Hack: The engine defaults to 0..1 range (max +6dB).
-        // Bypass this by extending the parameter range using const_cast.
-        if (vp->valueRange.end < 2.0f)
-            const_cast<juce::NormalisableRange<float>&> (vp->valueRange).end = 2.0f;
-
-        // Bypassing vp->setVolumeDb() because it has a hardcoded jlimit(0, 1) inside.
-        // We use the same math as the engine to convert dB to slider position.
-        float pos = (db > -100.0f) ? std::exp ((db - 6.0f) * (1.0f / 20.0f)) : 0.0f;
-        vp->setParameter (pos, juce::sendNotification);
+        ensureVolumeRange (track);
+        float gain = std::pow (10.0f, db / 20.0f);
+        vp->setParameter (vp->valueRange.convertTo0to1 (gain), juce::sendNotification);
     }
 }
 
@@ -451,18 +445,25 @@ float AudioEngineManager::getTrackVolumeDb (te::Track* track)
 {
     if (track == nullptr) return 0.0f;
 
-    if (auto* a = dynamic_cast<te::AudioTrack*> (track))
+    if (auto* vp = getAutomationParam (track, AutomationParamKind::Volume))
     {
-        if (auto* vp = a->getVolumePlugin())
-            return vp->getVolumeDb();
-    }
-    else if (track->isMasterTrack())
-    {
-        if (auto vp = edit->getMasterVolumePlugin())
-            return vp->getVolumeDb();
+        float gain = vp->getCurrentValue();
+        return (gain > 0.0001f) ? 20.0f * std::log10 (gain) : -100.0f;
     }
 
     return 0.0f;
+}
+
+void AudioEngineManager::ensureVolumeRange (te::Track* track)
+{
+    if (track == nullptr) return;
+
+    if (auto* vp = getAutomationParam (track, AutomationParamKind::Volume))
+    {
+        // Tracktion defaults to 0..2.0 (+6dB). Extend to 4.0 (+12dB).
+        if (vp->valueRange.end < 4.0f)
+            const_cast<juce::NormalisableRange<float>&> (vp->valueRange).end = 4.0f;
+    }
 }
 
 void AudioEngineManager::toggleTrackSolo (te::Track* t)
