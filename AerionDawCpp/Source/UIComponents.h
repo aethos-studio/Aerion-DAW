@@ -55,9 +55,10 @@ inline void setFaderFromY (AudioEngineManager& audioEngine, tracktion::Track* t,
 }
 
 inline void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
-                        AudioEngineManager& audioEngine,
-                        tracktion::Track* track, juce::Colour tColor, bool isMaster,
-                        juce::Drawable* faderKnobDrawable)
+                 AudioEngineManager& audioEngine,
+                 tracktion::Track* track, juce::Colour tColor, bool isMaster,
+                 juce::Drawable* faderKnobDrawable,
+                 juce::Rectangle<int>* readoutAreaOut = nullptr)
 {
     if (area.getHeight() < 30) return;
 
@@ -80,7 +81,7 @@ inline void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
     // Meter
     float peak = audioEngine.getTrackPeak (track);
     float pPos = AudioEngineManager::getFaderPosFromDb (peak);
-    
+
     // Meter background slot (always visible)
     g.setColour (juce::Colours::black.withAlpha (0.5f));
     g.fillRoundedRectangle ((float) meter_x, (float) faderTop, (float) meter_w, (float) faderH, 2.0f);
@@ -113,6 +114,7 @@ inline void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
     juce::Rectangle<float> cap ((float) (area.getCentreX() - 9), (float) (capY - 24), 18.0f, 48.0f);
     if (faderKnobDrawable != nullptr)
         faderKnobDrawable->drawWithin (g, cap, juce::RectanglePlacement::centred, 1.0f);
+
     // dB readout.
     float maxPeak = audioEngine.getTrackMaxPeak (track);
     bool clipping = maxPeak > 0.0f;
@@ -121,7 +123,10 @@ inline void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
     juce::String dbText = (maxPeak > -90.0f) 
         ? juce::String::formatted ("%+.1f", maxPeak)
         : (track ? juce::String::formatted ("%+.1f dB", db) : juce::String ("MASTER"));
-    g.drawText (dbText, area.withY (area.getBottom() - 16).withHeight (14), juce::Justification::centred);
+
+    auto readoutArea = area.withY (area.getBottom() - 16).withHeight (14);
+    g.drawText (dbText, readoutArea, juce::Justification::centred);
+    if (readoutAreaOut) *readoutAreaOut = readoutArea;
 }
 
 //==============================================================================
@@ -2536,14 +2541,14 @@ public:
 
         // Fader area = whatever is left between pan and M/S row.
         auto faderArea = inner;
-        ::paintFader(g, faderArea, audioEngine, track, tColor, isMaster, faderKnobDrawable.get());
+        ::paintFader(g, faderArea, audioEngine, track, tColor, isMaster, faderKnobDrawable.get(), &hit.peakReadoutArea);
         hit.faderArea = faderArea;
 
         stripHits.add (hit);
-    }
+        }
 
-    static void drawPanSlider (juce::Graphics& g, juce::Rectangle<int> b, float pan, bool enabled)
-    {
+        static void drawPanSlider (juce::Graphics& g, juce::Rectangle<int> b, float pan, bool enabled)
+        {
         // Track.
         auto track = juce::Rectangle<int> (b.getX() + 6, b.getY() + 4, b.getWidth() - 12, 4);
         g.setColour (juce::Colours::black.withAlpha (0.55f));
@@ -2584,10 +2589,11 @@ public:
         g.drawText (label,
                     juce::Rectangle<int> (b.getX(), b.getY() + 10, b.getWidth(), b.getHeight() - 10),
                     juce::Justification::centred);
-    }
+        }
 
-    void mouseDown(const juce::MouseEvent& e) override
-    {
+
+        void mouseDown(const juce::MouseEvent& e) override
+        {
         if (detachBtn.contains(e.getPosition())) {
             if (onDetachRequested) onDetachRequested();
             return;
@@ -2597,6 +2603,14 @@ public:
         {
             if (hit.muteBtn.contains(e.getPosition())) { audioEngine.toggleTrackMute(hit.track); repaint(); return; }
             if (hit.soloBtn.contains(e.getPosition())) { audioEngine.toggleTrackSolo(hit.track); repaint(); return; }
+
+            // Peak readout click -> reset peak.
+            if (hit.peakReadoutArea.contains (e.getPosition()))
+            {
+                audioEngine.clearTrackMaxPeak (hit.track);
+                repaint();
+                return;
+            }
 
             // Pan slider: clicking jumps to value, drag updates.
             if (hit.panArea.contains(e.getPosition())) {
@@ -2651,7 +2665,7 @@ public:
                 return;
             }
         }
-    }
+        }
 
     void mouseDrag(const juce::MouseEvent& e) override
     {
@@ -2713,7 +2727,7 @@ private:
     {
         tracktion::Track* track = nullptr;
         bool isMaster = false;
-        juce::Rectangle<int> muteBtn, soloBtn, panArea, faderArea;
+        juce::Rectangle<int> muteBtn, soloBtn, panArea, faderArea, peakReadoutArea;
         juce::Array<juce::Rectangle<int>>      insertSlots;
         juce::Array<juce::Rectangle<int>>      insertEmptySlots;
         juce::Array<tracktion::Plugin*>        insertPlugins;

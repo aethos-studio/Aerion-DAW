@@ -101,13 +101,25 @@ public:
     static constexpr float kMinVolumeDb = -60.0f;
     static constexpr float kMaxVolumeDb = 12.0f;
     static constexpr float kFaderRangeDb = kMaxVolumeDb - kMinVolumeDb;
+    static constexpr float kMaxGain = 3.98107f; // 10^(12/20)
 
     void  setTrackVolumeDb (tracktion::Track* track, float db);
     float getTrackVolumeDb (tracktion::Track* track);
     void  ensureVolumeRange (tracktion::Track* track);
 
-    static float getFaderPosFromDb (float db)    { return juce::jlimit (0.0f, 1.0f, (db - kMinVolumeDb) / kFaderRangeDb); }
-    static float getDbFromFaderPos (float pos)   { return (pos * kFaderRangeDb) + kMinVolumeDb; }
+    static float getFaderPosFromDb (float db)
+    {
+        if (db <= kMinVolumeDb) return 0.0f;
+        float gain = std::pow (10.0f, db / 20.0f);
+        return std::pow (gain / kMaxGain, 0.25f);
+    }
+
+    static float getDbFromFaderPos (float pos)
+    {
+        if (pos <= 0.0f) return -100.0f;
+        float gain = std::pow (pos, 4.0f) * kMaxGain;
+        return 20.0f * std::log10 (gain);
+    }
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
 

@@ -9,7 +9,7 @@ public:
     SplashWindow (std::function<void()> onFinishedCallback)
         : onFinished (onFinishedCallback)
     {
-        setOpaque (false);
+        setOpaque (true);
         setInterceptsMouseClicks (false, false);
 
         addAndMakeVisible (logo);
@@ -23,8 +23,7 @@ public:
 
         // Make it a frameless OS window
         addToDesktop (juce::ComponentPeer::windowIsTemporary |
-                      juce::ComponentPeer::windowIgnoresMouseClicks |
-                      juce::ComponentPeer::windowIsSemiTransparent);
+                      juce::ComponentPeer::windowIgnoresMouseClicks);
         
         setVisible (true);
         startTimerHz (60);
@@ -37,7 +36,7 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        g.fillAll (juce::Colours::transparentBlack);
+        g.fillAll (juce::Colour::fromString("#ff080a0e")); // Theme::bgBase
 
         // Draw "Circuit Growth" evolving lines around the logo
         auto b = getLocalBounds().toFloat().reduced (10.0f);
@@ -111,10 +110,11 @@ private:
 
         repaint(); // Force repaint for line animation
 
+        const int minFrames = 90; // ~1.5 seconds at 60Hz
         const int fadeDuration = 40;  // ~0.6 seconds fade
 
-        // Only begin fading if the app is ready
-        if (isReady)
+        // Only begin fading if the app is ready AND minimum time has passed
+        if (isReady && elapsedFrames >= minFrames)
         {
             if (fadeBeginFrame == 0)
                 fadeBeginFrame = elapsedFrames;

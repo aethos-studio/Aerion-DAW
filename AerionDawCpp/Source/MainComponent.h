@@ -43,6 +43,19 @@ private:
     void detachMixer();
     void reattachMixer();
 
+    struct MixerResizer : public juce::Component
+    {
+        MixerResizer (MainComponent& mc) : owner (mc) { setMouseCursor (juce::MouseCursor::UpDownResizeCursor); }
+        void mouseDown (const juce::MouseEvent&) override { startHeight = owner.mixerHeight; }
+        void mouseDrag (const juce::MouseEvent& e) override
+        {
+            owner.mixerHeight = juce::jlimit (100, owner.getHeight() - 400, startHeight - e.getDistanceFromDragStartY());
+            owner.resized();
+        }
+        MainComponent& owner;
+        int startHeight = 0;
+    };
+
     AudioEngineManager audioEngine;
     GoogleDriveClient driveClient;
     AIManager aiManager { audioEngine.getEdit() };
@@ -56,6 +69,9 @@ private:
     Timeline   timeline  { audioEngine, projectData };
     Mixer      mixer     { audioEngine, projectData };
     Transport  transport { audioEngine, projectData };
+
+    int mixerHeight = 260;
+    MixerResizer mixerResizer { *this };
 
     MetalLookAndFeel metalLookAndFeel;
 

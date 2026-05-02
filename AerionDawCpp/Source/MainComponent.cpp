@@ -13,6 +13,7 @@ MainComponent::MainComponent()
     addAndMakeVisible (timeline);
     addAndMakeVisible (mixer);
     addAndMakeVisible (transport);
+    addAndMakeVisible (mixerResizer);
 
     audioEngine.addListener (this);
     audioEngine.getEdit().state.addListener (this);
@@ -313,7 +314,15 @@ void MainComponent::resized()
 
     auto centerBounds = bounds;
     if (! mixer.detached)
-        mixer.setBounds (centerBounds.removeFromBottom (260));
+    {
+        mixer.setBounds (centerBounds.removeFromBottom (mixerHeight));
+        mixerResizer.setBounds (centerBounds.removeFromBottom (4));
+    }
+    else
+    {
+        mixerResizer.setBounds (0, 0, 0, 0);
+    }
+
     timeline.setBounds (centerBounds);
 }
 

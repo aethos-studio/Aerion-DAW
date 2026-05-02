@@ -258,6 +258,9 @@ float AudioEngineManager::getTrackPeak (te::Track* track)
     auto r = tm.client.getAndClearAudioLevel (1).dB;
     float latest = juce::jmax (l, r);
 
+    // Track absolute maximum for peak hold readout
+    tm.maxPeakDb = juce::jmax (tm.maxPeakDb, latest);
+
     // Decay the displayed peak at 48 dB/s with a 50 ms hold — same shape
     // FourOscPlugin uses for its built-in meter, so the visual feels right.
     auto now = juce::Time::getApproximateMillisecondCounter();
