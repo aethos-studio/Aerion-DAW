@@ -110,10 +110,9 @@ inline void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
     float db    = audioEngine.getTrackVolumeDb (track);
     float sPos  = AudioEngineManager::getFaderPosFromDb (db);
     int   capY  = faderTop + (int) (faderH * (1.0f - sPos));
-    juce::Rectangle<float> cap ((float) (area.getCentreX() - 18), (float) (capY - 7), 36.0f, 14.0f);
+    juce::Rectangle<float> cap ((float) (area.getCentreX() - 9), (float) (capY - 24), 18.0f, 48.0f);
     if (faderKnobDrawable != nullptr)
         faderKnobDrawable->drawWithin (g, cap, juce::RectanglePlacement::centred, 1.0f);
-
     // dB readout.
     float maxPeak = audioEngine.getTrackMaxPeak (track);
     bool clipping = maxPeak > 0.0f;
@@ -2699,7 +2698,7 @@ public:
             {
                 activeFaderTrack = hit.track;
                 if (activeFaderTrack)
-                    setFaderFromY(activeFaderTrack, hit.faderArea, e.y);
+                    ::setFaderFromY(audioEngine, activeFaderTrack, hit.faderArea, e.y);
                 return;
             }
         }
@@ -2719,7 +2718,7 @@ public:
         {
             for (auto& hit : stripHits)
                 if (hit.track == activeFaderTrack)
-                { setFaderFromY(activeFaderTrack, hit.faderArea, e.y); break; }
+                { ::setFaderFromY(audioEngine, activeFaderTrack, hit.faderArea, e.y); break; }
             repaint();
         }
     }

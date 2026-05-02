@@ -1,40 +1,40 @@
-<svg width="64" height="24" viewBox="0 0 64 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg width="24" height="64" viewBox="0 0 24 64" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <!-- Realistic dark plastic/metal gradient -->
-    <linearGradient id="faderBody" x1="0" y1="0" x2="0" y2="1">
+    <!-- Realistic dark plastic/metal gradient, now vertical -->
+    <linearGradient id="faderBody" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0%" stop-color="#4a4a4a"/>
       <stop offset="20%" stop-color="#2a2a2a"/>
       <stop offset="80%" stop-color="#1a1a1a"/>
       <stop offset="100%" stop-color="#0a0a0e"/>
     </linearGradient>
     
-    <!-- Concave top surface shadow to give depth -->
-    <linearGradient id="innerDepth" x1="0" y1="0" x2="0" y2="1">
+    <!-- Concave top surface shadow to give depth, now rotated -->
+    <linearGradient id="innerDepth" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0%" stop-color="#000000" stop-opacity="0.6"/>
       <stop offset="50%" stop-color="#000000" stop-opacity="0"/>
       <stop offset="100%" stop-color="#000000" stop-opacity="0.6"/>
     </linearGradient>
 
-    <!-- Subtle edge highlight -->
-    <linearGradient id="edgeHighlight" x1="0" y1="0" x2="1" y2="0">
+    <!-- Subtle edge highlight, now rotated -->
+    <linearGradient id="edgeHighlight" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#ffffff" stop-opacity="0.1"/>
       <stop offset="50%" stop-color="#ffffff" stop-opacity="0"/>
       <stop offset="100%" stop-color="#ffffff" stop-opacity="0.1"/>
     </linearGradient>
   </defs>
   
-  <!-- Main rectangular body -->
-  <rect width="64" height="24" rx="2" fill="url(#faderBody)"/>
+  <!-- Main rectangular body (Upright) -->
+  <rect width="24" height="64" rx="2" fill="url(#faderBody)"/>
   
-  <!-- Concave finger rest area -->
-  <rect x="2" y="1" width="60" height="22" rx="10" fill="url(#innerDepth)"/>
+  <!-- Concave finger rest area (Upright) -->
+  <rect x="1" y="2" width="22" height="60" rx="10" fill="url(#innerDepth)"/>
   
-  <!-- Side highlights -->
-  <rect width="64" height="24" rx="2" fill="url(#edgeHighlight)" opacity="0.5"/>
+  <!-- Side highlights (Upright) -->
+  <rect width="24" height="64" rx="2" fill="url(#edgeHighlight)" opacity="0.5"/>
   
-  <!-- Prominent white indicator line -->
-  <rect x="31" y="2" width="2" height="20" fill="#ffffff" opacity="0.9"/>
+  <!-- Prominent white indicator line (Now horizontal) -->
+  <rect x="2" y="31" width="20" height="2" fill="#ffffff" opacity="0.9"/>
   
   <!-- Slight glow for the indicator line -->
-  <rect x="30" y="2" width="4" height="20" fill="#ffffff" opacity="0.2"/>
+  <rect x="2" y="30" width="20" height="4" fill="#ffffff" opacity="0.2"/>
 </svg>
