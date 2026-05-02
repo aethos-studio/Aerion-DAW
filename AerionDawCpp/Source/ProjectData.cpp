@@ -11,22 +11,102 @@ juce::ValueTree ProjectData::getTrackTree (int id) const
     for (int i = 0; i < tracks.getNumChildren(); ++i)
     {
         auto t = tracks.getChild (i);
-        if ((int) t.getProperty (IDs::id) == id)
+        if ((int)t.getProperty (IDs::id) == id)
             return t;
     }
     return {};
 }
 
-juce::ValueTree ProjectData::getTrackTree (const juce::String& name) const
+juce::ValueTree ProjectData::getTrackTree (const juce::String& id) const
 {
     auto tracks = projectTree.getChildWithName (IDs::Tracks);
     for (int i = 0; i < tracks.getNumChildren(); ++i)
     {
         auto t = tracks.getChild (i);
-        if (t.getProperty (IDs::name).toString() == name)
+        if (t.getProperty (IDs::id).toString() == id)
             return t;
     }
     return {};
+}
+
+void ProjectData::syncWithEngine (tracktion::Edit& edit)
+{
+    auto tracksTree = projectTree.getChildWithName (IDs::Tracks);
+    if (! tracksTree.isValid())
+    {
+        tracksTree = juce::ValueTree (IDs::Tracks);
+        projectTree.addChild (tracksTree, -1, nullptr);
+    }
+
+    auto topLevel = tracktion::getTopLevelTracks (edit);
+
+    // 1. Remove tracks not in edit
+    for (int i = tracksTree.getNumChildren(); --i >= 0;)
+    {
+        auto id = tracksTree.getChild (i).getProperty (IDs::id).toString();
+        bool found = false;
+        for (auto* t : topLevel)
+            if (t->itemID.toString() == id) { found = true; break; }
+        if (! found)
+            tracksTree.removeChild (i, nullptr);
+    }
+
+    // 2. Add or update tracks
+    int desiredIndex = 0;
+    for (auto* t : topLevel)
+    {
+        if (t->isMasterTrack() || t->isTempoTrack() || t->isMarkerTrack() || t->isChordTrack() || t->isArrangerTrack())
+            continue; // Only show our filtered audio/folder tracks
+
+        juce::String id = t->itemID.toString();
+        auto track = getTrackTree (id);
+
+        if (! track.isValid())
+        {
+            track = juce::ValueTree (IDs::Track);
+            track.setProperty (IDs::id, id, nullptr);
+            tracksTree.addChild (track, desiredIndex, nullptr);
+        }
+        else
+        {
+            int currentIndex = tracksTree.indexOf (track);
+            if (currentIndex != desiredIndex)
+                tracksTree.moveChild (currentIndex, desiredIndex, nullptr);
+        }
+
+        // Update properties
+        if (track.getProperty (IDs::name).toString() != t->getName())
+            track.setProperty (IDs::name, t->getName(), nullptr);
+
+        bool muted = t->isMuted(false);
+        bool soloed = t->isSolo(false);
+        if ((bool)track.getProperty (IDs::mute) != muted) track.setProperty (IDs::mute, muted, nullptr);
+        if ((bool)track.getProperty (IDs::solo) != soloed) track.setProperty (IDs::solo, soloed, nullptr);
+
+        float vol = 0.0f;
+        float pan = 0.0f;
+        if (auto* a = dynamic_cast<tracktion::AudioTrack*> (t))
+        {
+            if (auto vp = a->getVolumePlugin())
+            {
+                vol = vp->getVolumeDb();
+                pan = vp->panParam->getCurrentValue();
+            }
+        }
+        else if (auto* ft = dynamic_cast<tracktion::FolderTrack*> (t))
+        {
+            if (auto vp = ft->getVolumePlugin())
+            {
+                vol = vp->getVolumeDb();
+                pan = vp->panParam->getCurrentValue();
+            }
+        }
+
+        if ((float)track.getProperty (IDs::level, 0.0f) != vol) track.setProperty (IDs::level, vol, nullptr);
+        if ((float)track.getProperty (IDs::pan, 0.0f) != pan) track.setProperty (IDs::pan, pan, nullptr);
+
+        desiredIndex++;
+    }
 }
 
 void ProjectData::createMockData()

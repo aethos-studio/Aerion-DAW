@@ -1,0 +1,23 @@
+<svg width="64" height="24" viewBox="0 0 64 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Main Body Gradient: Dark Gray to Black, simulating plastic/metal -->
+    <linearGradient id="bodyGradient" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4a4a4a"/>
+      <stop offset="100%" stop-color="#1a1a1a"/>
+    </linearGradient>
+    <!-- Top Concave Highlight: Light Gray, simulating reflection -->
+    <linearGradient id="highlightGradient" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#a0a0a0" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#606060" stop-opacity="0.6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Main rectangular body of the knob -->
+  <rect x="0" y="0" width="64" height="24" rx="3" ry="3" fill="url(#bodyGradient)"/>
+  
+  <!-- Subtle top highlight to simulate concave shape -->
+  <rect x="2" y="1" width="60" height="10" rx="2" ry="2" fill="url(#highlightGradient)" opacity="0.7"/>
+
+  <!-- Prominent white indicator line -->
+  <rect x="18" y="10" width="28" height="4" fill="#ebf8ff"/>
+</svg>

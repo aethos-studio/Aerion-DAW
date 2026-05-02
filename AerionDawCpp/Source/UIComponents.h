@@ -47,6 +47,85 @@ enum class EditTool
 };
 
 //==============================================================================
+inline void setFaderFromY (AudioEngineManager& audioEngine, tracktion::Track* t, juce::Rectangle<int> area, int y)
+{
+    if (! t) return;
+    float sPos = 1.0f - juce::jlimit(0.0f, 1.0f, (float)(y - area.getY()) / (float)area.getHeight());
+    audioEngine.setTrackVolumeDb (t, AudioEngineManager::getDbFromFaderPos (sPos));
+}
+
+inline void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
+                        AudioEngineManager& audioEngine,
+                        tracktion::Track* track, juce::Colour tColor, bool isMaster,
+                        juce::Drawable* faderKnobDrawable)
+{
+    if (area.getHeight() < 30) return;
+
+    int track_x   = area.getCentreX() - 3;
+    int meter_w   = 12;
+    int meter_x   = area.getCentreX() + 18;
+    int track_w   = 6;
+    int faderTop  = area.getY() + 4;
+    int faderH    = area.getHeight() - 28;
+
+    g.setColour (juce::Colours::black.withAlpha (0.6f));
+    g.fillRoundedRectangle ((float) track_x, (float) faderTop, (float) track_w, (float) faderH, 3.0f);
+
+    // 0dB tick mark.
+    float zeroPos = AudioEngineManager::getFaderPosFromDb (0.0f);
+    int   zeroY   = faderTop + (int) (faderH * (1.0f - zeroPos));
+    g.setColour (Theme::border.withAlpha (0.4f));
+    g.drawHorizontalLine (zeroY, (float) (track_x - 4), (float) (track_x + track_w + 4));
+
+    // Meter
+    float peak = audioEngine.getTrackPeak (track);
+    float pPos = AudioEngineManager::getFaderPosFromDb (peak);
+    
+    // Meter background slot (always visible)
+    g.setColour (juce::Colours::black.withAlpha (0.5f));
+    g.fillRoundedRectangle ((float) meter_x, (float) faderTop, (float) meter_w, (float) faderH, 2.0f);
+    g.setColour (Theme::border.withAlpha (0.6f));
+    g.drawRoundedRectangle ((float) meter_x, (float) faderTop, (float) meter_w, (float) faderH, 2.0f, 1.0f);
+
+    // Clip indicator light (top of slot)
+    if (peak > 0.0f)
+    {
+        g.setColour (Theme::recordRed);
+        g.fillRoundedRectangle ((float) meter_x, (float) faderTop, (float) meter_w, 6.0f, 1.5f);
+    }
+
+    if (pPos > 0.0f)
+    {
+        int mY = faderTop + (int) (faderH * (1.0f - pPos));
+        // Multi-stop gradient: Red (>0dB), Yellow (0 to -12dB), Green (<-12dB)
+        juce::ColourGradient mg (Theme::meterRed, 0, (float) faderTop,
+                                 Theme::meterGreen, 0, (float) (faderTop + faderH), false);
+        mg.addColour (0.17, Theme::meterYellow); // 0dB threshold
+        mg.addColour (0.33, Theme::meterGreen);  // -12dB threshold
+        g.setGradientFill (mg);
+        g.fillRoundedRectangle ((float) meter_x, (float) mY, (float) meter_w, (float) (faderTop + faderH - mY), 2.0f);
+    }
+
+    // Fader cap.
+    float db    = audioEngine.getTrackVolumeDb (track);
+    float sPos  = AudioEngineManager::getFaderPosFromDb (db);
+    int   capY  = faderTop + (int) (faderH * (1.0f - sPos));
+    juce::Rectangle<float> cap ((float) (area.getCentreX() - 18), (float) (capY - 7), 36.0f, 14.0f);
+    if (faderKnobDrawable != nullptr)
+        faderKnobDrawable->drawWithin (g, cap, juce::RectanglePlacement::centred, 1.0f);
+
+    // dB readout.
+    float maxPeak = audioEngine.getTrackMaxPeak (track);
+    bool clipping = maxPeak > 0.0f;
+    g.setColour (clipping ? Theme::recordRed : Theme::textMuted);
+    g.setFont (juce::Font (9.0f).withStyle (juce::Font::bold));
+    juce::String dbText = (maxPeak > -90.0f) 
+        ? juce::String::formatted ("%+.1f", maxPeak)
+        : (track ? juce::String::formatted ("%+.1f dB", db) : juce::String ("MASTER"));
+    g.drawText (dbText, area.withY (area.getBottom() - 16).withHeight (14), juce::Justification::centred);
+}
+
+//==============================================================================
 /** A custom LookAndFeel that implements the "Metal" arctic theme for all
     standard JUCE widgets, including window title bar buttons.
 */
@@ -374,7 +453,7 @@ class DAWMenuBar : public juce::Component
 public:
     DAWMenuBar()
     {
-        if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::logo_with_text_svg, BinaryData::logo_with_text_svgSize)))
+        if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::logo_svg, BinaryData::logo_svgSize)))
             logoDrawable = juce::Drawable::createFromSVG (*svgXml);
     }
 
@@ -389,7 +468,7 @@ public:
         // Draw Logo
         if (logoDrawable != nullptr)
         {
-            auto logoArea = b.removeFromLeft (160).reduced (12, 6);
+            auto logoArea = b.removeFromLeft (40).reduced (8);
             logoDrawable->drawWithin (g, logoArea.toFloat(), 
                                     juce::RectanglePlacement (juce::RectanglePlacement::xLeft | juce::RectanglePlacement::yMid), 1.0f);
         }
@@ -398,7 +477,7 @@ public:
         g.setFont(12.0f);
 
         juce::StringArray items = { "File", "Edit", "Song", "Track", "Event", "Audio", "Transport", "View", "Help" };
-        int x = 170;
+        int x = 50;
         for (auto& s : items) {
             g.drawText(s, x, 0, 60, getHeight(), juce::Justification::centredLeft);
             x += 60;
@@ -409,7 +488,7 @@ public:
 
     void mouseDown(const juce::MouseEvent& e) override
     {
-        if (e.x >= 170 && e.x < 230) // "File" area adjusted for logo
+        if (e.x >= 50 && e.x < 110) // "File" area adjusted for logo
         {
             juce::PopupMenu m;
             m.addItem (1, "New Project");
@@ -555,6 +634,9 @@ public:
     {
         projectData.getProjectTree().addListener (this);
         startTimerHz (30); // drives meter animation
+
+        if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::fader_knob_svg, BinaryData::fader_knob_svgSize)))
+            faderKnobDrawable = juce::Drawable::createFromSVG (*svgXml);
     }
 
     ~Inspector() override { projectData.getProjectTree().removeListener (this); }
@@ -573,6 +655,8 @@ public:
     bool         solo       { false };
     tracktion::Track* selectedTrack = nullptr;
 
+    std::unique_ptr<juce::Drawable> faderKnobDrawable;
+
     void paint (juce::Graphics& g) override
     {
         DAWPanel::paint (g);
@@ -583,7 +667,7 @@ public:
         {
             auto faderMeterArea = b.removeFromRight (45);
             faderArea = faderMeterArea.withTrimmedBottom (12);
-            paintFader (g, faderArea, selectedTrack, Theme::colourForTrack (trackIndex), false);
+            ::paintFader (g, faderArea, audioEngine, selectedTrack, Theme::colourForTrack (trackIndex), false, faderKnobDrawable.get());
             b.removeFromRight (10); // Gap
         }
         else
@@ -667,7 +751,7 @@ public:
         {
             if (auto* audio = dynamic_cast<tracktion::AudioTrack*> (selectedTrack))
             {
-                setFaderFromY (audio, faderArea, e.y);
+                ::setFaderFromY (audioEngine, audio, faderArea, e.y);
                 return;
             }
         }
@@ -724,7 +808,7 @@ public:
     {
         if (faderArea.contains (e.getPosition()) || (e.getMouseDownX() >= faderArea.getX() && e.getMouseDownX() < faderArea.getRight()))
         {
-            setFaderFromY (selectedTrack, faderArea, e.y);
+            ::setFaderFromY (audioEngine, selectedTrack, faderArea, e.y);
             return;
         }
     }
@@ -749,72 +833,6 @@ private:
     juce::Array<juce::Rectangle<int>> sendRows;
     juce::Rectangle<int> insertAddBtn;
     juce::Rectangle<int> faderArea;
-
-    void setFaderFromY (tracktion::Track* t, juce::Rectangle<int> area, int y)
-    {
-        if (! t) return;
-        float sPos = 1.0f - juce::jlimit (0.0f, 1.0f, (float) (y - area.getY()) / (float) area.getHeight());
-        audioEngine.setTrackVolumeDb (t, AudioEngineManager::getDbFromFaderPos (sPos));
-    }
-
-    void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
-                     tracktion::Track* track, juce::Colour tColor, bool isMaster)
-    {
-        if (area.getHeight() < 30) return;
-
-        int track_x   = area.getX() + 6;
-        int meter_w   = 12;
-        int meter_x   = area.getRight() - meter_w - 4;
-        int track_w   = 6;
-        int faderTop  = area.getY() + 4;
-        int faderH    = area.getHeight() - 28;
-
-        g.setColour (juce::Colours::black.withAlpha (0.6f));
-        g.fillRoundedRectangle ((float) track_x, (float) faderTop, (float) track_w, (float) faderH, 3.0f);
-
-        // 0dB tick mark.
-        float zeroPos = AudioEngineManager::getFaderPosFromDb (0.0f);
-        int   zeroY   = faderTop + (int) (faderH * (1.0f - zeroPos));
-        g.setColour (Theme::border.withAlpha (0.4f));
-        g.drawHorizontalLine (zeroY, (float) (track_x - 4), (float) (track_x + track_w + 4));
-
-        // Meter
-        float peak = audioEngine.getTrackPeak (track);
-        float pPos = AudioEngineManager::getFaderPosFromDb (peak);
-
-        // Meter background slot (always visible)        g.setColour (juce::Colours::black.withAlpha (0.5f));
-        g.fillRoundedRectangle ((float) meter_x, (float) faderTop, (float) meter_w, (float) faderH, 2.0f);
-        g.setColour (Theme::border.withAlpha (0.6f));
-        g.drawRoundedRectangle ((float) meter_x, (float) faderTop, (float) meter_w, (float) faderH, 2.0f, 1.0f);
-
-        if (pPos > 0.0f)
-        {
-            int mY = faderTop + (int) (faderH * (1.0f - pPos));
-            juce::ColourGradient mg (Theme::meterRed, 0, (float) faderTop,
-                                     Theme::meterGreen, 0, (float) (faderTop + faderH), false);
-            mg.addColour (0.2, Theme::meterYellow);
-            g.setGradientFill (mg);
-            g.fillRoundedRectangle ((float) meter_x, (float) mY, (float) meter_w, (float) (faderTop + faderH - mY), 2.0f);
-        }
-
-        // Fader cap.
-        float db    = audioEngine.getTrackVolumeDb (track);
-        float sPos  = AudioEngineManager::getFaderPosFromDb (db);
-        int   capY  = faderTop + (int) (faderH * (1.0f - sPos));
-        juce::Rectangle<float> cap ((float) (track_x - 12), (float) (capY - 7), 30.0f, 14.0f);
-        juce::ColourGradient cg (Theme::surface.brighter (0.2f), cap.getX(), 0,
-                                 Theme::surface.darker (0.3f),  cap.getRight(), 0, false);
-        g.setGradientFill (cg);
-        g.fillRoundedRectangle (cap, 3.0f);
-        g.setColour (tColor);
-        g.fillRect (cap.getX() + 4.0f, cap.getCentreY() - 1.0f, cap.getWidth() - 8.0f, 2.0f);
-
-        // dB readout.
-        g.setColour (Theme::textMuted);
-        g.setFont (juce::Font (9.0f).withStyle (juce::Font::bold));
-        juce::String dbText = track ? juce::String::formatted ("%+.1f dB", db) : juce::String ("MASTER");
-        g.drawText (dbText, area.withY (area.getBottom() - 16).withHeight (14), juce::Justification::centred);
-    }
 
     void drawSectionHeader (juce::Graphics& g, juce::Rectangle<int> headerArea,
                             const juce::String& title, juce::Rectangle<int>& addBtnOut,
@@ -1281,6 +1299,7 @@ public:
 
     void paint(juce::Graphics& g) override
     {
+        currentTooltip.isValid = false; // Clear tooltip at start of paint cycle
         g.fillAll(Theme::bgBase);
         updateScrollBar();
 
@@ -1382,6 +1401,19 @@ public:
 
             g.setColour (Theme::accent.withAlpha (0.6f));
             g.drawLine (drawX, (float) kRulerH, drawX, (float) (getHeight() - kFooterH), 1.0f);
+        }
+
+        // Draw the tooltip after all other drawing is done
+        if (currentTooltip.isValid)
+        {
+            juce::Font font (12.0f);
+            g.setFont (font);
+            g.setColour (Theme::surface);
+            g.fillRoundedRectangle (currentTooltip.bounds.toFloat(), 3.0f);
+            g.setColour (Theme::border);
+            g.drawRoundedRectangle (currentTooltip.bounds.toFloat(), 3.0f, 1.0f);
+            g.setColour (Theme::textMain);
+            g.drawText (currentTooltip.text, currentTooltip.bounds, juce::Justification::centred);
         }
     }
 
@@ -1708,6 +1740,29 @@ public:
             g.fillEllipse (px - r - 1.0f, py - r - 1.0f, (r + 1.0f) * 2.0f, (r + 1.0f) * 2.0f);
             g.setColour (Theme::active);
             g.fillEllipse (px - r, py - r, r * 2.0f, r * 2.0f);
+
+            if (draggingParam == param && draggingPointIdx == i)
+            {
+                float val = curve.getPointValue (i);
+                if (isPan)
+                {
+                    int panPercent = (int)std::round(val * 100.0f);
+                    if (panPercent == 0) currentTooltip.text = "C";
+                    else if (panPercent < 0) currentTooltip.text = juce::String::formatted ("L %d", -panPercent);
+                    else currentTooltip.text = juce::String::formatted ("R %d", panPercent);
+                }
+                else
+                {
+                    float db = AudioEngineManager::getDbFromFaderPos (val);
+                    if (db < AudioEngineManager::kMinVolumeDb + 1.0f) currentTooltip.text = "-inf dB";
+                    else currentTooltip.text = juce::String::formatted ("%+.1f dB", db);
+                }
+
+                juce::Font font (12.0f);
+                int tw = font.getStringWidth (currentTooltip.text) + 10;
+                currentTooltip.bounds = juce::Rectangle<int> ((int)px - tw / 2, (int)py - 24, tw, 18);
+                currentTooltip.isValid = true;
+            }
         }
 
         // Current parameter value indicator on the right edge.
@@ -2263,6 +2318,14 @@ private:
     juce::ScrollBar horizontalScrollBar { false };
     juce::ScrollBar verticalScrollBar   { true };
     juce::Slider    zoomSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
+
+    struct TooltipInfo
+    {
+        juce::String text;
+        juce::Rectangle<int> bounds;
+        bool isValid = false;
+    };
+    TooltipInfo currentTooltip;
 };
 
 //==============================================================================
@@ -2290,10 +2353,15 @@ public:
     std::function<void()> onDetachRequested;
     bool detached = false;
 
+    std::unique_ptr<juce::Drawable> faderKnobDrawable;
+
     Mixer(AudioEngineManager& ae, ProjectData& pd) : audioEngine(ae), projectData(pd)
     {
         projectData.getProjectTree().addListener (this);
         startTimerHz (30); // drives meter animation
+
+        if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::fader_knob_svg, BinaryData::fader_knob_svgSize)))
+            faderKnobDrawable = juce::Drawable::createFromSVG (*svgXml);
     }
 
     ~Mixer() override { projectData.getProjectTree().removeListener (this); }
@@ -2459,7 +2527,7 @@ public:
 
         // Fader area = whatever is left between pan and M/S row.
         auto faderArea = inner;
-        paintFader(g, faderArea, track, tColor, isMaster);
+        ::paintFader(g, faderArea, audioEngine, track, tColor, isMaster, faderKnobDrawable.get());
         hit.faderArea = faderArea;
 
         stripHits.add (hit);

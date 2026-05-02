@@ -43,8 +43,8 @@ public:
         auto b = getLocalBounds().toFloat().reduced (10.0f);
         auto center = b.getCentre();
         
-        // Growth driven by timer (resets every cycle)
-        float grow = std::min (1.0f, (float)elapsedFrames * 0.02f);
+        // Growth driven by timer (pulsing animation)
+        float grow = (1.0f + std::sin (elapsedFrames * 0.05f)) * 0.5f;
         
         // Colors from theme
         auto arctic = juce::Colour::fromString ("#ff63b3ed");
@@ -102,6 +102,8 @@ public:
         logo.setBounds (getLocalBounds().reduced (60)); // Extra padding for circuit lines
     }
 
+    void setReady() { isReady = true; }
+
 private:
     void timerCallback() override
     {
@@ -109,15 +111,16 @@ private:
 
         repaint(); // Force repaint for line animation
 
-        // 2. Fade logic
-        const int fadeStartFrame = 120; // After 2.0 seconds at 60Hz
-        const int fadeDuration   = 40;  // ~0.6 seconds fade
+        const int fadeDuration = 40;  // ~0.6 seconds fade
 
-        if (elapsedFrames >= fadeStartFrame)
+        // Only begin fading if the app is ready
+        if (isReady)
         {
-            float progress = std::min (1.0f, (float)(elapsedFrames - fadeStartFrame) / fadeDuration);
-            float alpha = 1.0f - progress;
-            setAlpha (alpha);
+            if (fadeBeginFrame == 0)
+                fadeBeginFrame = elapsedFrames;
+
+            float progress = std::min (1.0f, (float)(elapsedFrames - fadeBeginFrame) / fadeDuration);
+            setAlpha (1.0f - progress);
 
             if (progress >= 1.0f)
             {
@@ -137,6 +140,8 @@ private:
     LogoComponent logo;
     std::function<void()> onFinished;
     int elapsedFrames = 0;
+    int fadeBeginFrame = 0;
+    bool isReady = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SplashWindow)
 };

@@ -121,15 +121,45 @@ std::unique_ptr<te::UIBehaviour> AudioEngineManager::makeUIBehaviour()
 
 AudioEngineManager::AudioEngineManager()
 {
-    engine.getDeviceManager().initialise (0, 2);
+    juce::PropertiesFile::Options options;
+    options.applicationName     = "Aerion DAW";
+    options.filenameSuffix      = ".settings";
+    options.osxLibrarySubFolder = "Application Support";
+    options.folderName          = "AerionDAW";
+    appProperties.setStorageParameters (options);
+
+    std::unique_ptr<juce::XmlElement> savedAudioState (appProperties.getUserSettings()->getXmlValue ("audioDeviceState"));
+    if (savedAudioState != nullptr)
+        engine.getDeviceManager().deviceManager.initialise (0, 2, savedAudioState.get(), true);
+    else
+        engine.getDeviceManager().initialise (0, 2);
+    
     engine.getDeviceManager().enableOutputClipping (true);
+    engine.getDeviceManager().deviceManager.addChangeListener (this);
+    
     setupInitialEdit();
 }
 
 AudioEngineManager::~AudioEngineManager()
 {
+    engine.getDeviceManager().removeChangeListener (this);
+    if (auto state = engine.getDeviceManager().deviceManager.createStateXml())
+    {
+        appProperties.getUserSettings()->setValue ("audioDeviceState", state.get());
+        appProperties.getUserSettings()->saveIfNeeded();
+    }
+    
     engine.getDeviceManager().closeDevices();
     edit = nullptr;
+}
+
+void AudioEngineManager::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    if (auto state = engine.getDeviceManager().deviceManager.createStateXml())
+    {
+        appProperties.getUserSettings()->setValue ("audioDeviceState", state.get());
+        appProperties.getUserSettings()->saveIfNeeded();
+    }
 }
 
 void AudioEngineManager::setupInitialEdit()
@@ -319,6 +349,44 @@ bool AudioEngineManager::isTrackArmed (te::Track* t) const
 {
     if (t == nullptr) return false;
     return armedTracks[t->itemID.toString()];
+}
+
+float AudioEngineManager::getTrackMaxPeak (te::Track* track)
+{
+    if (track == nullptr) return -100.0f;
+    auto it = trackMeters.find (track->itemID.toString());
+    if (it != trackMeters.end())
+        return it->second->maxPeakDb;
+    return -100.0f;
+}
+
+void AudioEngineManager::clearTrackMaxPeak (te::Track* track)
+{
+    if (track == nullptr) return;
+    auto it = trackMeters.find (track->itemID.toString());
+    if (it != trackMeters.end())
+        it->second->maxPeakDb = -100.0f;
+}
+
+te::Plugin* AudioEngineManager::getPluginFor (juce::ValueTree& v)
+{
+    if (edit)
+    {
+        for (auto* t : te::getAllTracks (*edit))
+        {
+            for (auto* p : t->pluginList.getPlugins())
+                if (p->state == v)
+                    return p;
+        }
+        // Also check master track plugins.
+        if (auto master = edit->getMasterTrack())
+        {
+            for (auto* p : master->pluginList.getPlugins())
+                if (p->state == v)
+                    return p;
+        }
+    }
+    return nullptr;
 }
 
 void AudioEngineManager::toggleTrackMute (te::Track* t)

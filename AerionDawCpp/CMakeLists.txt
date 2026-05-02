@@ -40,6 +40,8 @@ juce_add_binary_data(AerionDawResources
         Resources/logo.svg
         Resources/logo_vertical.svg
         Resources/logo_with_text.svg
+        Resources/logo_vert.svg
+        Resources/fader_knob.svg
 )
 
 juce_generate_juce_header(AerionDaw)

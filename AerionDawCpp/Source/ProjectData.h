@@ -39,7 +39,10 @@ public:
     juce::ValueTree getProjectTree() const { return projectTree; }
     
     juce::ValueTree getTrackTree (int id) const;
-    juce::ValueTree getTrackTree (const juce::String& name) const;
+    juce::ValueTree getTrackTree (const juce::String& id) const;
+
+    // Syncs the ProjectData tree with the live Tracktion Engine state
+    void syncWithEngine (tracktion::Edit& edit);
 
     // Creates the initial mock data representing src/data.ts
     void createMockData();

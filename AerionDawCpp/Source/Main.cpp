@@ -20,6 +20,11 @@ public:
             splashWindow = nullptr;
             mainWindow.reset (new MainWindow (getApplicationName()));
         }));
+
+        juce::MessageManager::callAsync ([this] {
+            if (splashWindow != nullptr)
+                splashWindow->setReady();
+        });
     }
 
     void shutdown() override

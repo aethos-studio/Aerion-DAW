@@ -2,7 +2,7 @@
 #include <JuceHeader.h>
 #include <map>
 
-class AudioEngineManager
+class AudioEngineManager : public juce::ChangeListener
 {
 public:
     struct Listener
@@ -15,7 +15,7 @@ public:
     void removeListener (Listener* l)   { listeners.remove (l); }
 
     AudioEngineManager();
-    ~AudioEngineManager();
+    ~AudioEngineManager() override;
 
     tracktion::Engine& getEngine() { return engine; }
     tracktion::Edit& getEdit()     { return *edit; }
@@ -53,6 +53,8 @@ public:
     void setTrackArmed (tracktion::Track*, bool);
     bool isTrackArmed (tracktion::Track*) const;
     float getTrackPeak (tracktion::Track*);
+    float getTrackMaxPeak (tracktion::Track*);
+    void  clearTrackMaxPeak (tracktion::Track*);
 
     void toggleTrackMute (tracktion::Track*);
     void toggleTrackSolo (tracktion::Track*);
@@ -78,6 +80,7 @@ public:
     bool isScanningPlugins() const { return scanInFlight.load(); }
     tracktion::Plugin::Ptr addPluginToTrack (tracktion::Track* track, const juce::PluginDescription& desc);
     void removePlugin (tracktion::Plugin* plugin);
+    tracktion::Plugin* getPluginFor (juce::ValueTree& v);
 
     tracktion::Track* getMasterTrack() { return edit->getMasterTrack(); }
 
@@ -105,11 +108,15 @@ public:
     static float getFaderPosFromDb (float db)    { return juce::jlimit (0.0f, 1.0f, (db - kMinVolumeDb) / kFaderRangeDb); }
     static float getDbFromFaderPos (float pos)   { return (pos * kFaderRangeDb) + kMinVolumeDb; }
 
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
+
 private:
     static std::unique_ptr<tracktion::UIBehaviour> makeUIBehaviour();
 
     tracktion::Engine engine { ProjectInfo::projectName, makeUIBehaviour(), nullptr };
     std::unique_ptr<tracktion::Edit> edit;
+
+    juce::ApplicationProperties appProperties;
 
     juce::ListenerList<Listener> listeners;
 
@@ -140,6 +147,7 @@ private:
         juce::ReferenceCountedObjectPtr<tracktion::LevelMeterPlugin> plugin;
         tracktion::LevelMeasurer::Client client;
         float lastPeakDb = -100.0f;
+        float maxPeakDb = -100.0f;
         juce::uint32 lastUpdateMs = 0;
 
         ~TrackMeter()

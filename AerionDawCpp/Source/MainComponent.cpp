@@ -262,13 +262,14 @@ void MainComponent::showAudioSettings()
     auto* selector = new juce::AudioDeviceSelectorComponent (audioEngine.getEngine().getDeviceManager().deviceManager,
                                                              0, 2, 0, 2, true, true, true, false);
     selector->setSize (500, 450);
+    selector->setLookAndFeel (&metalLookAndFeel);
 
     juce::DialogWindow::LaunchOptions options;
     options.content.setOwned (selector);
     options.dialogTitle                   = "Audio Settings";
     options.dialogBackgroundColour        = Theme::bgPanel;
     options.escapeKeyTriggersCloseButton  = true;
-    options.useNativeTitleBar             = true;
+    options.useNativeTitleBar             = false;
     options.resizable                     = false;
 
     options.launchAsync();
@@ -286,12 +287,10 @@ void MainComponent::timerCallback()
         lastIsPlaying = playing;
     }
 
-    // Always repaint mixer and inspector for real-time metering and UI state.
-    mixer.repaint();
-    inspector.repaint();
-
-    if (playing)
+    if (playing || audioEngine.isRecording())
     {
+        mixer.repaint();
+        inspector.repaint();
         timeline.repaint();
     }
 }
@@ -362,38 +361,48 @@ void MainComponent::reattachMixer()
 
 void MainComponent::editStateChanged()
 {
-    timeline.repaint();
-    mixer.repaint();
-    inspector.repaint();
-    browser.repaint();
+    projectData.syncWithEngine (audioEngine.getEdit());
+    browser.repaint(); // Browser doesn't listen to ProjectData yet
 }
 
 void MainComponent::valueTreePropertyChanged (juce::ValueTree& v, const juce::Identifier& i)
 {
     // Reactive synchronization: Tracktion Engine -> ProjectData
-    // If a property like volume, pan, mute, or solo changes in the engine,
-    // update our ProjectData to keep the UI in sync.
-    
     if (v.hasType (tracktion::IDs::TRACK) || v.hasType (tracktion::IDs::FOLDERTRACK))
     {
-        int trackID = v.getProperty (tracktion::IDs::id);
+        auto trackID = v.getProperty (tracktion::IDs::id).toString();
         auto trackTree = projectData.getTrackTree (trackID);
         
         if (trackTree.isValid())
         {
             if (i == tracktion::IDs::mute)
-                trackTree.setProperty (IDs::mute, v.getProperty (i), nullptr);
+                trackTree.setProperty (IDs::mute, v.getProperty(i), nullptr);
             else if (i == tracktion::IDs::solo)
-                trackTree.setProperty (IDs::solo, v.getProperty (i), nullptr);
-            else if (i == tracktion::IDs::volume)
-                trackTree.setProperty (IDs::level, v.getProperty (i), nullptr);
-            else if (i == tracktion::IDs::pan)
-                trackTree.setProperty (IDs::pan, v.getProperty (i), nullptr);
+                trackTree.setProperty (IDs::solo, v.getProperty(i), nullptr);
         }
     }
-
-    // Trigger repaints for all reactive components.
-    timeline.repaint();
-    mixer.repaint();
-    inspector.repaint();
+    else if (v.hasType (tracktion::IDs::PLUGIN))
+    {
+        if (auto* p = audioEngine.getPluginFor (v))
+        {
+            if (auto* vp = dynamic_cast<tracktion::VolumeAndPanPlugin*> (p))
+            {
+                if (auto* t = vp->getOwnerTrack())
+                {
+                    auto trackID = t->itemID.toString();
+                    auto trackTree = projectData.getTrackTree (trackID);
+                    if (trackTree.isValid())
+                    {
+                        if (i == tracktion::IDs::volume)
+                        {
+                            float db = AudioEngineManager::getDbFromFaderPos (vp->volParam->getCurrentValue());
+                            trackTree.setProperty (IDs::level, db, nullptr);
+                        }
+                        else if (i == tracktion::IDs::pan)
+                            trackTree.setProperty (IDs::pan, vp->panParam->getCurrentValue(), nullptr);
+                    }
+                }
+            }
+        }
+    }
 }

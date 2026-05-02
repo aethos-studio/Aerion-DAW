@@ -6,7 +6,7 @@ class LogoComponent : public juce::Component
 public:
     LogoComponent() 
     {
-        if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::logo_vertical_svg, BinaryData::logo_vertical_svgSize)))
+        if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::logo_vert_svg, BinaryData::logo_vert_svgSize)))
             drawable = juce::Drawable::createFromSVG (*svgXml);
     }
 
