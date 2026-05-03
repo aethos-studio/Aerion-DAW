@@ -34,17 +34,15 @@ juce_add_gui_app(AerionDaw
     VERSION 0.1.0
     COMPANY_NAME "Aethos Studio Ltd."
     BUNDLE_ID "com.aethos.aeriondaw"
-    ICON_BIG "Resources/logo.svg"
-    ICON_SMALL "Resources/logo.svg"
+    ICON_BIG "Resources/aerion_logo.svg"
+    ICON_SMALL "Resources/Aerion_Ico.ico"
 )
 
 juce_add_binary_data(AerionDawResources
     SOURCES
-        Resources/logo.svg
-        Resources/logo_vertical.svg
-        Resources/logo_with_text.svg
-        Resources/logo_vert.svg
-        Resources/fader_knob.svg
+        Resources/aerion_logo.svg
+        Resources/aerion_logo_vertical.svg
+        Resources/aerion_fader.svg
 )
 
 juce_generate_juce_header(AerionDaw)
@@ -117,9 +115,9 @@ if (WIN32)
     set(CPACK_NSIS_MENU_LINKS "Aerion DAW.exe" "Aerion DAW")
     set(CPACK_CREATE_DESKTOP_LINKS "Aerion DAW")
 
-    # Installer Icon (using the generated icon from the build artifacts)
-    set(CPACK_NSIS_MUI_ICON "${CMAKE_CURRENT_BINARY_DIR}/AerionDaw_artefacts/JuceLibraryCode/icon.ico")
-    set(CPACK_NSIS_MUI_UNIICON "${CMAKE_CURRENT_BINARY_DIR}/AerionDaw_artefacts/JuceLibraryCode/icon.ico")
+    # Installer Icon
+    set(CPACK_NSIS_MUI_ICON "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Aerion_Ico.ico")
+    set(CPACK_NSIS_MUI_UNIICON "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Aerion_Ico.ico")
     
     include(CPack)
 endif()

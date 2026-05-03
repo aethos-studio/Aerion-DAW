@@ -459,7 +459,7 @@ class DAWMenuBar : public juce::Component
 public:
     DAWMenuBar()
     {
-        if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::logo_svg, BinaryData::logo_svgSize)))
+        if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::aerion_logo_svg, BinaryData::aerion_logo_svgSize)))
             logoDrawable = juce::Drawable::createFromSVG (*svgXml);
     }
 
@@ -641,7 +641,7 @@ public:
         projectData.getProjectTree().addListener (this);
         startTimerHz (30); // drives meter animation
 
-        if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::fader_knob_svg, BinaryData::fader_knob_svgSize)))
+        if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::aerion_fader_svg, BinaryData::aerion_fader_svgSize)))
             faderKnobDrawable = juce::Drawable::createFromSVG (*svgXml);
     }
 
@@ -3048,7 +3048,7 @@ public:
         projectData.getProjectTree().addListener (this);
         startTimerHz (30); // drives meter animation
 
-        if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::fader_knob_svg, BinaryData::fader_knob_svgSize)))
+        if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::aerion_fader_svg, BinaryData::aerion_fader_svgSize)))
             faderKnobDrawable = juce::Drawable::createFromSVG (*svgXml);
     }
 
