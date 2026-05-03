@@ -33,6 +33,7 @@ juce_add_gui_app(AerionDaw
     PRODUCT_NAME "Aerion DAW"
     VERSION 0.1.0
     COMPANY_NAME "Aethos Studio Ltd."
+    BUNDLE_ID "com.aethos.aeriondaw"
     ICON_BIG "Resources/logo.svg"
     ICON_SMALL "Resources/logo.svg"
 )
@@ -116,10 +117,9 @@ if (WIN32)
     set(CPACK_NSIS_MENU_LINKS "Aerion DAW.exe" "Aerion DAW")
     set(CPACK_CREATE_DESKTOP_LINKS "Aerion DAW")
 
-    # Installer Icon (requires a .ico file in the Resources folder)
-    # If juceaide fails to generate logo.ico from logo.svg, you may need to provide it manually.
-    set(CPACK_NSIS_MUI_ICON "${CMAKE_CURRENT_SOURCE_DIR}/Resources/logo.ico")
-    set(CPACK_NSIS_MUI_UNIICON "${CMAKE_CURRENT_SOURCE_DIR}/Resources/logo.ico")
+    # Installer Icon (using the generated icon from the build artifacts)
+    set(CPACK_NSIS_MUI_ICON "${CMAKE_CURRENT_BINARY_DIR}/AerionDaw_artefacts/JuceLibraryCode/icon.ico")
+    set(CPACK_NSIS_MUI_UNIICON "${CMAKE_CURRENT_BINARY_DIR}/AerionDaw_artefacts/JuceLibraryCode/icon.ico")
     
     include(CPack)
 endif()

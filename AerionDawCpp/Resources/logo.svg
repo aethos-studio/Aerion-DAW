@@ -2,7 +2,7 @@
   <!-- No background rect to allow for transparency -->
 
   <!-- Logo Icon Section -->
-  <g transform="translate(512, 512)">
+  <g transform="translate(512, 512) scale(1.5)">
     <!-- Arctic Blue and Steel Glow Rings -->
     <circle cx="0" cy="0" r="480" fill="url(#glow_arctic)" fill-opacity="0.4" />
     <circle cx="0" cy="0" r="420" fill="url(#glow_steel)" fill-opacity="0.5" />
