@@ -125,6 +125,18 @@ with a mocked transcription so the UI flow can be exercised end-to-end. The
 ONNX dependency is declared in `CMakeLists.txt` but not built from source — a
 prebuilt ONNX Runtime should be linked in for production use.
 
+## Code Signing (Windows)
+
+To prevent anti-virus programs from flagging the DAW as malicious, you should digitally sign the executable and the installer.
+
+1. **Obtain a Certificate:** You need a Windows Code Signing Certificate (usually a `.pfx` file).
+2. **Use SignTool:** This tool is included in the Windows SDK.
+3. **Run the Command:**
+   ```powershell
+   signtool sign /f "path/to/your/certificate.pfx" /p "your_password" /tr http://timestamp.digicert.com /td sha256 /fd sha256 "Aerion DAW.exe"
+   ```
+4. **Sign the Installer:** Don't forget to also sign the generated installer `.exe`.
+
 ## License
 
 This project is licensed under the terms found in the `LICENSE` file.
