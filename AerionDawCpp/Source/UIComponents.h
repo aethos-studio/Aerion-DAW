@@ -289,10 +289,13 @@ class PluginManagerWindow : public juce::DocumentWindow
 {
 public:
     PluginManagerWindow (tracktion::Track* t, AudioEngineManager& ae)
-        : DocumentWindow (t->getName() + " - Plugins", Theme::bgBase, DocumentWindow::closeButton),
+        : DocumentWindow (t->getName() + " — Plugins", Theme::bgPanel,
+                          DocumentWindow::closeButton | DocumentWindow::minimiseButton),
           track (t), audioEngine (ae)
     {
-        setUsingNativeTitleBar (true);
+        setUsingNativeTitleBar (false);
+        setTitleBarHeight (28);
+        setColour (DocumentWindow::textColourId, Theme::textMain);
         setSize (350, 450);
         
         auto* content = new Content (t, ae);
@@ -1179,22 +1182,36 @@ public:
 
     void mouseDrag (const juce::MouseEvent& e) override
     {
-        if (tab != Tab::files) return;
         if (e.getDistanceFromDragStart() < 8) return;
 
         for (int i = 0; i < rowBounds.size(); ++i)
         {
-            if (rowBounds[i].contains (e.getMouseDownPosition()))
+            if (! rowBounds[i].contains (e.getMouseDownPosition()))
+                continue;
+
+            if (tab == Tab::plugins && i < rowDescs.size())
+            {
+                // Internal JUCE drag so Timeline/Mixer can receive it with position data
+                auto* ddc = juce::DragAndDropContainer::findParentDragContainerFor (this);
+                if (ddc != nullptr)
+                {
+                    juce::String payload = "PLUGIN:" + rowDescs[i].createIdentifierString();
+                    ddc->startDragging (payload, this, juce::ScaledImage{}, true);
+                }
+                return;
+            }
+
+            if (tab == Tab::files && i < rowFiles.size())
             {
                 auto& f = rowFiles.getReference (i);
                 if (f.existsAsFile() && ! f.isDirectory())
                 {
                     juce::DragAndDropContainer::performExternalDragDropOfFiles (
                         { f.getFullPathName() }, false, this);
-                    return;
                 }
-                break;
+                return;
             }
+            break;
         }
     }
 
@@ -1633,6 +1650,7 @@ private:
 //==============================================================================
 class Timeline : public juce::Component,
                  public juce::FileDragAndDropTarget,
+                 public juce::DragAndDropTarget,
                  public juce::ScrollBar::Listener,
                  public juce::ValueTree::Listener
 {
@@ -1648,7 +1666,13 @@ public:
     std::function<void(juce::Array<tracktion::Track*>)> onSelectionChanged;
     std::function<void()> onAddTrack;
     std::function<void()> onAddFolder;
-    std::function<void(const juce::File&)> onImportFile;
+    std::function<void(const juce::File&)> onImportFile; // legacy single-file path (menu import)
+    // Studio-One-style drop: files + target track (nullptr = create new) + time position
+    std::function<void(const juce::Array<juce::File>&,
+                       tracktion::AudioTrack*,
+                       double)> onImportFiles;
+    // Plugin dropped on a track header from the Browser Plugins tab
+    std::function<void(tracktion::Track*, const juce::PluginDescription&)> onPluginDroppedOnTrack;
 
     Timeline(AudioEngineManager& ae, ProjectData& pd) : audioEngine(ae), projectData(pd)
     {
@@ -1710,13 +1734,111 @@ public:
     enum class DragMode { none, move, trimLeft, trimRight };
     DragMode dragMode = DragMode::none;
 
-    // FileDragAndDropTarget methods
-    bool isInterestedInFileDrag (const juce::StringArray& files) override { return true; }
+    // ── FileDragAndDropTarget ────────────────────────────────────────────────
+    bool isInterestedInFileDrag (const juce::StringArray&) override { return true; }
+
+    void fileDragEnter (const juce::StringArray& files, int x, int y) override
+    {
+        fileDragFiles  = files;
+        fileDragActive = true;
+        updateFileDragState (x, y);
+        repaint();
+    }
+
+    void fileDragMove (const juce::StringArray& files, int x, int y) override
+    {
+        fileDragFiles = files;
+        updateFileDragState (x, y);
+        repaint();
+    }
+
+    void fileDragExit (const juce::StringArray&) override
+    {
+        fileDragActive       = false;
+        fileDragTargetRowIdx = -1;
+        repaint();
+    }
+
     void filesDropped (const juce::StringArray& files, int x, int y) override
     {
-        if (onImportFile)
-            for (auto& f : files)
-                onImportFile (juce::File (f));
+        fileDragActive = false;
+        updateFileDragState (x, y);
+
+        juce::Array<juce::File> fileArray;
+        for (auto& s : files)
+            fileArray.add (juce::File (s));
+
+        tracktion::AudioTrack* targetTrack = nullptr;
+        if (fileDragTargetRowIdx >= 0)
+        {
+            auto rows = getVisibleRows();
+            if (fileDragTargetRowIdx < rows.size())
+                targetTrack = dynamic_cast<tracktion::AudioTrack*> (rows[fileDragTargetRowIdx].track);
+        }
+
+        if (onImportFiles)
+            onImportFiles (fileArray, targetTrack, fileDragSnappedTime);
+        else if (onImportFile)               // fallback for legacy callers
+            for (auto& f : fileArray)
+                onImportFile (f);
+
+        fileDragTargetRowIdx = -1;
+        repaint();
+    }
+
+    // ── DragAndDropTarget (plugin drag from Browser) ─────────────────────────
+    bool isInterestedInDragSource (const juce::DragAndDropTarget::SourceDetails& d) override
+    {
+        return d.description.toString().startsWith ("PLUGIN:");
+    }
+
+    void itemDragEnter (const juce::DragAndDropTarget::SourceDetails& d) override
+    {
+        pluginDragActive = true;
+        updatePluginDragTarget (d.localPosition.x, d.localPosition.y);
+        repaint();
+    }
+
+    void itemDragMove (const juce::DragAndDropTarget::SourceDetails& d) override
+    {
+        updatePluginDragTarget (d.localPosition.x, d.localPosition.y);
+        repaint();
+    }
+
+    void itemDragExit (const juce::DragAndDropTarget::SourceDetails&) override
+    {
+        pluginDragActive    = false;
+        pluginDragTargetRow = -1;
+        repaint();
+    }
+
+    void itemDropped (const juce::DragAndDropTarget::SourceDetails& d) override
+    {
+        pluginDragActive = false;
+        updatePluginDragTarget (d.localPosition.x, d.localPosition.y);
+
+        if (pluginDragTargetRow >= 0 && onPluginDroppedOnTrack)
+        {
+            auto rows = getVisibleRows();
+            if (pluginDragTargetRow < rows.size())
+            {
+                auto* track = rows[pluginDragTargetRow].track;
+                juce::String idStr = d.description.toString()
+                                         .fromFirstOccurrenceOf ("PLUGIN:", false, false);
+                auto& known = audioEngine.getEngine().getPluginManager().knownPluginList;
+                for (auto& t : known.getTypes())
+                {
+                    if (t.createIdentifierString() == idStr)
+                    {
+                        onPluginDroppedOnTrack (track, t);
+                        break;
+                    }
+                }
+            }
+        }
+
+        pluginDragTargetRow = -1;
+        repaint();
     }
 
     void scrollBarMoved (juce::ScrollBar* bar, double newRangeStart) override
@@ -1881,6 +2003,72 @@ public:
                 {
                     g.setColour (Theme::active);
                     g.fillRect (0.0f, (float) dropPreviewY - 1.0f, (float) (getWidth() - kVScrollW), 2.0f);
+                }
+            }
+
+            // ── File-drag ghost preview ───────────────────────────────────
+            if (fileDragActive)
+            {
+                auto rows = getVisibleRows();
+                float gx  = timeToX (fileDragSnappedTime);
+                float gw  = juce::jmax (20.0f, (float) (fileDragPreviewLength * pxPerSec));
+
+                if (fileDragTargetRowIdx >= 0 && fileDragTargetRowIdx < rows.size())
+                {
+                    auto& row = rows.getReference (fileDragTargetRowIdx);
+                    int ry = kRulerH + row.y - scrollY;
+
+                    // Row highlight
+                    g.setColour (Theme::active.withAlpha (0.12f));
+                    g.fillRect (kHeaderWidth, ry, getWidth() - kHeaderWidth - kVScrollW, row.height);
+                    g.setColour (Theme::active.withAlpha (0.65f));
+                    g.drawRect (kHeaderWidth, ry, getWidth() - kHeaderWidth - kVScrollW, row.height, 1);
+
+                    // Ghost clip
+                    juce::Rectangle<float> gc (gx, (float) ry + 4.0f, gw, (float) row.height - 8.0f);
+                    g.setColour (Theme::active.withAlpha (0.30f));
+                    g.fillRoundedRectangle (gc, 4.0f);
+                    g.setColour (Theme::active.withAlpha (0.85f));
+                    g.drawRoundedRectangle (gc, 4.0f, 1.5f);
+                    g.setColour (Theme::textMain.withAlpha (0.85f));
+                    g.setFont (10.0f);
+                    g.drawText (juce::String (fileDragSnappedTime, 2) + "s",
+                                (int) gx + 5, (int) gc.getY() + 3, 60, 12,
+                                juce::Justification::left);
+                }
+                else
+                {
+                    // New-track zone: draw accent line below last track + ghost shape
+                    int lineY = rows.isEmpty()
+                                    ? laneTop() + 4
+                                    : kRulerH + rows.getLast().y + rows.getLast().height - scrollY + 2;
+                    g.setColour (Theme::active.withAlpha (0.85f));
+                    g.fillRect (kHeaderWidth, lineY, getWidth() - kHeaderWidth - kVScrollW, 2);
+
+                    juce::Rectangle<float> gc (gx, (float) lineY + 3.0f, gw, (float) kTrackH - 8.0f);
+                    g.setColour (Theme::active.withAlpha (0.25f));
+                    g.fillRoundedRectangle (gc, 4.0f);
+                    g.setColour (Theme::active.withAlpha (0.75f));
+                    g.drawRoundedRectangle (gc, 4.0f, 1.5f);
+                }
+            }
+
+            // ── Plugin-drag highlight on track header ─────────────────────
+            if (pluginDragActive && pluginDragTargetRow >= 0)
+            {
+                auto rows = getVisibleRows();
+                if (pluginDragTargetRow < rows.size())
+                {
+                    auto& row = rows.getReference (pluginDragTargetRow);
+                    int ry = kRulerH + row.y - scrollY;
+                    g.setColour (Theme::accent.withAlpha (0.22f));
+                    g.fillRect (0, ry, kHeaderWidth, row.height);
+                    g.setColour (Theme::accent.withAlpha (0.90f));
+                    g.drawRect (0, ry, kHeaderWidth, row.height, 2);
+                    g.setColour (Theme::textMain);
+                    g.setFont (juce::Font (juce::FontOptions().withHeight (10.0f).withStyle ("Bold")));
+                    g.drawText ("DROP PLUGIN", 0, ry + row.height / 2 - 7,
+                                kHeaderWidth, 14, juce::Justification::centred);
                 }
             }
         }
@@ -2980,6 +3168,17 @@ private:
         return nullptr;
     }
 
+    // ── File-drag ghost state ────────────────────────────────────────────────
+    bool              fileDragActive        = false;
+    juce::StringArray fileDragFiles;
+    double            fileDragSnappedTime   = 0.0;
+    int               fileDragTargetRowIdx  = -1;   // -1 = drop creates new track
+    double            fileDragPreviewLength = 0.0;  // sum of dragged file durations (seconds)
+
+    // ── Plugin-drag state (DragAndDropTarget from Browser) ──────────────────
+    bool pluginDragActive    = false;
+    int  pluginDragTargetRow = -1;
+
     AudioEngineManager& audioEngine;
     ProjectData& projectData;
     double dragOffset = 0.0;
@@ -3014,6 +3213,67 @@ private:
         bool isValid = false;
     };
     TooltipInfo currentTooltip;
+
+    // ── Private helpers ──────────────────────────────────────────────────────
+
+    void updateFileDragState (int x, int y)
+    {
+        // Time position (snapped to beat grid if snap is on)
+        double rawTime = xToTime ((float) x);
+        if (snapEnabled)
+        {
+            auto& ts = audioEngine.getEdit().tempoSequence;
+            auto beats = ts.toBeats (tracktion::TimePosition::fromSeconds (rawTime));
+            double snapped = std::round (beats.inBeats());
+            rawTime = ts.toTime (tracktion::BeatPosition::fromBeats (snapped)).inSeconds();
+        }
+        fileDragSnappedTime = juce::jmax (0.0, rawTime);
+
+        // Which track row is under the cursor?
+        const int virtualY = y - kRulerH + scrollY;
+        auto rows = getVisibleRows();
+        fileDragTargetRowIdx = -1;
+        for (int i = 0; i < rows.size(); ++i)
+        {
+            if (virtualY >= rows[i].y && virtualY < rows[i].y + rows[i].height)
+            {
+                // Only land on audio tracks; folders and others → create new track
+                if (dynamic_cast<tracktion::AudioTrack*> (rows[i].track) != nullptr)
+                    fileDragTargetRowIdx = i;
+                break;
+            }
+        }
+
+        // Ghost clip width = sum of dragged audio file durations
+        fileDragPreviewLength = 0.0;
+        for (auto& s : fileDragFiles)
+        {
+            juce::File f (s);
+            if (f.existsAsFile())
+            {
+                tracktion::AudioFile af (audioEngine.getEngine(), f);
+                double len = af.getLength();
+                if (len > 0.0) fileDragPreviewLength += len;
+            }
+        }
+        if (fileDragPreviewLength <= 0.0)
+            fileDragPreviewLength = 2.0; // fallback width so ghost is visible
+    }
+
+    void updatePluginDragTarget (int x, int y)
+    {
+        if (x >= kHeaderWidth || y < kRulerH || y >= laneBottom())
+        {
+            pluginDragTargetRow = -1;
+            return;
+        }
+        const int virtualY = y - kRulerH + scrollY;
+        auto rows = getVisibleRows();
+        pluginDragTargetRow = -1;
+        for (int i = 0; i < rows.size(); ++i)
+            if (virtualY >= rows[i].y && virtualY < rows[i].y + rows[i].height)
+                { pluginDragTargetRow = i; break; }
+    }
 };
 
 //==============================================================================
@@ -3021,6 +3281,7 @@ private:
 // knob, M/S buttons, a fader with dB readout and meter. Detachable to a floating
 // window via the header pop-out button.
 class Mixer : public juce::Component,
+              public juce::DragAndDropTarget,
               public juce::ValueTree::Listener,
               private juce::Timer
 {
@@ -3039,6 +3300,7 @@ public:
     static constexpr int kMasterGap    = 18;
 
     std::function<void()> onDetachRequested;
+    std::function<void(tracktion::Track*, const juce::PluginDescription&)> onPluginDroppedOnStrip;
     bool detached = false;
 
     std::unique_ptr<juce::Drawable> faderKnobDrawable;
@@ -3217,6 +3479,15 @@ public:
         auto faderArea = inner;
         ::paintFader(g, faderArea, audioEngine, track, tColor, isMaster, faderKnobDrawable.get(), &hit.peakReadoutArea);
         hit.faderArea = faderArea;
+
+        // Plugin-drag hover highlight
+        if (! isMaster && pluginDragHoverTrack == track)
+        {
+            g.setColour (Theme::accent.withAlpha (0.18f));
+            g.fillRoundedRectangle (cb.toFloat(), 4.0f);
+            g.setColour (Theme::accent.withAlpha (0.90f));
+            g.drawRoundedRectangle (cb.toFloat(), 4.0f, 2.0f);
+        }
 
         stripHits.add (hit);
         }
@@ -3445,6 +3716,66 @@ private:
     tracktion::Track*       activeFaderTrack = nullptr;
     float panAtDragStart = 0.0f;
     int   dragStartY     = 0;
+
+    // Plugin drag hover state
+    tracktion::Track* pluginDragHoverTrack = nullptr;
+
+    // ── DragAndDropTarget (plugin drag from Browser) ─────────────────────────
+    bool isInterestedInDragSource (const juce::DragAndDropTarget::SourceDetails& d) override
+    {
+        return d.description.toString().startsWith ("PLUGIN:");
+    }
+    void itemDragEnter (const juce::DragAndDropTarget::SourceDetails& d) override
+    {
+        pluginDragHoverTrack = getStripTrackAt (d.localPosition);
+        repaint();
+    }
+    void itemDragMove (const juce::DragAndDropTarget::SourceDetails& d) override
+    {
+        pluginDragHoverTrack = getStripTrackAt (d.localPosition);
+        repaint();
+    }
+    void itemDragExit (const juce::DragAndDropTarget::SourceDetails&) override
+    {
+        pluginDragHoverTrack = nullptr;
+        repaint();
+    }
+    void itemDropped (const juce::DragAndDropTarget::SourceDetails& d) override
+    {
+        auto* track = getStripTrackAt (d.localPosition);
+        pluginDragHoverTrack = nullptr;
+
+        if (track != nullptr && onPluginDroppedOnStrip)
+        {
+            juce::String idStr = d.description.toString()
+                                     .fromFirstOccurrenceOf ("PLUGIN:", false, false);
+            auto& known = audioEngine.getEngine().getPluginManager().knownPluginList;
+            for (auto& t : known.getTypes())
+            {
+                if (t.createIdentifierString() == idStr)
+                {
+                    onPluginDroppedOnStrip (track, t);
+                    break;
+                }
+            }
+        }
+        repaint();
+    }
+
+    tracktion::Track* getStripTrackAt (juce::Point<int> pos)
+    {
+        // Re-derive strip geometry (stripHits is only valid within a paint() call)
+        auto tracks = audioEngine.getAudioTracks();
+        int x = 12;
+        for (int i = 0; i < tracks.size(); ++i)
+        {
+            juce::Rectangle<int> strip (x, kHeaderH, kStripW, getHeight() - kHeaderH - 8);
+            if (strip.contains (pos))
+                return tracks[i];
+            x += kStripW + kStripGap;
+        }
+        return nullptr;
+    }
 };
 
 //==============================================================================

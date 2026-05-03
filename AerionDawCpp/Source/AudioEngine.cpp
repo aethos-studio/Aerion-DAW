@@ -557,6 +557,38 @@ void AudioEngineManager::importAudioFile (const juce::File& file)
     }
 }
 
+tracktion::WaveAudioClip* AudioEngineManager::insertAudioClipOnTrack (
+    tracktion::AudioTrack* track, const juce::File& file, double startTimeSecs)
+{
+    if (track == nullptr || ! file.existsAsFile()) return nullptr;
+
+    te::AudioFile af (engine, file);
+    double len = af.getLength();
+    if (len <= 0.0) len = 1.0;
+
+    auto clip = track->insertWaveClip (
+        file.getFileNameWithoutExtension(), file,
+        { { te::TimePosition::fromSeconds (startTimeSecs),
+            te::TimeDuration::fromSeconds (len) },
+          te::TimeDuration::fromSeconds (0.0) },
+        false);
+
+    return dynamic_cast<tracktion::WaveAudioClip*> (clip.get());
+}
+
+tracktion::AudioTrack* AudioEngineManager::importAudioFileAtPosition (
+    const juce::File& file, double startTimeSecs)
+{
+    if (! file.existsAsFile()) return nullptr;
+
+    auto* track = addAudioTrack();
+    if (track != nullptr)
+        track->setName (file.getFileNameWithoutExtension());
+
+    insertAudioClipOnTrack (track, file, startTimeSecs);
+    return track;
+}
+
 void AudioEngineManager::saveProject (const juce::File& file)
 {
     if (edit != nullptr)

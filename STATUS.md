@@ -1,14 +1,14 @@
 # Aerion DAW Project Status - May 3, 2026
 
 ## Overview
-Aerion DAW has completed Milestone 1 in full and made significant progress on Milestone 2. Recent sessions focused on correctness fixes to the volume/automation pipeline, track reordering, recording, and new features: Piano Roll editor, waveform browser preview, drag-to-import, and the Google Drive cloud tab.
+Aerion DAW has completed Milestone 1 in full and made significant progress on Milestone 2. Recent sessions focused on the Studio One-style drag & drop workflow, UI polish (collapsible panels, branded plugin windows, animated splash), and project file management.
 
 ## Milestone Progress
 
 | Milestone | Status |
 |---|---|
 | M1: Core Foundation & Stability (v0.3.0) | **Complete** |
-| M2: Asset Management & Cloud Sync (v0.5.0) | **In Progress** (3 of 5 items done) |
+| M2: Asset Management & Cloud Sync (v0.5.0) | **In Progress** (4 of 5 items done) |
 | M3: AI-Enhanced Workflows (v0.8.0) | Not started |
 | M4: Polish & v1.0 Release | Not started |
 
@@ -50,20 +50,44 @@ Aerion DAW has completed Milestone 1 in full and made significant progress on Mi
 - Clicking a file calls `GoogleDriveClient::downloadFile` — fetches to a temp path, delivers to `onFileDownloaded` on the message thread, which calls `audioEngine.importAudioFile`.
 - Login state and file list changes trigger automatic repaints via `onLoginStateChanged` / `onFilesListed` callbacks.
 
+#### Studio One-Style Drag & Drop
+- **Position-aware file drop**: Audio files dropped onto the Timeline land at the exact grid-snapped time position on the target track (or a new track if dropped below all existing tracks).
+- **Ghost preview**: While hovering, a translucent clip rectangle snaps to the beat grid showing the exact drop landing zone. Row highlight shows which track will receive the file.
+- **Consecutive multi-file drop**: Multiple files dropped at once are placed back-to-back without gaps, using each file's actual duration to advance the cursor.
+- **Plugin drag — Track Headers**: Drag a plugin from the Browser's Plugins tab and drop it onto a track header in the Timeline. Plugin window opens immediately.
+- **Plugin drag — Mixer Strips**: Same drag can be dropped onto any strip in the Mixer. Drop highlight animates on hover.
+
 ### UI & Branding
-- **Splash screen**: portrait window (400×550) using `logo_vertical.svg`. Animated circuit-growth lines sized relative to window. 3-second minimum display, 0.5-second fade-out.
-- **Mixer height**: 320 px (was 260).
+
+#### Animated Splash Screen
+- "Spectre from the fog" entrance: four layered fog halos materialize from darkness (frames 0–90), logo rises through the fog (frames 40–120), title fades in staggered (frames 110/130+).
+- Two-color title: "AERION" in off-white (#ebf8ff) + "DAW" in ice blue (#3182ce), using `juce::AttributedString`.
+- Subtitle "BY AETHOS STUDIO" rendered in embedded **Cinzel** typeface (Google Fonts, TTF compiled into BinaryData).
+- Minimum 4-second display, 0.75-second fade-out to black.
+
+#### Collapsible Side Panels
+- Inspector (left) and Browser (right) panels each have a 14 px toggle strip with a directional chevron arrow.
+- Clicking the strip collapses/expands the panel instantly. Arrow direction updates to reflect state.
+- Center Timeline and Mixer expand to fill the reclaimed space.
+
+#### Project Title Bar
+- Window title updates to `<ProjectName> — Aerion DAW` after save or load.
+- Falls back to `Aerion DAW` for unsaved new projects.
+
+#### Plugin Window Branding
+- Plugin windows now use JUCE-rendered (MetalLookAndFeel) title bars — no more white OS bar.
+- Mixer detach window and plugin manager window use dark `bgPanel` background with branded text color.
 
 ---
 
 ## Current Build State
-- **Platform**: Windows 11 (MSVC 2022 Build Tools)
+- **Platform**: Windows 11 (MSVC 2022 Build Tools / VS 2026)
 - **Engine**: Tracktion Engine v3.2 / JUCE 8
 - **Build**: Clean Debug build, no errors or warnings in project sources.
 
 ## Next Steps (priority order)
-1. **Project Syncing** (M2) — background Drive sync of `.aerion` project files
-2. **Quantization** (M2) — grid-snap and MIDI quantize in Piano Roll
+1. **Quantization** (M2) — grid-snap and MIDI quantize in Piano Roll
+2. **Project Syncing** (M2) — background Drive sync of `.aerion` project files
 3. **ONNX Runtime** (M3) — link runtime, wire to `AIManager`
 4. **Real Audio-to-MIDI** (M3) — replace mock with Basic Pitch model
 5. **Stem Separation** (M3) — Demucs/Spleeter integration

@@ -68,6 +68,15 @@ public:
     // Audio Import
     void importAudioFile (const juce::File& file);
 
+    // Insert a clip onto an existing track at a specific time position.
+    tracktion::WaveAudioClip* insertAudioClipOnTrack (tracktion::AudioTrack* track,
+                                                       const juce::File& file,
+                                                       double startTimeSecs);
+
+    // Create a new track and insert the file at the given time position.
+    tracktion::AudioTrack* importAudioFileAtPosition (const juce::File& file,
+                                                      double startTimeSecs);
+
     // Waveform Rendering
     tracktion::SmartThumbnail& getThumbnailForClip (tracktion::WaveAudioClip& clip, juce::Component& componentToRepaint);
 

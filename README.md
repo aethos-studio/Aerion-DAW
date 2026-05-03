@@ -21,6 +21,7 @@ and the UI is composed of native JUCE components.
 - **Build System:** CMake 3.20+
 - **Language:** C++20
 - **Cloud Sync:** Google Drive (OAuth 2.0 + PKCE)
+- **Typography:** Cinzel (Google Fonts, embedded as BinaryData)
 
 ## System Requirements
 
@@ -39,13 +40,17 @@ and the UI is composed of native JUCE components.
 AerionDawCpp/
   CMakeLists.txt
   Resources/
-    logo.svg
-    aethos_logo.svg            Standalone company logo (Celtic Metal aesthetic)
+    aerion_logo.svg            App icon / taskbar icon source (SVG)
+    aerion_logo_vertical.svg   Splash screen logo
+    aerion_fader.svg           Custom fader knob graphic
+    Cinzel-Regular.ttf         Embedded Cinzel typeface (Google Fonts)
+    Aerion_Ico.ico             Windows installer icon
   Source/
-    Main.cpp                  JUCE application entry point
-    MainComponent.{h,cpp}     Top-level window layout
-    UIComponents.h            TopPanel, Sidebar, Browser, Timeline, Mixer, Transport
-    LogoComponent.h           Celtic Metal logo rendering
+    Main.cpp                  JUCE application entry point + SplashWindow
+    SplashWindow.h            Animated fog splash screen (Cinzel typeface)
+    MainComponent.{h,cpp}     Top-level window layout, collapsible panels
+    UIComponents.h            DAWMenuBar, DAWToolbar, Inspector, Browser,
+                              Timeline (D&D + ghost preview), Mixer, Transport
     ProjectData.{h,cpp}       ValueTree-backed project model
     AudioEngine.{h,cpp}       Tracktion Engine + transport wrapper
     GoogleDriveClient.{h,cpp} OAuth/PKCE login, Drive multipart upload, file listing
@@ -75,6 +80,22 @@ AerionDawCpp/build/AerionDaw_artefacts/Debug/Aerion DAW.exe
 ```
 
 > The first configure pulls Tracktion Engine + JUCE (~several minutes). Subsequent builds are incremental.
+
+## Features
+
+| Area | Details |
+| :--- | :--- |
+| **Timeline** | Multi-track audio editing, clip move/trim, waveform thumbnails, automation lanes, track reorder drag |
+| **Drag & Drop** | Studio One-style: ghost clip preview snaps to grid while hovering; drops land at exact position on the target track (or create a new one); consecutive multi-file placement |
+| **Plugin Drag** | Drag from the Browser Plugins tab and drop onto any track header or mixer strip to instantly insert a plugin |
+| **Mixer** | Per-track faders, panning, mute/solo, real-time peak meters, detachable window |
+| **Browser** | Files tab with waveform preview + OS drag; Plugins tab with VST3 scanning; Google Drive Cloud tab |
+| **Piano Roll** | Full MIDI note editor — add, move, resize, delete, snap to grid, scrollable |
+| **Collapsible Panels** | Inspector and Browser panels collapse/expand via a 14 px chevron toggle strip |
+| **Transport** | Play/Stop/Record, tempo, time signature, bars/beats/ticks display |
+| **Project Files** | Save/Load `.aerion` projects; title bar shows project name |
+| **Splash Screen** | Animated fog entrance with Cinzel typeface; minimum 4-second display |
+| **UI Theme** | Celtic Metal dark theme (`MetalLookAndFeel`) throughout, including plugin windows |
 
 ## Architecture
 

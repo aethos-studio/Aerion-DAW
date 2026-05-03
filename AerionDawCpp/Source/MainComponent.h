@@ -7,6 +7,7 @@
 #include "UIComponents.h"
 
 class MainComponent  : public juce::Component,
+                       public juce::DragAndDropContainer,
                        public juce::Timer,
                        public juce::KeyListener,
                        public AudioEngineManager::Listener,
@@ -42,6 +43,7 @@ private:
 
     void detachMixer();
     void reattachMixer();
+    void updateTitleBar();
 
     struct MixerResizer : public juce::Component
     {
@@ -54,6 +56,52 @@ private:
         }
         MainComponent& owner;
         int startHeight = 0;
+    };
+
+    // Thin clickable strip that collapses/expands the adjacent panel
+    struct PanelCollapseBtn : public juce::Component
+    {
+        bool collapsed = false;
+        bool isLeft;   // true = Inspector side, false = Browser side
+        std::function<void()> onClick;
+
+        PanelCollapseBtn (bool left) : isLeft (left)
+        {
+            setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            auto b = getLocalBounds().toFloat();
+            g.setColour (juce::Colour (0xff1a1f2b));
+            g.fillRoundedRectangle (b, 3.0f);
+
+            // Arrow chevron
+            const float cx = b.getCentreX(), cy = b.getCentreY();
+            const float aw = 5.0f, ah = 8.0f;
+            bool pointRight = isLeft ? collapsed : !collapsed;
+            juce::Path arrow;
+            if (pointRight) {
+                arrow.addTriangle (cx - aw * 0.5f, cy - ah * 0.5f,
+                                   cx + aw * 0.5f, cy,
+                                   cx - aw * 0.5f, cy + ah * 0.5f);
+            } else {
+                arrow.addTriangle (cx + aw * 0.5f, cy - ah * 0.5f,
+                                   cx - aw * 0.5f, cy,
+                                   cx + aw * 0.5f, cy + ah * 0.5f);
+            }
+            g.setColour (isMouseOver() ? juce::Colour (0xff63b3ed) : juce::Colour (0xff4a5568));
+            g.fillPath (arrow);
+        }
+
+        void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+        void mouseExit  (const juce::MouseEvent&) override { repaint(); }
+        void mouseUp    (const juce::MouseEvent&) override
+        {
+            collapsed = !collapsed;
+            repaint();
+            if (onClick) onClick();
+        }
     };
 
     AudioEngineManager audioEngine;
@@ -71,7 +119,13 @@ private:
     Transport  transport { audioEngine, projectData };
 
     int mixerHeight = 320;
-    MixerResizer mixerResizer { *this };
+    MixerResizer    mixerResizer    { *this };
+    PanelCollapseBtn inspectorToggle { true  };
+    PanelCollapseBtn browserToggle   { false };
+
+    static constexpr int kInspectorW = 260;
+    static constexpr int kBrowserW   = 270;
+    static constexpr int kToggleW    = 14;
 
     MetalLookAndFeel metalLookAndFeel;
 

@@ -17,6 +17,11 @@ MainComponent::MainComponent()
     addAndMakeVisible (mixer);
     addAndMakeVisible (transport);
     addAndMakeVisible (mixerResizer);
+    addAndMakeVisible (inspectorToggle);
+    addAndMakeVisible (browserToggle);
+
+    inspectorToggle.onClick = [this] { resized(); };
+    browserToggle.onClick   = [this] { resized(); };
 
     audioEngine.addListener (this);
     audioEngine.getEdit().state.addListener (this);
@@ -41,7 +46,7 @@ MainComponent::MainComponent()
     };
 
     browser.onFilePicked = [this] (const juce::File& f) {
-        audioEngine.importAudioFile (f);
+        audioEngine.importAudioFileAtPosition (f, 0.0);
         timeline.repaint();
         mixer.repaint();
     };
@@ -78,8 +83,48 @@ MainComponent::MainComponent()
 
     timeline.onImportFile = [this] (const juce::File& f)
     {
-        audioEngine.importAudioFile (f);
+        audioEngine.importAudioFileAtPosition (f, 0.0); // legacy menu-import path
         timeline.repaint();
+        mixer.repaint();
+    };
+
+    // Studio-One-style drop: place at exact position on specified track (or create new)
+    timeline.onImportFiles = [this] (const juce::Array<juce::File>& files,
+                                      tracktion::AudioTrack* targetTrack,
+                                      double insertTime)
+    {
+        namespace te = tracktion;
+        double cursor = insertTime;
+        for (auto& f : files)
+        {
+            if (targetTrack != nullptr)
+                audioEngine.insertAudioClipOnTrack (targetTrack, f, cursor);
+            else
+                targetTrack = audioEngine.importAudioFileAtPosition (f, cursor);
+
+            te::AudioFile af (audioEngine.getEngine(), f);
+            double len = af.getLength();
+            if (len > 0.0) cursor += len;
+        }
+        timeline.repaint();
+        mixer.repaint();
+    };
+
+    // Plugin dropped on a track header from the Browser Plugins tab
+    timeline.onPluginDroppedOnTrack = [this] (tracktion::Track* track,
+                                               const juce::PluginDescription& desc)
+    {
+        if (auto p = audioEngine.addPluginToTrack (track, desc))
+            p->showWindowExplicitly();
+        timeline.repaint();
+    };
+
+    // Plugin dropped on a mixer strip from the Browser Plugins tab
+    mixer.onPluginDroppedOnStrip = [this] (tracktion::Track* track,
+                                            const juce::PluginDescription& desc)
+    {
+        if (auto p = audioEngine.addPluginToTrack (track, desc))
+            p->showWindowExplicitly();
         mixer.repaint();
     };
 
@@ -211,6 +256,15 @@ void MainComponent::createNewProject()
     currentProjectFile = juce::File();
 }
 
+void MainComponent::updateTitleBar()
+{
+    juce::String title = currentProjectFile.existsAsFile()
+                             ? currentProjectFile.getFileNameWithoutExtension() + " — Aerion DAW"
+                             : "Aerion DAW";
+    if (auto* dw = findParentComponentOfClass<juce::DocumentWindow>())
+        dw->setName (title);
+}
+
 void MainComponent::openProject()
 {
     fileChooser = std::make_unique<juce::FileChooser> ("Open Project...", juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Aerion Projects"), "*.aerion");
@@ -222,6 +276,7 @@ void MainComponent::openProject()
                               {
                                   audioEngine.loadProject (file);
                                   currentProjectFile = file;
+                                  updateTitleBar();
                               }
                           });
 }
@@ -231,6 +286,7 @@ void MainComponent::saveProject()
     if (currentProjectFile.existsAsFile())
     {
         audioEngine.saveProject (currentProjectFile);
+        updateTitleBar();
     }
     else
     {
@@ -251,6 +307,7 @@ void MainComponent::saveProjectAs()
                                       file = file.withFileExtension (".aerion");
                                   audioEngine.saveProject (file);
                                   currentProjectFile = file;
+                                  updateTitleBar();
                               }
                           });
 }
@@ -320,8 +377,21 @@ void MainComponent::resized()
     toolbar.setBounds  (bounds.removeFromTop (40));
     transport.setBounds(bounds.removeFromBottom (60));
 
-    inspector.setBounds (bounds.removeFromLeft (260));
-    browser.setBounds   (bounds.removeFromRight (270));
+    // Inspector (left panel) — collapses to zero width, toggle strip stays visible
+    {
+        const int panelW = inspectorToggle.collapsed ? 0 : kInspectorW;
+        auto strip = bounds.removeFromLeft (panelW + kToggleW);
+        inspector.setBounds (strip.removeFromLeft (panelW));
+        inspectorToggle.setBounds (strip); // remaining kToggleW px
+    }
+
+    // Browser (right panel)
+    {
+        const int panelW = browserToggle.collapsed ? 0 : kBrowserW;
+        auto strip = bounds.removeFromRight (panelW + kToggleW);
+        browserToggle.setBounds (strip.removeFromRight (kToggleW));
+        browser.setBounds (strip);
+    }
 
     auto centerBounds = bounds;
     if (! mixer.detached)
@@ -342,11 +412,13 @@ class MainComponent::MixerWindow : public juce::DocumentWindow
 {
 public:
     MixerWindow (MainComponent& mc)
-        : DocumentWindow ("Mixer", Theme::bgBase,
+        : DocumentWindow ("Mixer — Aerion DAW", Theme::bgPanel,
                           juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton),
           owner (mc)
     {
         setUsingNativeTitleBar (false);
+        setTitleBarHeight (28);
+        setColour (juce::DocumentWindow::textColourId, Theme::textMain);
         setResizable (true, true);
         setContentNonOwned (&mc.mixer, false);
         centreWithSize (1100, 460);

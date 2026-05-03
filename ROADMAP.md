@@ -5,11 +5,12 @@ This document outlines the development path for Aerion DAW, from its current sta
 ## Current State (v0.1.0)
 - **Audio Engine:** Core Tracktion Engine integration. Support for audio/folder tracks, basic transport, and mixer logic.
 - **UI:** High-fidelity **Celtic Metal** interface. Functional Timeline, Mixer (with real-time meters), and Transport components.
-- **Branding:** Established **Aethos Studio** identity with synchronized "Monolith A" assets.
-- **Plugins:** Functional VST3/AU scanning and hosting. Plugins can be added to any track.
+- **Branding:** Established **Aethos Studio** identity with synchronized "Monolith A" assets. Animated fog splash screen with embedded Cinzel typeface.
+- **Plugins:** Functional VST3/AU scanning and hosting. Plugins can be added to any track via the Browser or by drag & drop onto track headers / mixer strips.
 - **Cloud:** Functional Google Drive OAuth 2.0 + PKCE implementation with file listing/upload scaffolding.
 - **AI:** Scaffolding for audio-to-MIDI transcription and stem separation.
-- **Browser:** Functional local file system and plugin navigator.
+- **Browser:** Functional local file system and plugin navigator with waveform preview.
+- **Drag & Drop:** Studio One-style position-aware file drops with ghost preview; plugin drag from Browser to Timeline tracks and Mixer strips.
 - **Architecture:** Model-View-Controller pattern established. Basic Undo/Redo functional via Tracktion Engine.
 
 ---
@@ -29,6 +30,7 @@ This document outlines the development path for Aerion DAW, from its current sta
 - [x] **Google Drive Integration:** Browser "Cloud" tab with login/logout, file listing, and background download-to-import via `GoogleDriveClient::downloadFile`.
 - [x] **Waveform Preview:** `AudioThumbnail`-based waveform preview strip in the Browser (Files tab). Drag-to-import triggers OS file drag via `DragAndDropContainer::performExternalDragDropOfFiles`.
 - [x] **Piano Roll Editor:** Full MIDI note editor (`PianoRollEditor` / `PianoRollWindow`) — opens on double-click of a MIDI clip. Supports add, move, resize, delete, snap, and scrollbars.
+- [x] **Studio One-Style Drag & Drop:** Position-aware audio file drops with ghost preview + grid snap. Plugin drag from Browser to track headers and mixer strips. Consecutive multi-file placement.
 - [ ] **Quantization:** Implement functional grid snapping and MIDI/Audio quantization logic.
 
 ## Milestone 3: AI-Enhanced Workflows (v0.8.0)
