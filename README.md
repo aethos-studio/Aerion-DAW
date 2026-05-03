@@ -22,6 +22,17 @@ and the UI is composed of native JUCE components.
 - **Language:** C++20
 - **Cloud Sync:** Google Drive (OAuth 2.0 + PKCE)
 
+## System Requirements
+
+| Requirement | Minimum | Recommended |
+| :--- | :--- | :--- |
+| **OS** | Windows 10 (64-bit) | Windows 11 (64-bit) |
+| **CPU** | Intel Core i5 / AMD Ryzen 5 | Intel Core i7 / AMD Ryzen 7 |
+| **RAM** | 4 GB | 8 GB or 16 GB |
+| **Graphics** | OpenGL 3.2 compatible | Dedicated GPU / High-res display |
+| **Audio** | Windows Audio / ASIO4ALL | Dedicated Audio Interface (ASIO) |
+| **Storage** | 200 MB (Installation) | 1 GB+ SSD (Projects & Caching) |
+
 ## Repository Layout
 
 ```
