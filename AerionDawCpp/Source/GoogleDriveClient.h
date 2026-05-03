@@ -29,8 +29,13 @@ public:
     // on the message thread.
     void listAudioFiles();
 
+    // Downloads a Drive file to a temp location; result delivered to onFileDownloaded
+    // on the message thread.
+    void downloadFile (const DriveFile& file);
+
     std::function<void (bool loggedIn)> onLoginStateChanged;
     std::function<void (juce::Array<DriveFile>)> onFilesListed;
+    std::function<void (juce::File)> onFileDownloaded;
 
     // Configure these via your Google Cloud OAuth client (Desktop type).
     // The "secret" for desktop apps is not actually secret, but Google's token

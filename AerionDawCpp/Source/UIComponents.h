@@ -930,21 +930,52 @@ private:
 
 //==============================================================================
 // Right-hand placeholder browser.
-class Browser : public juce::Component
+class Browser : public juce::Component,
+                public juce::ChangeListener
 {
 public:
-    Browser (AudioEngineManager& ae) : audioEngine (ae)
+    Browser (AudioEngineManager& ae) : audioEngine (ae),
+                                       thumb (512, formatManager, thumbCache)
     {
+        formatManager.registerBasicFormats();
+        thumb.addChangeListener (this);
+
         currentDir = juce::File::getSpecialLocation (juce::File::userMusicDirectory);
         if (! currentDir.isDirectory())
             currentDir = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
     }
 
-    enum class Tab { plugins, files };
+    ~Browser() override { thumb.removeChangeListener (this); }
+
+    void changeListenerCallback (juce::ChangeBroadcaster*) override { repaint(); }
+
+    enum class Tab { plugins, files, cloud };
 
     std::function<void (const juce::PluginDescription&)> onPluginPicked;
     std::function<void (const juce::File&)>              onFilePicked;
     std::function<void()>                                onRescanRequested;
+
+    void setDriveClient (GoogleDriveClient* client)
+    {
+        driveClient = client;
+        if (driveClient != nullptr)
+        {
+            driveClient->onLoginStateChanged = [this] (bool) { repaint(); };
+            driveClient->onFilesListed = [this] (juce::Array<GoogleDriveClient::DriveFile> files)
+            {
+                driveFiles    = std::move (files);
+                driveLoading  = false;
+                repaint();
+            };
+        }
+    }
+
+    void setDriveFiles (juce::Array<GoogleDriveClient::DriveFile> files)
+    {
+        driveFiles = std::move (files);
+        driveLoading = false;
+        repaint();
+    }
 
     void paint(juce::Graphics& g) override
     {
@@ -976,29 +1007,63 @@ public:
             rescanBtn = {};
         }
 
-        pluginsTabBounds = header.removeFromLeft (header.getWidth() / 2);
-        filesTabBounds   = header;
-
-        bool onPlugins = (tab == Tab::plugins);
-        g.setColour (onPlugins ? Theme::active : juce::Colours::transparentBlack);
-        g.fillRect ((float)pluginsTabBounds.getX(), (float)(pluginsTabBounds.getBottom() - 2),
-                    (float)pluginsTabBounds.getWidth(), 2.0f);
-        g.setColour (onPlugins ? juce::Colours::transparentBlack : Theme::active);
-        g.fillRect ((float)filesTabBounds.getX(), (float)(filesTabBounds.getBottom() - 2),
-                    (float)filesTabBounds.getWidth(), onPlugins ? 0.0f : 2.0f);
+        int third = header.getWidth() / 3;
+        pluginsTabBounds = header.removeFromLeft (third);
+        filesTabBounds   = header.removeFromLeft (third);
+        cloudTabBounds   = header;
 
         g.setFont (juce::Font (11.0f).withStyle (juce::Font::bold));
-        g.setColour (onPlugins ? Theme::active : Theme::textMuted);
-        g.drawText ("Plugins", pluginsTabBounds, juce::Justification::centred);
-        g.setColour (onPlugins ? Theme::textMuted : Theme::active);
-        g.drawText ("Files",   filesTabBounds,   juce::Justification::centred);
+        for (auto [b, label, t] : { std::tuple { pluginsTabBounds, "Plugins", Tab::plugins },
+                                    std::tuple { filesTabBounds,   "Files",   Tab::files   },
+                                    std::tuple { cloudTabBounds,   "Cloud",   Tab::cloud   } })
+        {
+            bool active = (tab == t);
+            g.setColour (active ? Theme::active : Theme::textMuted);
+            g.drawText (label, b, juce::Justification::centred);
+            if (active)
+                g.fillRect ((float)b.getX(), (float)(b.getBottom() - 2), (float)b.getWidth(), 2.0f);
+        }
 
         rowBounds.clearQuick();
         rowDescs.clearQuick();
         rowFiles.clearQuick();
 
         if (tab == Tab::plugins) paintPluginList (g);
-        else                      paintFileList (g);
+        else if (tab == Tab::files) paintFileList (g);
+        else paintCloudTab (g);
+
+        // Waveform preview strip at the bottom (files tab only)
+        if (tab == Tab::files)
+        {
+            auto pa = getLocalBounds().removeFromBottom (kPreviewH);
+            g.setColour (Theme::bgBase);
+            g.fillRect (pa);
+            g.setColour (Theme::border);
+            g.drawLine (0.0f, (float) pa.getY(), (float) getWidth(), (float) pa.getY(), 1.0f);
+
+            if (selectedFile.existsAsFile() && thumb.isFullyLoaded() && thumb.getTotalLength() > 0.0)
+            {
+                auto wa = pa.reduced (8, 10);
+                g.setColour (Theme::active.withAlpha (0.55f));
+                thumb.drawChannels (g, wa.withTrimmedBottom (14), 0.0, thumb.getTotalLength(), 1.0f);
+                g.setColour (Theme::textMuted);
+                g.setFont (juce::Font (9.0f));
+                g.drawText (selectedFile.getFileName(), wa.withTop (wa.getBottom() - 13),
+                            juce::Justification::centred);
+            }
+            else if (selectedFile.existsAsFile())
+            {
+                g.setColour (Theme::textMuted);
+                g.setFont (11.0f);
+                g.drawText ("Loading preview...", pa, juce::Justification::centred);
+            }
+            else
+            {
+                g.setColour (Theme::textMuted.withAlpha (0.5f));
+                g.setFont (11.0f);
+                g.drawText ("Click an audio file to preview", pa, juce::Justification::centred);
+            }
+        }
     }
 
     void paintPluginList (juce::Graphics& g)
@@ -1106,7 +1171,28 @@ public:
                         r.withTrimmedLeft (12), juce::Justification::centredLeft);
 
             y += 22;
-            if (y > getHeight()) break;
+            if (y > getHeight() - kPreviewH) break;
+        }
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (tab != Tab::files) return;
+        if (e.getDistanceFromDragStart() < 8) return;
+
+        for (int i = 0; i < rowBounds.size(); ++i)
+        {
+            if (rowBounds[i].contains (e.getMouseDownPosition()))
+            {
+                auto& f = rowFiles.getReference (i);
+                if (f.existsAsFile() && ! f.isDirectory())
+                {
+                    juce::DragAndDropContainer::performExternalDragDropOfFiles (
+                        { f.getFullPathName() }, false, this);
+                    return;
+                }
+                break;
+            }
         }
     }
 
@@ -1114,6 +1200,37 @@ public:
     {
         if (pluginsTabBounds.contains (e.getPosition())) { tab = Tab::plugins; repaint(); return; }
         if (filesTabBounds.contains   (e.getPosition())) { tab = Tab::files;   repaint(); return; }
+        if (cloudTabBounds.contains   (e.getPosition())) { tab = Tab::cloud;   repaint(); return; }
+
+        if (tab == Tab::cloud && driveClient != nullptr)
+        {
+            if (loginBtnBounds.contains (e.getPosition()))
+            {
+                if (driveClient->isLoggedIn())
+                    driveClient->logout();
+                else
+                    driveClient->login();
+                repaint();
+                return;
+            }
+            if (driveRefreshBtnBounds.contains (e.getPosition()))
+            {
+                driveLoading = true;
+                driveFiles.clear();
+                repaint();
+                driveClient->listAudioFiles();
+                return;
+            }
+            for (int i = 0; i < driveRowBounds.size(); ++i)
+            {
+                if (driveRowBounds[i].contains (e.getPosition()))
+                {
+                    driveClient->downloadFile (driveFiles[i]);
+                    return;
+                }
+            }
+            return;
+        }
 
         if (! rescanBtn.isEmpty() && rescanBtn.contains (e.getPosition()))
         {
@@ -1129,22 +1246,461 @@ public:
                     if (onPluginPicked) onPluginPicked (rowDescs[i]);
                 } else {
                     auto& f = rowFiles.getReference (i);
-                    if (f.isDirectory()) { currentDir = f; repaint(); }
-                    else if (onFilePicked) onFilePicked (f);
+                    if (f.isDirectory()) {
+                        currentDir = f;
+                        selectedFile = juce::File();
+                        repaint();
+                    } else {
+                        if (f != selectedFile) {
+                            selectedFile = f;
+                            thumb.setSource (new juce::FileInputSource (f));
+                        }
+                        if (onFilePicked) onFilePicked (f);
+                        repaint();
+                    }
                 }
                 return;
             }
     }
 
+    void paintCloudTab (juce::Graphics& g)
+    {
+        int y = 40;
+        int W = getWidth();
+
+        if (driveClient == nullptr)
+        {
+            g.setColour (Theme::textMuted);
+            g.setFont (11.0f);
+            g.drawText ("Google Drive not configured.", 12, y, W - 24, 22,
+                        juce::Justification::centredLeft);
+            return;
+        }
+
+        bool loggedIn = driveClient->isLoggedIn();
+
+        // Login / logout button
+        loginBtnBounds = { 8, y, W - 16, 24 };
+        g.setColour (loggedIn ? Theme::border : Theme::active);
+        g.fillRoundedRectangle (loginBtnBounds.toFloat(), 3.0f);
+        g.setColour (Theme::textMain);
+        g.setFont (juce::Font (11.0f).withStyle (juce::Font::bold));
+        g.drawText (loggedIn ? "Disconnect" : "Connect to Google Drive",
+                    loginBtnBounds, juce::Justification::centred);
+        y += 32;
+
+        if (! loggedIn)
+            return;
+
+        // Refresh button
+        driveRefreshBtnBounds = { 8, y, W - 16, 20 };
+        g.setColour (Theme::surface);
+        g.fillRoundedRectangle (driveRefreshBtnBounds.toFloat(), 2.0f);
+        g.setColour (Theme::textMuted);
+        g.setFont (10.0f);
+        g.drawText ("Refresh", driveRefreshBtnBounds, juce::Justification::centred);
+        y += 26;
+
+        if (driveLoading)
+        {
+            g.setColour (Theme::textMuted);
+            g.setFont (11.0f);
+            g.drawText ("Loading...", 12, y, W - 24, 22, juce::Justification::centredLeft);
+            return;
+        }
+
+        if (driveFiles.isEmpty())
+        {
+            g.setColour (Theme::textMuted);
+            g.setFont (11.0f);
+            g.drawText ("No audio files found. Click Refresh.", 12, y, W - 24, 22,
+                        juce::Justification::centredLeft);
+            return;
+        }
+
+        driveRowBounds.clear();
+        g.setFont (11.0f);
+        for (const auto& f : driveFiles)
+        {
+            juce::Rectangle<int> r (8, y, W - 16, 22);
+            driveRowBounds.add (r);
+            g.setColour (Theme::textMain);
+            g.drawText (f.name, r.withTrimmedLeft (8), juce::Justification::centredLeft);
+            g.setColour (Theme::textMuted);
+            g.setFont (9.0f);
+            g.drawText (f.mimeType, r.withTrimmedRight (4), juce::Justification::centredRight);
+            g.setFont (11.0f);
+            y += 22;
+            if (y > getHeight()) break;
+        }
+    }
+
 private:
+    static constexpr int kPreviewH = 80;
+
     AudioEngineManager& audioEngine;
     Tab                  tab { Tab::plugins };
     juce::File           currentDir;
+    juce::File           selectedFile;
 
-    juce::Rectangle<int> rescanBtn, pluginsTabBounds, filesTabBounds;
+    juce::AudioFormatManager  formatManager;
+    juce::AudioThumbnailCache thumbCache { 10 };
+    juce::AudioThumbnail      thumb;
+
+    GoogleDriveClient*                        driveClient         = nullptr;
+    juce::Array<GoogleDriveClient::DriveFile> driveFiles;
+    bool                                      driveLoading        = false;
+    juce::Rectangle<int>                      loginBtnBounds;
+    juce::Rectangle<int>                      driveRefreshBtnBounds;
+    juce::Array<juce::Rectangle<int>>         driveRowBounds;
+
+    juce::Rectangle<int> rescanBtn, pluginsTabBounds, filesTabBounds, cloudTabBounds;
     juce::Array<juce::Rectangle<int>>    rowBounds;
     juce::Array<juce::PluginDescription> rowDescs;
     juce::Array<juce::File>              rowFiles;
+};
+
+//==============================================================================
+// Piano Roll editor — opens when the user double-clicks an existing MIDI clip.
+class PianoRollEditor : public juce::Component,
+                        public juce::Timer,
+                        public juce::ScrollBar::Listener
+{
+public:
+    PianoRollEditor (tracktion::MidiClip& clip, tracktion::Edit& edit)
+        : midiClip (clip), edit (edit)
+    {
+        addAndMakeVisible (hScroll);
+        addAndMakeVisible (vScroll);
+        hScroll.setAutoHide (false);
+        vScroll.setAutoHide (false);
+        hScroll.addListener (this);
+        vScroll.addListener (this);
+        scrollY = (127 - 72) * kRowH;   // open near C4
+        startTimerHz (30);
+    }
+
+    ~PianoRollEditor() override { stopTimer(); }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (Theme::bgBase);
+        auto ga = gridArea();
+        drawGrid (g, ga);
+        drawNotes (g, ga);
+        drawPianoKeys (g);
+        // Clip-length end marker
+        g.setColour (Theme::active.withAlpha (0.4f));
+        float endX = beatToX (clipLengthBeats());
+        if (endX > (float) kKeyW && endX < (float) ga.getRight())
+            g.fillRect (endX, (float) kHdrH, 2.0f, (float) ga.getHeight());
+    }
+
+    void resized() override
+    {
+        hScroll.setBounds (getLocalBounds().removeFromBottom (14).withTrimmedLeft (kKeyW));
+        vScroll.setBounds (getLocalBounds().removeFromRight (14).withTrimmedTop (kHdrH));
+        updateScrollRanges();
+    }
+
+    void scrollBarMoved (juce::ScrollBar* bar, double v) override
+    {
+        if (bar == &hScroll) viewBeat = v;
+        else                 scrollY  = (int) v;
+        repaint();
+    }
+
+    void timerCallback() override { repaint(); }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        auto ga = gridArea();
+        if (e.y < kHdrH || e.x < kKeyW) return;
+
+        float beat = xToBeat (e.x);
+        int   note = yToNote (e.y);
+
+        if (e.mods.isRightButtonDown())
+        {
+            for (auto* n : midiClip.getSequence().getNotes())
+                if (noteRect (n, ga).contains (e.position))
+                    { midiClip.getSequence().removeNote (*n, &edit.getUndoManager()); repaint(); return; }
+            return;
+        }
+
+        for (auto* n : midiClip.getSequence().getNotes())
+        {
+            if (noteRect (n, ga).contains (e.position))
+            {
+                dragging = n;
+                dragBeat0 = beat;
+                dragNote0 = note;
+                origStart = n->getStartBeat().inBeats();
+                origNote  = n->getNoteNumber();
+                origLen   = n->getLengthBeats().inBeats();
+                // Check if near the right edge for resize
+                auto r = noteRect (n, ga);
+                resizing = (e.x > r.getRight() - 6);
+                return;
+            }
+        }
+
+        // Add note
+        double snapped = snapBeat (beat);
+        midiClip.getSequence().addNote (note,
+            tracktion::BeatPosition::fromBeats (snapped),
+            tracktion::BeatDuration::fromBeats (noteLen),
+            100, 0, &edit.getUndoManager());
+        updateScrollRanges();
+        repaint();
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (dragging == nullptr) return;
+        float beat = xToBeat (e.x);
+        int   note = yToNote (e.y);
+
+        if (resizing)
+        {
+            double newLen = juce::jmax (noteLen * 0.5, (double)(beat - origStart));
+            dragging->setStartAndLength (
+                tracktion::BeatPosition::fromBeats (origStart),
+                tracktion::BeatDuration::fromBeats (snapBeat (newLen)),
+                &edit.getUndoManager());
+        }
+        else
+        {
+            double newStart = juce::jmax (0.0, origStart + (beat - dragBeat0));
+            int    newNote  = juce::jlimit (0, 127, origNote + (note - dragNote0));
+            dragging->setStartAndLength (
+                tracktion::BeatPosition::fromBeats (snapBeat (newStart)),
+                tracktion::BeatDuration::fromBeats (origLen),
+                &edit.getUndoManager());
+            dragging->setNoteNumber (newNote, &edit.getUndoManager());
+        }
+        updateScrollRanges();
+        repaint();
+    }
+
+    void mouseUp (const juce::MouseEvent&) override { dragging = nullptr; resizing = false; }
+
+    void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
+    {
+        if (e.mods.isCtrlDown())
+            pxPerBeat = juce::jlimit (20.0, 400.0, pxPerBeat * (1.0 + w.deltaY * 0.15));
+        else if (e.mods.isShiftDown())
+            viewBeat = juce::jmax (0.0, viewBeat - w.deltaY * 2.0);
+        else
+            scrollY = juce::jlimit (0, juce::jmax (0, 128 * kRowH - gridArea().getHeight()),
+                                    scrollY - (int)(w.deltaY * 40.0));
+        updateScrollRanges();
+        repaint();
+    }
+
+    // Note grid snap interval (in beats): 1=quarter, 0.5=8th, 0.25=16th
+    double noteLen = 0.5;
+
+private:
+    static constexpr int kKeyW = 44;
+    static constexpr int kRowH = 12;
+    static constexpr int kHdrH = 24;
+
+    tracktion::MidiClip& midiClip;
+    tracktion::Edit&     edit;
+
+    juce::ScrollBar hScroll { false }, vScroll { true };
+    double viewBeat = 0.0;
+    int    scrollY  = 0;
+    double pxPerBeat = 80.0;
+
+    tracktion::MidiNote* dragging  = nullptr;
+    bool resizing = false;
+    float  dragBeat0 = 0;
+    int    dragNote0 = 0;
+    double origStart = 0, origLen = 0;
+    int    origNote  = 0;
+
+    juce::Rectangle<int> gridArea() const
+    {
+        return { kKeyW, kHdrH, getWidth() - kKeyW - 14, getHeight() - kHdrH - 14 };
+    }
+
+    double visibleBeats() const { return gridArea().getWidth() / pxPerBeat; }
+
+    double clipLengthBeats() const
+    {
+        auto& ts = edit.tempoSequence;
+        auto  t  = midiClip.getPosition().getLength();
+        return ts.toBeats (midiClip.getPosition().getStart() + t).inBeats()
+             - ts.toBeats (midiClip.getPosition().getStart()).inBeats();
+    }
+
+    double contentBeats() const
+    {
+        double mx = clipLengthBeats();
+        for (auto* n : midiClip.getSequence().getNotes())
+            mx = juce::jmax (mx, n->getEndBeat().inBeats());
+        return mx + 4.0;
+    }
+
+    float beatToX (double beat) const { return (float)(kKeyW + (beat - viewBeat) * pxPerBeat); }
+    float xToBeat (int x)       const { return (float)((x - kKeyW) / pxPerBeat + viewBeat); }
+    int   noteToY (int note)    const { return kHdrH + (127 - note) * kRowH - scrollY; }
+    int   yToNote (int y)       const { return juce::jlimit (0, 127, 127 - (y - kHdrH + scrollY) / kRowH); }
+    double snapBeat (double b)  const { return std::round (b / noteLen) * noteLen; }
+
+    juce::Rectangle<float> noteRect (tracktion::MidiNote* n, juce::Rectangle<int>) const
+    {
+        float x = beatToX (n->getStartBeat().inBeats());
+        float y = (float) noteToY (n->getNoteNumber());
+        float w = juce::jmax (3.0f, (float)(n->getLengthBeats().inBeats() * pxPerBeat) - 1.0f);
+        return { x, y + 1.0f, w, (float) kRowH - 2.0f };
+    }
+
+    void updateScrollRanges()
+    {
+        double total = contentBeats();
+        hScroll.setRangeLimits (0.0, total);
+        hScroll.setCurrentRange (viewBeat, visibleBeats(), juce::dontSendNotification);
+        int totalH = 128 * kRowH;
+        int visH   = gridArea().getHeight();
+        vScroll.setRangeLimits (0, totalH);
+        vScroll.setCurrentRange (scrollY, visH, juce::dontSendNotification);
+    }
+
+    void drawGrid (juce::Graphics& g, juce::Rectangle<int> ga)
+    {
+        // Row backgrounds
+        for (int note = 0; note <= 127; ++note)
+        {
+            int y = noteToY (note);
+            if (y + kRowH < ga.getY() || y > ga.getBottom()) continue;
+            bool black = isBlackKey (note);
+            g.setColour (black ? Theme::bgBase.darker (0.25f) : Theme::bgPanel.withAlpha (0.35f));
+            g.fillRect (ga.getX(), y, ga.getWidth(), kRowH - 1);
+            if (note % 12 == 0)
+            {
+                g.setColour (Theme::border.withAlpha (0.6f));
+                g.drawLine ((float) ga.getX(), (float) y, (float) ga.getRight(), (float) y, 1.0f);
+            }
+        }
+
+        // Ruler + beat lines
+        g.setColour (Theme::bgPanel.darker (0.3f));
+        g.fillRect (kKeyW, 0, getWidth() - kKeyW, kHdrH);
+
+        double firstBeat = std::floor (viewBeat);
+        double lastBeat  = viewBeat + visibleBeats() + 1.0;
+        for (double b = firstBeat; b <= lastBeat; b += noteLen)
+        {
+            float x = beatToX (b);
+            if (x < ga.getX() || x > ga.getRight()) continue;
+            bool isBar = (std::fmod (b, 4.0) < 0.001);
+            bool isBeat = (std::fmod (b, 1.0) < 0.001);
+            g.setColour (isBar ? Theme::border.brighter (0.2f)
+                               : isBeat ? Theme::border : Theme::border.withAlpha (0.2f));
+            g.drawLine (x, (float) kHdrH, x, (float) ga.getBottom(), 1.0f);
+            if (isBeat)
+            {
+                g.setColour (isBar ? Theme::textMain : Theme::textMuted);
+                g.setFont (isBar ? juce::Font (10.0f).boldened() : juce::Font (9.0f));
+                g.drawText (juce::String ((int) std::round (b) + 1), (int) x + 3, 5, 30, 14, juce::Justification::left);
+            }
+        }
+        g.setColour (Theme::border);
+        g.drawLine ((float) kKeyW, (float) kHdrH, (float) kKeyW, (float) ga.getBottom());
+    }
+
+    void drawNotes (juce::Graphics& g, juce::Rectangle<int> ga)
+    {
+        for (auto* n : midiClip.getSequence().getNotes())
+        {
+            auto r = noteRect (n, ga);
+            if (r.getRight() < ga.getX() || r.getX() > ga.getRight()) continue;
+            if (r.getBottom() < ga.getY() || r.getY() > ga.getBottom()) continue;
+            auto col = (n == dragging) ? Theme::active.brighter (0.3f) : Theme::active;
+            g.setColour (col);
+            g.fillRoundedRectangle (r, 2.0f);
+            g.setColour (col.darker (0.4f));
+            g.drawRoundedRectangle (r, 2.0f, 1.0f);
+            if (r.getWidth() > 18.0f)
+            {
+                g.setColour (juce::Colours::black.withAlpha (0.75f));
+                g.setFont (juce::Font (8.5f));
+                g.drawText (noteName (n->getNoteNumber()), r.getX() + 3, r.getY(), (int) r.getWidth(), kRowH, juce::Justification::centredLeft);
+            }
+        }
+    }
+
+    void drawPianoKeys (juce::Graphics& g)
+    {
+        g.setColour (Theme::surface);
+        g.fillRect (0, kHdrH, kKeyW, getHeight() - kHdrH);
+
+        for (int note = 0; note <= 127; ++note)
+        {
+            int y = noteToY (note);
+            if (y + kRowH < 0 || y > getHeight()) continue;
+            bool black = isBlackKey (note);
+            if (!black)
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.88f));
+                g.fillRect (1, y + 1, kKeyW - 3, kRowH - 2);
+                g.setColour (Theme::border.withAlpha (0.4f));
+                g.drawRect (1, y + 1, kKeyW - 3, kRowH - 2);
+                if (note % 12 == 0)
+                {
+                    g.setColour (Theme::bgBase.withAlpha (0.75f));
+                    g.setFont (juce::Font (7.5f));
+                    g.drawText ("C" + juce::String (note / 12 - 1), 3, y + 2, kKeyW - 8, kRowH - 4, juce::Justification::left);
+                }
+            }
+            else
+            {
+                g.setColour (juce::Colour (0xff1a1a1a));
+                g.fillRect (1, y + 1, kKeyW * 2 / 3, kRowH - 1);
+            }
+        }
+        g.setColour (Theme::border);
+        g.drawLine ((float) kKeyW, (float) kHdrH, (float) kKeyW, (float) getHeight(), 1.5f);
+    }
+
+    static bool isBlackKey (int note) noexcept
+    {
+        int n = note % 12;
+        return (n == 1 || n == 3 || n == 6 || n == 8 || n == 10);
+    }
+
+    static juce::String noteName (int note)
+    {
+        const char* names[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+        return juce::String (names[note % 12]) + juce::String (note / 12 - 1);
+    }
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoRollEditor)
+};
+
+class PianoRollWindow : public juce::DocumentWindow
+{
+public:
+    PianoRollWindow (tracktion::MidiClip& clip, tracktion::Edit& edit)
+        : DocumentWindow (clip.getName() + "  —  Piano Roll",
+                          Theme::bgBase, DocumentWindow::allButtons, true)
+    {
+        editor = std::make_unique<PianoRollEditor> (clip, edit);
+        setUsingNativeTitleBar (false);
+        setResizable (true, false);
+        setContentNonOwned (editor.get(), true);
+        centreWithSize (960, 560);
+        setVisible (true);
+    }
+
+    void closeButtonPressed() override { delete this; }
+
+private:
+    std::unique_ptr<PianoRollEditor> editor;
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoRollWindow)
 };
 
 //==============================================================================
@@ -2411,6 +2967,17 @@ public:
 
             if (auto* a = dynamic_cast<tracktion::AudioTrack*>(row.track))
             {
+                // If clicking an existing MIDI clip, open the Piano Roll.
+                if (auto* existingClip = getClipAt (e.getPosition()))
+                {
+                    if (auto* midi = dynamic_cast<tracktion::MidiClip*>(existingClip))
+                    {
+                        auto* win = new PianoRollWindow (*midi, audioEngine.getEdit());
+                        (void) win;   // owned by the OS window system; closes via delete this
+                        return;
+                    }
+                }
+                // Empty space — insert a new 2-bar MIDI clip.
                 const double t0 = xToTime ((float) e.x);
                 tracktion::TimeRange range (tracktion::TimePosition::fromSeconds (juce::jmax (0.0, t0)),
                                             tracktion::TimeDuration::fromSeconds (2.0));

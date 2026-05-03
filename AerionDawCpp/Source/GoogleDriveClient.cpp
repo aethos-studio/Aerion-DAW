@@ -335,6 +335,43 @@ void GoogleDriveClient::listAudioFiles()
     });
 }
 
+void GoogleDriveClient::downloadFile (const DriveFile& file)
+{
+    if (! isLoggedIn())
+        return;
+
+    juce::Thread::launch ([this, file]
+    {
+        auto url = juce::URL ("https://www.googleapis.com/drive/v3/files/" + file.id)
+                       .withParameter ("alt", "media");
+
+        juce::StringPairArray headers;
+        headers.set ("Authorization", "Bearer " + accessToken);
+
+        const auto options = juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
+                                 .withExtraHeaders (headers.getDescription())
+                                 .withHttpRequestCmd ("GET");
+
+        auto stream = url.createInputStream (options);
+        if (stream == nullptr)
+            return;
+
+        auto ext = file.name.fromLastOccurrenceOf (".", true, false);
+        auto tmp = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                       .getChildFile ("AerionDaw_" + file.id + ext);
+
+        {
+            juce::FileOutputStream out (tmp);
+            if (! out.openedOk())
+                return;
+            out.writeFromInputStream (*stream, -1);
+        }
+
+        if (onFileDownloaded)
+            juce::MessageManager::callAsync ([cb = onFileDownloaded, tmp] { cb (tmp); });
+    });
+}
+
 void GoogleDriveClient::saveTokens()
 {
     const auto file = getTokenFile();

@@ -43,6 +43,14 @@ MainComponent::MainComponent()
         mixer.repaint();
     };
 
+    driveClient.onFileDownloaded = [this] (const juce::File& f) {
+        audioEngine.importAudioFile (f);
+        timeline.repaint();
+        mixer.repaint();
+    };
+
+    browser.setDriveClient (&driveClient);
+
     toolbar.onToggleSnap = [this] {
         timeline.snapEnabled = toolbar.snapEnabled;
     };
