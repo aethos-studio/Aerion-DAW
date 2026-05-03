@@ -35,7 +35,7 @@ juce_add_gui_app(AerionDaw
     COMPANY_NAME "Aethos Studio Ltd."
     BUNDLE_ID "com.aethos.aeriondaw"
     ICON_BIG "Resources/aerion_logo.svg"
-    ICON_SMALL "Resources/Aerion_Ico.ico"
+    ICON_SMALL "Resources/aerion_logo.svg"
 )
 
 juce_add_binary_data(AerionDawResources
