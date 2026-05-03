@@ -28,7 +28,6 @@ This document outlines the development path for Aerion DAW, from its current sta
 
 - [x] **Google Drive Integration:** Browser "Cloud" tab with login/logout, file listing, and background download-to-import via `GoogleDriveClient::downloadFile`.
 - [x] **Waveform Preview:** `AudioThumbnail`-based waveform preview strip in the Browser (Files tab). Drag-to-import triggers OS file drag via `DragAndDropContainer::performExternalDragDropOfFiles`.
-- [ ] **Project Syncing:** Implement automatic background syncing of project files and local assets to Google Drive.
 - [x] **Piano Roll Editor:** Full MIDI note editor (`PianoRollEditor` / `PianoRollWindow`) — opens on double-click of a MIDI clip. Supports add, move, resize, delete, snap, and scrollbars.
 - [ ] **Quantization:** Implement functional grid snapping and MIDI/Audio quantization logic.
 
@@ -58,3 +57,4 @@ This document outlines the development path for Aerion DAW, from its current sta
 - **Mobile Companion App:** Remote transport and mixer control via tablet.
 - **Expanded AI:** Generative MIDI tools and AI-driven synthesis.
 - **Video Support:** Video playback track for film scoring workflows.
+- **Project Syncing:** Implement automatic background syncing of project files and local assets to Google Drive. (Delayed to later undetermined stage)
