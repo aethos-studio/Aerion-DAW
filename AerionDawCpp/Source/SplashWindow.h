@@ -14,7 +14,7 @@ public:
 
         addAndMakeVisible (logo);
 
-        const int w = 400, h = 550;  // portrait to match logo_vert.svg aspect ratio (1024:1400)
+        const int w = 400, h = 436;  // matches logo_vert.svg viewBox 500x550 (10:11) with 20px padding
         setSize (w, h);
 
         // Center on screen
