@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="AerionDawCpp/Resources/logo_with_text.svg" alt="Aerion DAW" width="650" />
+  <img src="AerionDawCpp/Resources/aerion_logo_horizontal.svg" alt="Aerion DAW" width="650" />
 
 
   A professional-grade, native Digital Audio Workstation built with C++20, JUCE 8, and the Tracktion Engine.
