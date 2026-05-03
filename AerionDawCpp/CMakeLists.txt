@@ -91,3 +91,28 @@ target_compile_definitions(AerionDaw PRIVATE
     JUCE_PLUGINHOST_VST3=1
     $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=1>
 )
+
+# --- Packaging ---
+if (WIN32)
+    install(TARGETS AerionDaw DESTINATION .)
+    
+    set(CPACK_PACKAGE_NAME "Aerion DAW")
+    set(CPACK_PACKAGE_VENDOR "Aethos Studio")
+    set(CPACK_PACKAGE_VERSION "0.1.0")
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Aerion DAW Pre-Alpha")
+    set(CPACK_PACKAGE_INSTALL_DIRECTORY "Aerion DAW")
+    set(CPACK_GENERATOR "NSIS")
+    
+    # NSIS specifics
+    set(CPACK_NSIS_DISPLAY_NAME "Aerion DAW")
+    set(CPACK_NSIS_PACKAGE_NAME "Aerion DAW")
+    set(CPACK_NSIS_URL_INFO_ABOUT "https://aethos.studio")
+    set(CPACK_NSIS_MODIFY_PATH ON)
+
+    # Create shortcuts
+    set(CPACK_NSIS_EXECUTABLES_DIRECTORY ".")
+    set(CPACK_NSIS_MENU_LINKS "Aerion DAW.exe" "Aerion DAW")
+    set(CPACK_CREATE_DESKTOP_LINKS "Aerion DAW")
+    
+    include(CPack)
+endif()

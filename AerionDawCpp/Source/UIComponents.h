@@ -940,7 +940,9 @@ public:
         formatManager.registerBasicFormats();
         thumb.addChangeListener (this);
 
-        currentDir = juce::File::getSpecialLocation (juce::File::userMusicDirectory);
+        currentDir = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Aerion Projects");
+        if (! currentDir.isDirectory())
+            currentDir = juce::File::getSpecialLocation (juce::File::userMusicDirectory);
         if (! currentDir.isDirectory())
             currentDir = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
     }
@@ -1202,33 +1204,8 @@ public:
         if (filesTabBounds.contains   (e.getPosition())) { tab = Tab::files;   repaint(); return; }
         if (cloudTabBounds.contains   (e.getPosition())) { tab = Tab::cloud;   repaint(); return; }
 
-        if (tab == Tab::cloud && driveClient != nullptr)
+        if (tab == Tab::cloud)
         {
-            if (loginBtnBounds.contains (e.getPosition()))
-            {
-                if (driveClient->isLoggedIn())
-                    driveClient->logout();
-                else
-                    driveClient->login();
-                repaint();
-                return;
-            }
-            if (driveRefreshBtnBounds.contains (e.getPosition()))
-            {
-                driveLoading = true;
-                driveFiles.clear();
-                repaint();
-                driveClient->listAudioFiles();
-                return;
-            }
-            for (int i = 0; i < driveRowBounds.size(); ++i)
-            {
-                if (driveRowBounds[i].contains (e.getPosition()))
-                {
-                    driveClient->downloadFile (driveFiles[i]);
-                    return;
-                }
-            }
             return;
         }
 
@@ -1265,74 +1242,24 @@ public:
 
     void paintCloudTab (juce::Graphics& g)
     {
-        int y = 40;
+        int y = 60;
         int W = getWidth();
 
-        if (driveClient == nullptr)
-        {
-            g.setColour (Theme::textMuted);
-            g.setFont (11.0f);
-            g.drawText ("Google Drive not configured.", 12, y, W - 24, 22,
-                        juce::Justification::centredLeft);
-            return;
-        }
-
-        bool loggedIn = driveClient->isLoggedIn();
-
-        // Login / logout button
-        loginBtnBounds = { 8, y, W - 16, 24 };
-        g.setColour (loggedIn ? Theme::border : Theme::active);
-        g.fillRoundedRectangle (loginBtnBounds.toFloat(), 3.0f);
-        g.setColour (Theme::textMain);
-        g.setFont (juce::Font (11.0f).withStyle (juce::Font::bold));
-        g.drawText (loggedIn ? "Disconnect" : "Connect to Google Drive",
-                    loginBtnBounds, juce::Justification::centred);
-        y += 32;
-
-        if (! loggedIn)
-            return;
-
-        // Refresh button
-        driveRefreshBtnBounds = { 8, y, W - 16, 20 };
-        g.setColour (Theme::surface);
-        g.fillRoundedRectangle (driveRefreshBtnBounds.toFloat(), 2.0f);
         g.setColour (Theme::textMuted);
+        g.setFont (juce::Font (14.0f).withStyle (juce::Font::bold));
+        g.drawText ("CLOUD SYNC", 0, y, W, 22, juce::Justification::centred);
+        y += 30;
+        
+        g.setFont (12.0f);
+        g.drawText ("Coming Soon", 0, y, W, 20, juce::Justification::centred);
+        
+        y += 40;
         g.setFont (10.0f);
-        g.drawText ("Refresh", driveRefreshBtnBounds, juce::Justification::centred);
-        y += 26;
-
-        if (driveLoading)
-        {
-            g.setColour (Theme::textMuted);
-            g.setFont (11.0f);
-            g.drawText ("Loading...", 12, y, W - 24, 22, juce::Justification::centredLeft);
-            return;
-        }
-
-        if (driveFiles.isEmpty())
-        {
-            g.setColour (Theme::textMuted);
-            g.setFont (11.0f);
-            g.drawText ("No audio files found. Click Refresh.", 12, y, W - 24, 22,
-                        juce::Justification::centredLeft);
-            return;
-        }
-
-        driveRowBounds.clear();
-        g.setFont (11.0f);
-        for (const auto& f : driveFiles)
-        {
-            juce::Rectangle<int> r (8, y, W - 16, 22);
-            driveRowBounds.add (r);
-            g.setColour (Theme::textMain);
-            g.drawText (f.name, r.withTrimmedLeft (8), juce::Justification::centredLeft);
-            g.setColour (Theme::textMuted);
-            g.setFont (9.0f);
-            g.drawText (f.mimeType, r.withTrimmedRight (4), juce::Justification::centredRight);
-            g.setFont (11.0f);
-            y += 22;
-            if (y > getHeight()) break;
-        }
+        g.drawText ("Google Drive integration", 0, y, W, 18, juce::Justification::centred);
+        y += 14;
+        g.drawText ("is currently inactive for", 0, y, W, 18, juce::Justification::centred);
+        y += 14;
+        g.drawText ("further tuning.", 0, y, W, 18, juce::Justification::centred);
     }
 
 private:

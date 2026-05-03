@@ -6,6 +6,9 @@ MainComponent::MainComponent()
 {
     juce::LookAndFeel::setDefaultLookAndFeel (&metalLookAndFeel);
 
+    // Ensure default project directory exists
+    juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Aerion Projects").createDirectory();
+
     addAndMakeVisible (menuBar);
     addAndMakeVisible (toolbar);
     addAndMakeVisible (inspector);
@@ -210,7 +213,7 @@ void MainComponent::createNewProject()
 
 void MainComponent::openProject()
 {
-    fileChooser = std::make_unique<juce::FileChooser> ("Open Project...", juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.aerion");
+    fileChooser = std::make_unique<juce::FileChooser> ("Open Project...", juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Aerion Projects"), "*.aerion");
     fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                           [this] (const juce::FileChooser& fc)
                           {
@@ -237,7 +240,7 @@ void MainComponent::saveProject()
 
 void MainComponent::saveProjectAs()
 {
-    fileChooser = std::make_unique<juce::FileChooser> ("Save Project As...", juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.aerion");
+    fileChooser = std::make_unique<juce::FileChooser> ("Save Project As...", juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Aerion Projects"), "*.aerion");
     fileChooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
                           [this] (const juce::FileChooser& fc)
                           {
@@ -254,7 +257,7 @@ void MainComponent::saveProjectAs()
 
 void MainComponent::importAudioFile()
 {
-    fileChooser = std::make_unique<juce::FileChooser> ("Import Audio...", juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.wav;*.mp3;*.aif;*.flac");
+    fileChooser = std::make_unique<juce::FileChooser> ("Import Audio...", juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Aerion Projects"), "*.wav;*.mp3;*.aif;*.flac");
     fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                           [this] (const juce::FileChooser& fc)
                           {
