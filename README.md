@@ -111,53 +111,6 @@ Strict **Model-View-Controller** separation:
   transport. UI controls (e.g. `Transport`'s play/stop buttons) call directly
   into it.
 
-### Google Drive Integration
-
-`GoogleDriveClient` implements the desktop OAuth 2.0 flow with PKCE:
-
-1. Generates a 64-byte random `code_verifier` and its `S256` `code_challenge`.
-2. Launches the system browser at the Google authorization endpoint.
-3. Spins up a local listener on `http://localhost:8080` to capture the redirect.
-4. Exchanges the auth code for access + refresh tokens at the token endpoint.
-5. Persists tokens to `<userAppData>/AerionDaw/drive_tokens.json` so logins
-   survive across launches.
-
-Once authenticated, the client supports:
-
-- `saveProject(juce::File)` — `multipart/related` upload of project bytes +
-  metadata to `drive.googleapis.com/upload/drive/v3/files`.
-- `listAudioFiles()` — Drive v3 file listing filtered by `mimeType contains 'audio/'`,
-  delivered to `onFilesListed` on the message thread.
-- `refreshAccessToken()` — exchanges the stored refresh token for a fresh
-  access token.
-
-Login state changes propagate through `onLoginStateChanged(bool)`; the
-`TopPanel` button uses this to swap between **Login to Google Drive** and
-**Disconnect Drive**.
-
-> To use Drive sync, plug your own OAuth Desktop client credentials into
-> `GoogleDriveClient::clientId` / `clientSecret`.
-
-### AI / Audio-to-MIDI
-
-`AIManager` is the integration point for a transcription model (intended to
-run via ONNX Runtime). Today it provides the threading + Tracktion scaffolding
-with a mocked transcription so the UI flow can be exercised end-to-end. The
-ONNX dependency is declared in `CMakeLists.txt` but not built from source — a
-prebuilt ONNX Runtime should be linked in for production use.
-
-## Code Signing (Windows)
-
-To prevent anti-virus programs from flagging the DAW as malicious, you should digitally sign the executable and the installer.
-
-1. **Obtain a Certificate:** You need a Windows Code Signing Certificate (usually a `.pfx` file).
-2. **Use SignTool:** This tool is included in the Windows SDK.
-3. **Run the Command:**
-   ```powershell
-   signtool sign /f "path/to/your/certificate.pfx" /p "your_password" /tr http://timestamp.digicert.com /td sha256 /fd sha256 "Aerion DAW.exe"
-   ```
-4. **Sign the Installer:** Don't forget to also sign the generated installer `.exe`.
-
 ## License
 
 This project is licensed under the terms found in the `LICENSE` file.
