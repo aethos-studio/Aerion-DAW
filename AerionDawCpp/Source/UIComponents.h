@@ -530,9 +530,13 @@ class DAWToolbar : public juce::Component
 {
 public:
     std::function<void()> onToggleSnap;
+    std::function<void()> onToggleInspector;
+    std::function<void()> onToggleBrowser;
     std::function<void(EditTool)> onToolChanged;
 
     bool snapEnabled = true;
+    bool inspectorVisible = true;
+    bool browserVisible = true;
     EditTool activeTool = EditTool::select;
 
     void paint(juce::Graphics& g) override
@@ -543,12 +547,14 @@ public:
 
         // Info / Info tool (leftmost)
         int x = 12;
-        g.setColour(Theme::active.withAlpha(0.05f));
-        g.fillRoundedRectangle((float)x, 6.0f, 32.0f, 28.0f, 4.0f);
-        g.setColour(Theme::active.withAlpha(0.2f));
-        g.drawRoundedRectangle((float)x, 6.0f, 32.0f, 28.0f, 4.0f, 1.0f);
-        g.setColour(Theme::textMuted.withAlpha(0.4f));
-        g.drawText("i", x, 6, 32, 28, juce::Justification::centred);
+        inspectorBtn = juce::Rectangle<int>(x, 6, 32, 28);
+        g.setColour(inspectorVisible ? Theme::active.withAlpha(0.2f) : Theme::surface);
+        g.fillRoundedRectangle(inspectorBtn.toFloat(), 4.0f);
+        g.setColour(inspectorVisible ? Theme::active : Theme::border);
+        g.drawRoundedRectangle(inspectorBtn.toFloat(), 4.0f, 1.0f);
+        g.setColour(inspectorVisible ? Theme::active : Theme::textMuted);
+        g.setFont(juce::Font(10.0f).withStyle(juce::Font::bold));
+        g.drawText("INS", inspectorBtn, juce::Justification::centred);
         x += 44;
 
         // Tool group
@@ -584,7 +590,18 @@ public:
         }
 
         // Right side: Quantize / Timebase / Snap
-        int rx = getWidth() - 360;
+        int rx = getWidth() - 400;
+
+        browserBtn = juce::Rectangle<int>(rx, 6, 32, 28);
+        g.setColour(browserVisible ? Theme::active.withAlpha(0.2f) : Theme::surface);
+        g.fillRoundedRectangle(browserBtn.toFloat(), 4.0f);
+        g.setColour(browserVisible ? Theme::active : Theme::border);
+        g.drawRoundedRectangle(browserBtn.toFloat(), 4.0f, 1.0f);
+        g.setColour(browserVisible ? Theme::active : Theme::textMuted);
+        g.setFont(juce::Font(10.0f).withStyle(juce::Font::bold));
+        g.drawText("BRW", browserBtn, juce::Justification::centred);
+        rx += 44;
+
         g.setColour(Theme::surface.withAlpha(0.4f));
         g.fillRoundedRectangle((float)rx, 6.0f, 120.0f, 28.0f, 4.0f);
         g.setColour(Theme::textMuted.withAlpha(0.3f));
@@ -609,6 +626,18 @@ public:
 
     void mouseDown(const juce::MouseEvent& e) override
     {
+        if (inspectorBtn.contains(e.getPosition())) {
+            inspectorVisible = !inspectorVisible;
+            repaint();
+            if (onToggleInspector) onToggleInspector();
+            return;
+        }
+        if (browserBtn.contains(e.getPosition())) {
+            browserVisible = !browserVisible;
+            repaint();
+            if (onToggleBrowser) onToggleBrowser();
+            return;
+        }
         if (selectBounds.contains(e.getPosition())) {
             activeTool = EditTool::select;
             repaint();
@@ -629,7 +658,7 @@ public:
     }
 
 private:
-    juce::Rectangle<int> snapBounds, selectBounds, razorBounds;
+    juce::Rectangle<int> snapBounds, selectBounds, razorBounds, inspectorBtn, browserBtn;
 };
 
 //==============================================================================
@@ -958,6 +987,7 @@ public:
 
     std::function<void (const juce::PluginDescription&)> onPluginPicked;
     std::function<void (const juce::File&)>              onFilePicked;
+    std::function<void (const juce::File&)>              onFileDoubleClicked;
     std::function<void()>                                onRescanRequested;
 
     void setDriveClient (GoogleDriveClient* client)
@@ -1206,12 +1236,35 @@ public:
                 auto& f = rowFiles.getReference (i);
                 if (f.existsAsFile() && ! f.isDirectory())
                 {
+                    // Start internal drag so Timeline can show ghost preview
+                    auto* ddc = juce::DragAndDropContainer::findParentDragContainerFor (this);
+                    if (ddc != nullptr)
+                        ddc->startDragging ("AUDIOFILE:" + f.getFullPathName(), this);
+
+                    // Also start external drag for dropping into other apps/OS
                     juce::DragAndDropContainer::performExternalDragDropOfFiles (
                         { f.getFullPathName() }, false, this);
                 }
                 return;
             }
             break;
+        }
+    }
+
+    void mouseDoubleClick (const juce::MouseEvent& e) override
+    {
+        for (int i = 0; i < rowBounds.size(); ++i)
+        {
+            if (rowBounds[i].contains (e.getPosition()))
+            {
+                if (tab == Tab::files && i < rowFiles.size())
+                {
+                    auto& f = rowFiles.getReference (i);
+                    if (f.existsAsFile() && ! f.isDirectory())
+                        if (onFileDoubleClicked) onFileDoubleClicked (f);
+                }
+                return;
+            }
         }
     }
 
@@ -1665,6 +1718,7 @@ public:
     std::function<void(int)> onTrackSelected;
     std::function<void(juce::Array<tracktion::Track*>)> onSelectionChanged;
     std::function<void()> onAddTrack;
+    std::function<void()> onAddMidiTrack;
     std::function<void()> onAddFolder;
     std::function<void(const juce::File&)> onImportFile; // legacy single-file path (menu import)
     // Studio-One-style drop: files + target track (nullptr = create new) + time position
@@ -1943,25 +1997,35 @@ public:
         g.setColour(Theme::textMuted);
         g.setFont(10.0f);
         
-        int firstSec = (int)std::floor(startTime);
-        int lastSec  = (int)std::ceil(xToTime((float)getWidth()));
-        
-        int step = 1;
-        if (pxPerSec < 5.0)  step = 60;
-        else if (pxPerSec < 15.0) step = 10;
-        else if (pxPerSec < 40.0) step = 5;
+        auto& ts = audioEngine.getEdit().tempoSequence;
+        double startBeat = ts.toBeats (tracktion::TimePosition::fromSeconds (startTime)).inBeats();
+        double endBeat   = ts.toBeats (tracktion::TimePosition::fromSeconds (xToTime ((float)getWidth()))).inBeats();
 
-        for (int i = (firstSec / step) * step; i <= lastSec; i += step) {
-            float x = timeToX(i);
+        // Determine beat step based on zoom
+        double beatStep = 1.0;
+        if (pxPerSec < 15.0)      beatStep = 16.0; // 4 bars
+        else if (pxPerSec < 40.0) beatStep = 4.0;  // 1 bar
+        else if (pxPerSec < 120.0) beatStep = 1.0; // 1 beat
+        else                       beatStep = 0.25; // 1/4 beat
+
+        for (double b = std::floor (startBeat / beatStep) * beatStep; b <= endBeat; b += beatStep)
+        {
+            float x = timeToX (ts.toTime (tracktion::BeatPosition::fromBeats (b)).inSeconds());
             if (x < kHeaderWidth) continue;
             if (x > getWidth()) break;
-            g.drawLine(x, kRulerH - 8.0f, x, (float)kRulerH);
+
+            auto bb = ts.toBarsAndBeats (ts.toTime (tracktion::BeatPosition::fromBeats (b)));
+            bool isBar = (bb.beats.inBeats() < 0.001);
             
-            juce::String label;
-            if (step >= 60) label = juce::String::formatted("%d:%02d", i/60, i%60);
-            else            label = juce::String(i + 1);
+            g.setColour (Theme::border.withAlpha (isBar ? 1.0f : 0.4f));
+            g.drawLine (x, kRulerH - (isBar ? 12.0f : 6.0f), x, (float)kRulerH);
             
-            g.drawText(label, (int)x + 4, 8, 40, 18, juce::Justification::left);
+            if (isBar || (beatStep < 4.0 && bb.beats.inBeats() > 0.001))
+            {
+                g.setColour (Theme::textMuted);
+                juce::String label = isBar ? juce::String ((int)bb.bars + 1) : juce::String::formatted ("%d.%d", (int)bb.bars + 1, (int)bb.beats.inBeats() + 1);
+                g.drawText (label, (int)x + 4, 8, 40, 18, juce::Justification::left);
+            }
         }
 
         auto top = audioEngine.getTopLevelTracks();
@@ -2585,10 +2649,11 @@ public:
         // Footer / vertical scrollbar — don't interfere.
         if (e.y >= laneBottom() || e.x >= getWidth() - kVScrollW) return;
 
-        // + Track / + Folder bar
+        // + Audio / + MIDI / + Folder bar
         if (e.y < kHeaderBarH && e.x < kHeaderWidth)
         {
             if (addTrackBtn.contains(e.getPosition()))  { if (onAddTrack)  onAddTrack();  return; }
+            if (addMidiTrackBtn.contains(e.getPosition())) { if (onAddMidiTrack) onAddMidiTrack(); return; }
             if (addFolderBtn.contains(e.getPosition())) { if (onAddFolder) onAddFolder(); return; }
             return;
         }
@@ -3197,7 +3262,7 @@ private:
     int                    dropInsertBeforeRowIdx = -1;
     tracktion::FolderTrack* dropFolderTarget    = nullptr;
     int  dropPreviewY  = -1;
-    juce::Rectangle<int> addTrackBtn, addFolderBtn;
+    juce::Rectangle<int> addTrackBtn, addMidiTrackBtn, addFolderBtn;
 
     double startTime = 0.0;
     double pxPerSec  = 100.0;

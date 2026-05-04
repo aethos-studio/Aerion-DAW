@@ -20,8 +20,26 @@ MainComponent::MainComponent()
     addAndMakeVisible (inspectorToggle);
     addAndMakeVisible (browserToggle);
 
-    inspectorToggle.onClick = [this] { resized(); };
-    browserToggle.onClick   = [this] { resized(); };
+    inspectorToggle.onClick = [this] {
+        toolbar.inspectorVisible = !inspectorToggle.collapsed;
+        toolbar.repaint();
+        resized(); 
+    };
+    browserToggle.onClick   = [this] {
+        toolbar.browserVisible = !browserToggle.collapsed;
+        toolbar.repaint();
+        resized(); 
+    };
+
+    toolbar.onToggleInspector = [this] {
+        inspectorToggle.collapsed = !toolbar.inspectorVisible;
+        resized();
+    };
+
+    toolbar.onToggleBrowser = [this] {
+        browserToggle.collapsed = !toolbar.browserVisible;
+        resized();
+    };
 
     audioEngine.addListener (this);
     audioEngine.getEdit().state.addListener (this);
@@ -46,7 +64,21 @@ MainComponent::MainComponent()
     };
 
     browser.onFilePicked = [this] (const juce::File& f) {
-        audioEngine.importAudioFileAtPosition (f, 0.0);
+        // Selection only for preview/picking; do nothing on single click besides what Browser already does
+    };
+
+    browser.onFileDoubleClicked = [this] (const juce::File& f) {
+        auto sel = timeline.getSelectedTracks();
+        tracktion::AudioTrack* targetTrack = nullptr;
+        if (! sel.isEmpty())
+            targetTrack = dynamic_cast<tracktion::AudioTrack*> (sel[0]);
+
+        double pos = audioEngine.getTransportPosition();
+        if (targetTrack != nullptr)
+            audioEngine.insertAudioClipOnTrack (targetTrack, f, pos);
+        else
+            audioEngine.importAudioFileAtPosition (f, pos);
+
         timeline.repaint();
         mixer.repaint();
     };
@@ -77,6 +109,27 @@ MainComponent::MainComponent()
     timeline.onAddTrack = [this]
     {
         audioEngine.addAudioTrack();
+        timeline.repaint();
+        mixer.repaint();
+    };
+
+    timeline.onAddMidiTrack = [this]
+    {
+        auto* track = audioEngine.addAudioTrack();
+        if (track != nullptr)
+        {
+            double pos = audioEngine.getTransportPosition();
+            tracktion::TimeRange range (tracktion::TimePosition::fromSeconds (pos),
+                                        tracktion::TimeDuration::fromSeconds (2.0));
+            track->insertMIDIClip (range, nullptr);
+        }
+        timeline.repaint();
+        mixer.repaint();
+    };
+
+    timeline.onAddFolder = [this]
+    {
+        audioEngine.addFolderTrack();
         timeline.repaint();
         mixer.repaint();
     };
@@ -382,6 +435,7 @@ void MainComponent::resized()
         const int panelW = inspectorToggle.collapsed ? 0 : kInspectorW;
         auto strip = bounds.removeFromLeft (panelW + kToggleW);
         inspector.setBounds (strip.removeFromLeft (panelW));
+        inspector.setVisible (! inspectorToggle.collapsed);
         inspectorToggle.setBounds (strip); // remaining kToggleW px
     }
 
@@ -391,6 +445,7 @@ void MainComponent::resized()
         auto strip = bounds.removeFromRight (panelW + kToggleW);
         browserToggle.setBounds (strip.removeFromRight (kToggleW));
         browser.setBounds (strip);
+        browser.setVisible (! browserToggle.collapsed);
     }
 
     auto centerBounds = bounds;
