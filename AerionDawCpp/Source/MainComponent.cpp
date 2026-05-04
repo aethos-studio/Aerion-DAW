@@ -95,6 +95,16 @@ MainComponent::MainComponent()
         timeline.snapEnabled = toolbar.snapEnabled;
     };
 
+    toolbar.onToggleMetronome = [this] {
+        audioEngine.toggleMetronome();
+    };
+
+    toolbar.onShowMetronomeSettings = [this] {
+        auto popup = std::make_unique<MetronomeSettingsPopup> (audioEngine);
+        auto bounds = toolbar.localAreaToGlobal (toolbar.getClickBtnBounds());
+        juce::CallOutBox::launchAsynchronously (std::move (popup), bounds, this);
+    };
+
     toolbar.onToolChanged = [this] (EditTool t) {
         timeline.activeTool = t;
     };

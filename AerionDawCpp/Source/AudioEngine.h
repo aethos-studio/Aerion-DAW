@@ -99,6 +99,13 @@ public:
     juce::String getTimeSigAtPosition (double seconds);
     juce::String getBarsBeatsString (double seconds);
 
+    // Metronome
+    bool isMetronomeEnabled() const;
+    void setMetronomeEnabled (bool);
+    void toggleMetronome();
+    float getMetronomeVolumeDb() const;
+    void setMetronomeVolumeDb (float db);
+
     // Pan helpers (range -1..1). No-op for tracks without a VolumeAndPanPlugin (e.g. Master).
     void  setTrackPan (tracktion::Track* track, float pan);
     float getTrackPan (tracktion::Track* track);
@@ -109,7 +116,7 @@ public:
 
     // Volume Helpers
     static constexpr float kMinVolumeDb  = -60.0f;
-    static constexpr float kMaxVolumeDb  =  12.0f;
+    static constexpr float kMaxVolumeDb  =  30.0f;
     static constexpr float kFaderRangeDb = kMaxVolumeDb - kMinVolumeDb;
 
     void  setTrackVolumeDb (tracktion::Track* track, float db);

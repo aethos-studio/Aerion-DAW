@@ -533,10 +533,13 @@ public:
     std::function<void()> onToggleInspector;
     std::function<void()> onToggleBrowser;
     std::function<void(EditTool)> onToolChanged;
+    std::function<void()> onToggleMetronome;
+    std::function<void()> onShowMetronomeSettings;
 
     bool snapEnabled = true;
     bool inspectorVisible = true;
     bool browserVisible = true;
+    bool metronomeEnabled = false;
     EditTool activeTool = EditTool::select;
 
     void paint(juce::Graphics& g) override
@@ -547,15 +550,15 @@ public:
 
         // Info / Info tool (leftmost)
         int x = 12;
-        inspectorBtn = juce::Rectangle<int>(x, 6, 32, 28);
+        inspectorBtn = juce::Rectangle<int>(x, 6, 80, 28);
         g.setColour(inspectorVisible ? Theme::active.withAlpha(0.2f) : Theme::surface);
         g.fillRoundedRectangle(inspectorBtn.toFloat(), 4.0f);
         g.setColour(inspectorVisible ? Theme::active : Theme::border);
         g.drawRoundedRectangle(inspectorBtn.toFloat(), 4.0f, 1.0f);
         g.setColour(inspectorVisible ? Theme::active : Theme::textMuted);
         g.setFont(juce::Font(10.0f).withStyle(juce::Font::bold));
-        g.drawText("INS", inspectorBtn, juce::Justification::centred);
-        x += 44;
+        g.drawText("Inspector", inspectorBtn, juce::Justification::centred);
+        x += 92;
 
         // Tool group
         struct ToolBtn { juce::String label; EditTool tool; juce::Rectangle<int> bounds; };
@@ -578,8 +581,19 @@ public:
             if (t.tool == EditTool::razor)  razorBounds = t.bounds;
         }
 
-        // Other mock tools
+        // Metronome Button
         x += 72;
+        clickBtn = juce::Rectangle<int>(x, 6, 44, 28);
+        g.setColour(metronomeEnabled ? Theme::active.withAlpha(0.2f) : Theme::surface);
+        g.fillRoundedRectangle(clickBtn.toFloat(), 4.0f);
+        g.setColour(metronomeEnabled ? Theme::active : Theme::border);
+        g.drawRoundedRectangle(clickBtn.toFloat(), 4.0f, 1.0f);
+        g.setColour(metronomeEnabled ? Theme::active : Theme::textMuted);
+        g.setFont(juce::Font(10.0f).withStyle(juce::Font::bold));
+        g.drawText("CLICK", clickBtn, juce::Justification::centred);
+        x += 52;
+
+        // Other mock tools
         const char* extra[] = { "Era", "Mut" };
         for (auto* label : extra) {
             g.setColour(Theme::surface.withAlpha(0.4f));
@@ -592,15 +606,15 @@ public:
         // Right side: Quantize / Timebase / Snap
         int rx = getWidth() - 400;
 
-        browserBtn = juce::Rectangle<int>(rx, 6, 32, 28);
+        browserBtn = juce::Rectangle<int>(rx, 6, 72, 28);
         g.setColour(browserVisible ? Theme::active.withAlpha(0.2f) : Theme::surface);
         g.fillRoundedRectangle(browserBtn.toFloat(), 4.0f);
         g.setColour(browserVisible ? Theme::active : Theme::border);
         g.drawRoundedRectangle(browserBtn.toFloat(), 4.0f, 1.0f);
         g.setColour(browserVisible ? Theme::active : Theme::textMuted);
         g.setFont(juce::Font(10.0f).withStyle(juce::Font::bold));
-        g.drawText("BRW", browserBtn, juce::Justification::centred);
-        rx += 44;
+        g.drawText("Browser", browserBtn, juce::Justification::centred);
+        rx += 84;
 
         g.setColour(Theme::surface.withAlpha(0.4f));
         g.fillRoundedRectangle((float)rx, 6.0f, 120.0f, 28.0f, 4.0f);
@@ -614,8 +628,10 @@ public:
         g.setColour(Theme::textMuted.withAlpha(0.3f));
         g.drawText("TIMEBASE  Bars", rx + 8, 6, 100, 28, juce::Justification::centredLeft);
 
-        rx += 130;
-        snapBounds = juce::Rectangle<int>(rx, 6, 60, 28);
+        int snapWidth = 60;
+        int rightMargin = 12;
+        int snapX = getWidth() - snapWidth - rightMargin;
+        snapBounds = juce::Rectangle<int>(snapX, 6, snapWidth, 28);
         g.setColour((snapEnabled ? Theme::active : Theme::surface).withAlpha(snapEnabled ? 0.2f : 1.0f));
         g.fillRoundedRectangle(snapBounds.toFloat(), 4.0f);
         g.setColour(snapEnabled ? Theme::active : Theme::border);
@@ -650,6 +666,19 @@ public:
             if (onToolChanged) onToolChanged(activeTool);
             return;
         }
+        if (clickBtn.contains(e.getPosition())) {
+            if (e.mods.isRightButtonDown())
+            {
+                if (onShowMetronomeSettings) onShowMetronomeSettings();
+            }
+            else
+            {
+                metronomeEnabled = !metronomeEnabled;
+                repaint();
+                if (onToggleMetronome) onToggleMetronome();
+            }
+            return;
+        }
         if (snapBounds.contains(e.getPosition())) {
             snapEnabled = ! snapEnabled;
             repaint();
@@ -657,8 +686,10 @@ public:
         }
     }
 
+    juce::Rectangle<int> getClickBtnBounds() const { return clickBtn; }
+
 private:
-    juce::Rectangle<int> snapBounds, selectBounds, razorBounds, inspectorBtn, browserBtn;
+    juce::Rectangle<int> snapBounds, selectBounds, razorBounds, inspectorBtn, browserBtn, clickBtn;
 };
 
 //==============================================================================
@@ -3852,6 +3883,30 @@ public:
     Transport(AudioEngineManager& ae, ProjectData& pd) : audioEngine(ae), projectData(pd)
     {
         projectData.getProjectTree().addListener (this);
+
+        auto setupLabel = [this] (juce::Label& l, const char* suffix = nullptr) {
+            l.setFont (juce::Font (20.0f).withStyle (juce::Font::bold));
+            l.setJustificationType (juce::Justification::centredLeft);
+            l.setColour (juce::Label::textColourId, Theme::active);
+            l.setEditable (true, false, false);
+            l.setColour (juce::Label::textWhenEditingColourId, Theme::textMain);
+            l.setColour (juce::Label::backgroundWhenEditingColourId, Theme::surface);
+            addAndMakeVisible (l);
+        };
+
+        setupLabel (tempoLabel);
+        tempoLabel.onTextChange = [this] {
+            double bpm = tempoLabel.getText().getDoubleValue();
+            if (bpm > 0) audioEngine.setTempo (bpm);
+        };
+
+        setupLabel (timeSigLabel);
+        timeSigLabel.onTextChange = [this] {
+            juce::String s = timeSigLabel.getText();
+            int n = s.upToFirstOccurrenceOf ("/", false, false).getIntValue();
+            int d = s.fromFirstOccurrenceOf ("/", false, false).getIntValue();
+            if (n > 0 && d > 0) audioEngine.setTimeSig (n, d);
+        };
     }
 
     ~Transport() override { projectData.getProjectTree().removeListener (this); }
@@ -3861,11 +3916,32 @@ public:
     void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { repaint(); }
     void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override { repaint(); }
 
+    void resized() override
+    {
+        // Right side counters.
+        int rx = getWidth() - 360;
+        rx += 210;
+        tempoBounds = juce::Rectangle<int>(rx, 8, 80, 28);
+        tempoLabel.setBounds (tempoBounds);
+
+        rx += 90;
+        timeSigBounds = juce::Rectangle<int>(rx, 8, 60, 28);
+        timeSigLabel.setBounds (timeSigBounds);
+    }
+
     void paint(juce::Graphics& g) override
     {
         g.fillAll(Theme::bgPanel);
         g.setColour(Theme::border);
         g.drawLine(0.0f, 0.0f, (float)getWidth(), (float)0.0f);
+
+        // Update labels if not editing
+        double pos = audioEngine.getTransportPosition();
+        if (! tempoLabel.isBeingEdited())
+            tempoLabel.setText (juce::String::formatted ("%.2f", audioEngine.getTempoAtPosition (pos)), juce::dontSendNotification);
+        
+        if (! timeSigLabel.isBeingEdited())
+            timeSigLabel.setText (audioEngine.getTimeSigAtPosition (pos), juce::dontSendNotification);
 
         // Layout: [perf/cpu] [transport buttons] [time/tempo/sig] [metronome]
         const int btnW = 44;
@@ -3888,7 +3964,6 @@ public:
         drawBtn(g, loopBounds.toFloat(),    Glyph::loop,   audioEngine.getEdit().getTransport().looping);
 
         // Right side counters.
-        double pos = audioEngine.getTransportPosition();
         juce::String counter = audioEngine.getBarsBeatsString(pos);
 
         int rx = getWidth() - 360;
@@ -3900,19 +3975,11 @@ public:
         g.drawText("BARS . BEATS . TICKS", rx, getHeight() - 16, 200, 12, juce::Justification::centredLeft);
 
         rx += 210;
-        tempoBounds = juce::Rectangle<int>(rx, 8, 80, 28);
-        g.setColour(Theme::active.withAlpha(0.3f));
-        g.setFont(juce::Font(20.0f).withStyle(juce::Font::bold));
-        g.drawText(juce::String::formatted("%.2f", audioEngine.getTempoAtPosition(pos)), tempoBounds, juce::Justification::centredLeft);
         g.setColour(Theme::textMuted.withAlpha(0.5f));
         g.setFont(juce::Font(8.0f).withStyle(juce::Font::bold));
         g.drawText("TEMPO", rx, getHeight() - 16, 80, 12, juce::Justification::centredLeft);
 
         rx += 90;
-        timeSigBounds = juce::Rectangle<int>(rx, 8, 60, 28);
-        g.setColour(Theme::active.withAlpha(0.3f));
-        g.setFont(juce::Font(20.0f).withStyle(juce::Font::bold));
-        g.drawText(audioEngine.getTimeSigAtPosition(pos), timeSigBounds, juce::Justification::centredLeft);
         g.setColour(Theme::textMuted.withAlpha(0.5f));
         g.setFont(juce::Font(8.0f).withStyle(juce::Font::bold));
         g.drawText("TIME", rx, getHeight() - 16, 60, 12, juce::Justification::centredLeft);
@@ -4000,48 +4067,6 @@ public:
             t.looping = ! t.looping;
         }
 
-        if (tempoBounds.contains (e.getPosition()))
-        {
-            auto currentBpm = audioEngine.getTempoAtPosition (audioEngine.getTransportPosition());
-            auto* aw = new juce::AlertWindow ("Set Tempo", "Enter new tempo (BPM):", juce::AlertWindow::NoIcon);
-            aw->addTextEditor ("bpm", juce::String (currentBpm));
-            aw->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
-            aw->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
-            aw->enterModalState (true, juce::ModalCallbackFunction::create ([this, aw] (int result) {
-                if (result == 1)
-                {
-                    auto bpm = aw->getTextEditor ("bpm")->getText().getDoubleValue();
-                    if (bpm > 0)
-                        audioEngine.setTempo (bpm);
-                }
-                delete aw;
-                repaint();
-            }));
-            return;
-        }
-
-        if (timeSigBounds.contains (e.getPosition()))
-        {
-            juce::PopupMenu m;
-            m.addItem (1, "4/4");
-            m.addItem (2, "3/4");
-            m.addItem (3, "6/8");
-            m.addItem (4, "2/4");
-            m.addItem (5, "5/4");
-            m.addItem (6, "7/8");
-            
-            m.showMenuAsync (juce::PopupMenu::Options(), [this] (int result) {
-                if (result == 1)      audioEngine.setTimeSig (4, 4);
-                else if (result == 2) audioEngine.setTimeSig (3, 4);
-                else if (result == 3) audioEngine.setTimeSig (6, 8);
-                else if (result == 4) audioEngine.setTimeSig (2, 4);
-                else if (result == 5) audioEngine.setTimeSig (5, 4);
-                else if (result == 6) audioEngine.setTimeSig (7, 8);
-                repaint();
-            });
-            return;
-        }
-
         repaint();
     }
 
@@ -4049,4 +4074,48 @@ private:
     AudioEngineManager& audioEngine;
     ProjectData& projectData;
     juce::Rectangle<int> playBounds, stopBounds, recBounds, rewindBounds, forwardBounds, loopBounds, tempoBounds, timeSigBounds;
+    juce::Label tempoLabel, timeSigLabel;
+};
+
+//==============================================================================
+// Small popup for metronome volume settings.
+class MetronomeSettingsPopup : public juce::Component
+{
+public:
+    MetronomeSettingsPopup (AudioEngineManager& ae) : audioEngine (ae)
+    {
+        addAndMakeVisible (slider);
+        slider.setRange (AudioEngineManager::kMinVolumeDb, AudioEngineManager::kMaxVolumeDb, 0.1);
+        slider.setValue (audioEngine.getMetronomeVolumeDb());
+        slider.setTextValueSuffix (" dB");
+        slider.setSliderStyle (juce::Slider::LinearHorizontal);
+        slider.setTextBoxStyle (juce::Slider::TextBoxLeft, false, 60, 20);
+        slider.onValueChange = [this] {
+            audioEngine.setMetronomeVolumeDb ((float) slider.getValue());
+        };
+
+        addAndMakeVisible (label);
+        label.setText ("CLICK LEVEL", juce::dontSendNotification);
+        label.setFont (juce::Font (10.0f).withStyle (juce::Font::bold));
+        label.setColour (juce::Label::textColourId, Theme::textMuted);
+
+        setSize (200, 60);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (Theme::bgPanel);
+    }
+
+    void resized() override
+    {
+        auto b = getLocalBounds().reduced (10);
+        label.setBounds (b.removeFromTop (20));
+        slider.setBounds (b);
+    }
+
+private:
+    AudioEngineManager& audioEngine;
+    juce::Slider slider;
+    juce::Label  label;
 };

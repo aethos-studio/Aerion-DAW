@@ -184,6 +184,9 @@ void AudioEngineManager::setupInitialEdit()
     for (auto* t : te::getAudioTracks (*edit))
         edit->deleteTrack (t);
 
+    // Use Tracktion's built-in click track; start disabled.
+    edit->clickTrackEnabled = false;
+
     // Ensure master track is clean
     if (auto master = edit->getMasterTrack())
     {
@@ -203,8 +206,7 @@ juce::Array<te::Track*> AudioEngineManager::getTopLevelTracks()
     // (Tempo / Chord / Marker / Arranger / Master) are filtered out.
     juce::Array<te::Track*> result;
     for (auto* t : te::getTopLevelTracks (*edit))
-        if (dynamic_cast<te::AudioTrack*>(t) != nullptr
-         || dynamic_cast<te::FolderTrack*>(t) != nullptr)
+        if (dynamic_cast<te::AudioTrack*>(t) != nullptr || dynamic_cast<te::FolderTrack*>(t) != nullptr)
             result.add (t);
     return result;
 }
@@ -513,6 +515,7 @@ void AudioEngineManager::setTempo (double bpm)
     if (edit == nullptr) return;
     auto& ts = edit->tempoSequence;
     ts.getTempoAt (te::TimePosition()).setBpm (bpm);
+    broadcastChange();
 }
 
 void AudioEngineManager::setTimeSig (int numerator, int denominator)
@@ -520,6 +523,41 @@ void AudioEngineManager::setTimeSig (int numerator, int denominator)
     if (edit == nullptr) return;
     auto& ts = edit->tempoSequence;
     ts.getTimeSigAt (te::TimePosition()).setStringTimeSig (juce::String::formatted ("%d/%d", numerator, denominator));
+    broadcastChange();
+}
+
+bool AudioEngineManager::isMetronomeEnabled() const
+{
+    if (edit == nullptr) return false;
+    return edit->clickTrackEnabled.get();
+}
+
+void AudioEngineManager::setMetronomeEnabled (bool enabled)
+{
+    if (edit == nullptr) return;
+    edit->clickTrackEnabled = enabled;
+}
+
+void AudioEngineManager::toggleMetronome()
+{
+    setMetronomeEnabled (! isMetronomeEnabled());
+}
+
+float AudioEngineManager::getMetronomeVolumeDb() const
+{
+    if (edit == nullptr) return 0.0f;
+    // Read clickTrackGain directly — getClickTrackVolume() clamps to 1.0 (0 dB).
+    float gain = edit->clickTrackGain.get();
+    return (gain > 0.0f) ? 20.0f * std::log10 (gain) : -60.0f;
+}
+
+void AudioEngineManager::setMetronomeVolumeDb (float db)
+{
+    if (edit == nullptr) return;
+    // Write clickTrackGain directly — setClickTrackVolume() clamps to 1.0 (0 dB).
+    static constexpr float kMaxGain = 31.623f; // +30 dB
+    float gain = juce::jlimit (0.0f, kMaxGain, std::pow (10.0f, db / 20.0f));
+    edit->clickTrackGain = gain;
 }
 
 juce::String AudioEngineManager::getBarsBeatsString (double seconds)
