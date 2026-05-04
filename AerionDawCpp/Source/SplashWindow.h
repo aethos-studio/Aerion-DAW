@@ -116,11 +116,11 @@ if (titleAlpha > 0.0f)
         if (subtitleAlpha > 0.0f)
         {
             juce::Font cinzelFont (cinzelTypeface != nullptr
-                ? juce::FontOptions (cinzelTypeface).withHeight (16.0f)
+                ? juce::FontOptions (cinzelTypeface).withHeight (20.0f)
                 : juce::FontOptions().withHeight (16.0f));
             g.setFont (cinzelFont);
             g.setColour (juce::Colour (0xff63b3ed).withAlpha (subtitleAlpha * 0.60f));
-            g.drawText ("BY AETHOS STUDIO", 0, (int) textBaseY + 36, (int) W, 18,
+            g.drawText ("BY AETHOS STUDIO", 0, (int) textBaseY + 36, (int) W, 24,
                         juce::Justification::centred);
         }
     }
