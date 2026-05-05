@@ -1,27 +1,61 @@
 <div align="center">
   <img src="AerionDawCpp/Resources/aerion_logo_horizontal.svg" alt="Aerion DAW" width="650" />
 
-
-  A Digital Audio Workstation built with C++20, JUCE 8, and the Tracktion Engine.
+  **A modern Digital Audio Workstation built with C++20, JUCE 8, and the Tracktion Engine.**
 </div>
 
 ---
 
-## Project Overview
+## Current Status: v0.1.0 (pre-Alpha)
 
-Aerion DAW is a native C++ application targeting zero-latency real-time audio,
-a lock-free threading model, and modern MIDI 2.0 / MPE workflows. The codebase
-follows a strict Model-View-Controller layout: state lives in
-`juce::ValueTree` structures, the audio graph is owned by a Tracktion `Edit`,
-and the UI is composed of native JUCE components.
+Aerion DAW is currently in its pre-alpha development stage. **Milestone 1 (Core Foundation)** is fully complete, and we are deep into **Milestone 2 (Advanced Workflows & Cloud Sync)**. 
 
-### Key Technologies
-- **Framework:** [JUCE 8](https://juce.com/)
-- **Audio Engine:** [Tracktion Engine](https://www.tracktion.com/develop/tracktion-engine) (v3.2)
-- **Build System:** CMake 3.20+
-- **Language:** C++20
-- **Cloud Sync:** Google Drive (OAuth 2.0 + PKCE)
-- **Typography:** Cinzel (Google Fonts, embedded as BinaryData)
+The application is stable on Windows 11 and features a high-performance audio engine with advanced UI capabilities already implemented.
+
+---
+
+## Why Aerion DAW?
+
+Aerion is designed to bridge the gap between high-end professional production and modern, cloud-connected workflows.
+
+*   **⚡ Native Performance:** Built in C++20 with JUCE 8 and the Tracktion Engine for rock-solid, low-latency audio processing.
+*   **☁️ Cloud-Native:** Built-in Google Drive synchronization allows you to connect your studio to the cloud, fetching and saving projects directly within the browser.
+*   **🎨 High-Polish UI:** Features a unique "Celtic Metal" dark theme, animated splash screens, and Studio One-style position-aware drag-and-drop.
+*   **🤖 AI-Ready:** Foundation laid for future AI-enhanced workflows including audio-to-MIDI transcription and stem separation.
+
+---
+
+## Key Features
+
+| Area | Features |
+| :--- | :--- |
+| **Audio Engine** | Multi-track audio/folder support, automation lanes (vol/pan), 24-bit/32-bit float support, and VST3/AU plugin hosting. |
+| **Timeline** | Studio One-style drag & drop with ghost previews, multi-file consecutive placement, and grid-snapping clip editing. |
+| **Piano Roll** | Comprehensive MIDI editor with note quantization, snap-to-grid, and high-performance scrolling. |
+| **Cloud Sync** | Integrated Google Drive client for OAuth2/PKCE login and background file synchronization. |
+| **Mixer** | Real-time level meters, detachable mixer window, and per-track fader/pan control with branded JUCE-rendered windowing. |
+| **Browser** | Waveform previews for local files, plugin category browsing, and a dedicated "Cloud" tab for remote projects. |
+| **Branding** | Custom "Spectre from the fog" animated splash screen and full Celtic Metal dark theme throughout. |
+
+---
+
+## Repository Layout
+
+```
+AerionDawCpp/
+  CMakeLists.txt
+  Resources/         SVG assets, custom typefaces (Cinzel), and icons.
+  Source/
+    Main.cpp         Application entry point and splash window lifecycle.
+    MainComponent/   Root layout and panel management.
+    AudioEngine/     Core Tracktion Engine wrapping and transport.
+    UIComponents/    The entire native JUCE UI (Timeline, Mixer, Browser, etc.).
+    ProjectData/     ValueTree-backed project model (The "Truth").
+    GoogleDrive/     Cloud client and OAuth flow.
+    AI/              Scaffolding for ONNX-bound AI tasks.
+```
+
+---
 
 ## System Requirements
 
@@ -29,87 +63,43 @@ and the UI is composed of native JUCE components.
 | :--- | :--- | :--- |
 | **OS** | Windows 10 (64-bit) | Windows 11 (64-bit) |
 | **CPU** | Intel Core i5 / AMD Ryzen 5 | Intel Core i7 / AMD Ryzen 7 |
-| **RAM** | 4 GB | 8 GB or 16 GB |
-| **Graphics** | OpenGL 3.2 compatible | Dedicated GPU / High-res display |
-| **Audio** | Windows Audio / ASIO4ALL | Dedicated Audio Interface (ASIO) |
-| **Storage** | 200 MB (Installation) | 1 GB+ SSD (Projects & Caching) |
+| **RAM** | 4 GB | 16 GB |
+| **Graphics** | OpenGL 3.2 compatible | Dedicated GPU |
+| **Audio** | Windows Audio / ASIO4ALL | Dedicated ASIO Audio Interface |
 
-## Repository Layout
-
-```
-AerionDawCpp/
-  CMakeLists.txt
-  Resources/
-    aerion_logo.svg            App icon / taskbar icon source (SVG)
-    aerion_logo_vertical.svg   Splash screen logo
-    aerion_fader.svg           Custom fader knob graphic
-    Cinzel-Regular.ttf         Embedded Cinzel typeface (Google Fonts)
-    Aerion_Ico.ico             Windows installer icon
-  Source/
-    Main.cpp                  JUCE application entry point + SplashWindow
-    SplashWindow.h            Animated fog splash screen (Cinzel typeface)
-    MainComponent.{h,cpp}     Top-level window layout, collapsible panels
-    UIComponents.h            DAWMenuBar, DAWToolbar, Inspector, Browser,
-                              Timeline (D&D + ghost preview), Mixer, Transport
-    ProjectData.{h,cpp}       ValueTree-backed project model
-    AudioEngine.{h,cpp}       Tracktion Engine + transport wrapper
-    GoogleDriveClient.{h,cpp} OAuth/PKCE login, Drive multipart upload, file listing
-    AIManager.{h,cpp}         Audio-to-MIDI transcription scaffolding (ONNX-bound)
-modules/
-  juce/                       JUCE submodule (also fetched via FetchContent)
-```
+---
 
 ## Getting Started
 
 ### Prerequisites
-- **CMake** 3.20 or higher
-- A C++20-capable compiler (MSVC 2022, Clang, or GCC)
-- **Git** — Tracktion Engine and JUCE are pulled in via `FetchContent`
+- **CMake** 3.20+
+- **Visual Studio 2022** (MSVC)
+- **PowerShell 7** (for build scripts)
 
-### Building
+### Building (Windows/PowerShell)
 
-```bash
-cd AerionDawCpp
-cmake -B build
-cmake --build build --config Debug --target AerionDaw
+```powershell
+# Configure
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+
+# Build
+cmake --build build --config Debug
 ```
 
-The resulting executable is written to:
-```
-AerionDawCpp/build/AerionDaw_artefacts/Debug/Aerion DAW.exe
-```
+The executable will be located at:
+`.\build\AerionDaw_artefacts\Debug\Aerion DAW.exe`
 
-> The first configure pulls Tracktion Engine + JUCE (~several minutes). Subsequent builds are incremental.
-
-## Features
-
-| Area | Details |
-| :--- | :--- |
-| **Timeline** | Multi-track audio editing, clip move/trim, waveform thumbnails, automation lanes, track reorder drag |
-| **Drag & Drop** | Studio One-style: ghost clip preview snaps to grid while hovering; drops land at exact position on the target track (or create a new one); consecutive multi-file placement |
-| **Plugin Drag** | Drag from the Browser Plugins tab and drop onto any track header or mixer strip to instantly insert a plugin |
-| **Mixer** | Per-track faders, panning, mute/solo, real-time peak meters, detachable window |
-| **Browser** | Files tab with waveform preview + OS drag; Plugins tab with VST3 scanning; Google Drive Cloud tab |
-| **Piano Roll** | Full MIDI note editor — add, move, resize, delete, snap to grid, scrollable |
-| **Collapsible Panels** | Inspector and Browser panels collapse/expand via a 14 px chevron toggle strip |
-| **Transport** | Play/Stop/Record, tempo, time signature, bars/beats/ticks display |
-| **Project Files** | Save/Load `.aerion` projects; title bar shows project name |
-| **Splash Screen** | Animated fog entrance with Cinzel typeface; minimum 4-second display |
-| **UI Theme** | Celtic Metal dark theme (`MetalLookAndFeel`) throughout, including plugin windows |
+---
 
 ## Architecture
 
-Strict **Model-View-Controller** separation:
+Aerion DAW follows a strict **Model-View-Controller (MVC)** separation:
 
-- **Model** — `ProjectData` owns the project `juce::ValueTree`. All UI state
-  (tracks, regions, mixer levels, sends) is queried and mutated through the
-  tree, giving thread-safe, undoable, observable state out of the box.
-- **View** — JUCE `Component`s in `UIComponents.h`. The top-level
-  `MainComponent` lays them out via bounds logic; each panel paints itself
-  from the `ValueTree` it observes.
-- **Controller** — `AudioEngineManager` wraps the Tracktion `Edit` and
-  transport. UI controls (e.g. `Transport`'s play/stop buttons) call directly
-  into it.
+*   **Model:** `ProjectData` owns the project `juce::ValueTree`, which acts as the single source of truth for the project state.
+*   **Controller:** `AudioEngineManager` wraps the Tracktion `Edit` and manages the real-time audio graph and transport.
+*   **View:** Native JUCE components in `UIComponents.h` observe the `ValueTree` and repaint only when the underlying state changes.
+
+---
 
 ## License
 

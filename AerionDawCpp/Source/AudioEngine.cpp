@@ -1,4 +1,5 @@
 #include "AudioEngine.h"
+#include "ProjectData.h"
 
 namespace te = tracktion;
 
@@ -153,6 +154,210 @@ AudioEngineManager::~AudioEngineManager()
     edit = nullptr;
 }
 
+//==============================================================================
+static te::EqualiserPlugin* getOrCreateUtilityEQ (te::Track* track, te::Edit& edit)
+{
+    if (track == nullptr) return nullptr;
+    
+    // Look for existing EQ
+    for (auto* p : track->pluginList)
+        if (auto* eq = dynamic_cast<te::EqualiserPlugin*> (p))
+            return eq;
+            
+    // Add one at the front of the list
+    if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track))
+    {
+        auto p = edit.getPluginCache().createNewPlugin (te::EqualiserPlugin::xmlTypeName, {});
+        if (p != nullptr)
+        {
+            track->pluginList.insertPlugin (p, 0, nullptr);
+            return dynamic_cast<te::EqualiserPlugin*> (p.get());
+        }
+    }
+    
+    return nullptr;
+}
+
+float AudioEngineManager::getTrackHPF (te::Track* track)
+{
+    if (auto* eq = getOrCreateUtilityEQ (track, *edit))
+        return eq->loFreqValue.get();
+    return 20.0f;
+}
+
+void AudioEngineManager::setTrackHPF (te::Track* track, float freq)
+{
+    if (auto* eq = getOrCreateUtilityEQ (track, *edit))
+        eq->setLowFreq (freq);
+}
+
+float AudioEngineManager::getTrackLPF (te::Track* track)
+{
+    if (auto* eq = getOrCreateUtilityEQ (track, *edit))
+        return eq->hiFreqValue.get();
+    return 20000.0f;
+}
+
+void AudioEngineManager::setTrackLPF (te::Track* track, float freq)
+{
+    if (auto* eq = getOrCreateUtilityEQ (track, *edit))
+        eq->setHighFreq (freq);
+}
+
+bool AudioEngineManager::getTrackPhase (te::Track* track)
+{
+    if (auto* eq = getOrCreateUtilityEQ (track, *edit))
+        return eq->phaseInvert.get();
+    return false;
+}
+
+void AudioEngineManager::setTrackPhase (te::Track* track, bool phaseInverted)
+{
+    if (auto* eq = getOrCreateUtilityEQ (track, *edit))
+        eq->phaseInvert = phaseInverted;
+}
+
+bool AudioEngineManager::getTrackMono (te::Track* track)
+{
+    // Use a custom property on the track's state ValueTree for now.
+    // In a real implementation, this would toggle a mono-summing plugin.
+    return track->state.getProperty ("isMono", false);
+}
+
+void AudioEngineManager::setTrackMono (te::Track* track, bool mono)
+{
+    track->state.setProperty ("isMono", mono, nullptr);
+    
+    // Logic to insert/remove a mono plugin could go here.
+}
+
+void AudioEngineManager::addSendToNewBus (te::Track* track)
+{
+    if (track == nullptr) return;
+    
+    // 1. Create a new audio track for the bus
+    auto busTrack = edit->insertNewAudioTrack (te::TrackInsertPoint::getEndOfTracks (*edit), nullptr);
+    if (busTrack == nullptr) return;
+    
+    // Find an unused bus number
+    juce::Array<int> usedBusNumbers;
+    for (auto* t : te::getAllTracks (*edit))
+        for (auto* p : t->pluginList)
+            if (auto* send = dynamic_cast<te::AuxSendPlugin*> (p))
+                usedBusNumbers.addIfNotAlreadyThere (send->getBusNumber());
+
+    int busNum = 0;
+    while (usedBusNumbers.contains (busNum))
+        ++busNum;
+
+    busTrack->setName (te::AuxSendPlugin::getDefaultBusName (busNum));
+
+    // 2. Add AuxReturn to the new track
+    auto retPlug = edit->getPluginCache().createNewPlugin (te::AuxReturnPlugin::xmlTypeName, {});
+    if (auto* ret = dynamic_cast<te::AuxReturnPlugin*> (retPlug.get()))
+    {
+        ret->busNumber = busNum;
+        busTrack->pluginList.insertPlugin (retPlug, 0, nullptr);
+    }
+
+    // 3. Add AuxSend to the source track
+    auto sendPlug = edit->getPluginCache().createNewPlugin (te::AuxSendPlugin::xmlTypeName, {});
+    if (auto* send = dynamic_cast<te::AuxSendPlugin*> (sendPlug.get()))
+    {
+        send->busNumber = busNum;
+        send->setGainDb (-6.0f);
+        track->pluginList.insertPlugin (sendPlug, 0, nullptr);
+    }
+}
+
+void AudioEngineManager::setAuxSendLevelDb (te::AuxSendPlugin* plugin, float db)
+{
+    if (plugin != nullptr)
+        plugin->setGainDb (db);
+}
+
+float AudioEngineManager::getAuxSendLevelDb (te::AuxSendPlugin* plugin)
+{
+    if (plugin != nullptr)
+        return plugin->getGainDb();
+    return -100.0f;
+}
+
+void AudioEngineManager::saveMixSnapshot (const juce::String& name)
+{
+    auto snapshots = edit->state.getOrCreateChildWithName (IDs::MixSnapshots, nullptr);
+    juce::ValueTree snapshot (IDs::Snapshot);
+    snapshots.appendChild (snapshot, nullptr);
+    snapshot.setProperty (IDs::name, name, nullptr);
+
+    for (auto* t : te::getAudioTracks (*edit))
+    {
+        juce::ValueTree trackData (IDs::Data);
+        snapshot.appendChild (trackData, nullptr);
+        trackData.setProperty (IDs::id, t->itemID.toString(), nullptr);
+        trackData.setProperty (IDs::level, getTrackVolumeDb (t), nullptr);
+        trackData.setProperty (IDs::pan, getTrackPan (t), nullptr);
+        trackData.setProperty (IDs::mute, t->isMuted (false), nullptr);
+        trackData.setProperty (IDs::solo, t->isSolo (false), nullptr);
+    }
+}
+
+void AudioEngineManager::recallMixSnapshot (const juce::String& name)
+{
+    auto snapshots = edit->state.getChildWithName (IDs::MixSnapshots);
+    if (! snapshots.isValid()) return;
+    
+    auto snapshot = snapshots.getChildWithProperty (IDs::name, name);
+    if (! snapshot.isValid()) return;
+    
+    for (int i = 0; i < snapshot.getNumChildren(); ++i)
+    {
+        auto data = snapshot.getChild (i);
+        if (auto* t = te::findTrackForID (*edit, te::EditItemID::fromString (data.getProperty (IDs::id).toString())))
+        {
+            setTrackVolumeDb (t, (float) data.getProperty (IDs::level));
+            setTrackPan (t, (float) data.getProperty (IDs::pan));
+            t->setMute (data.getProperty (IDs::mute));
+            t->setSolo (data.getProperty (IDs::solo));
+        }
+    }
+}
+
+juce::StringArray AudioEngineManager::getMixSnapshotNames()
+{
+    juce::StringArray names;
+    auto snapshots = edit->state.getChildWithName (IDs::MixSnapshots);
+    for (int i = 0; i < snapshots.getNumChildren(); ++i)
+        names.add (snapshots.getChild (i).getProperty (IDs::name).toString());
+    return names;
+}
+
+int AudioEngineManager::getPluginNumPrograms (te::Plugin* plugin)
+{
+    if (auto* ext = dynamic_cast<te::ExternalPlugin*> (plugin))
+        if (auto* pi = ext->getAudioPluginInstance())
+            return pi->getNumPrograms();
+    return 0;
+}
+
+juce::String AudioEngineManager::getPluginProgramName (te::Plugin* plugin, int index)
+{
+    if (auto* ext = dynamic_cast<te::ExternalPlugin*> (plugin))
+        if (auto* pi = ext->getAudioPluginInstance())
+            return pi->getProgramName (index);
+    return {};
+}
+
+void AudioEngineManager::setPluginProgram (te::Plugin* plugin, int index)
+{
+    if (auto* ext = dynamic_cast<te::ExternalPlugin*> (plugin))
+        if (auto* pi = ext->getAudioPluginInstance())
+        {
+            pi->setCurrentProgram (index);
+            plugin->edit.pluginChanged (*plugin);
+        }
+}
+
 void AudioEngineManager::changeListenerCallback (juce::ChangeBroadcaster*)
 {
     if (auto state = engine.getDeviceManager().deviceManager.createStateXml())
@@ -209,6 +414,43 @@ juce::Array<te::Track*> AudioEngineManager::getTopLevelTracks()
         if (dynamic_cast<te::AudioTrack*>(t) != nullptr || dynamic_cast<te::FolderTrack*>(t) != nullptr)
             result.add (t);
     return result;
+}
+
+juce::Array<te::Track*> AudioEngineManager::getMixerTracks()
+{
+    juce::Array<te::Track*> result;
+    auto top = getTopLevelTracks();
+    
+    std::function<void(te::Track*)> addRecursive = [&](te::Track* t) {
+        result.add (t);
+        if (auto* f = dynamic_cast<te::FolderTrack*> (t))
+            for (auto* child : f->getAllAudioSubTracks (false))
+                addRecursive (child);
+    };
+    
+    for (auto* t : top)
+        addRecursive (t);
+        
+    return result;
+}
+
+void AudioEngineManager::syncFolderRouting()
+{
+    // Ensure all tracks inside a folder are routed to that folder if it's a submix.
+    for (auto* t : te::getAllTracks (*edit))
+    {
+        if (auto* f = dynamic_cast<te::FolderTrack*> (t))
+        {
+            if (f->isSubmixFolder())
+            {
+                for (auto* child : f->getAllAudioSubTracks (false))
+                {
+                    (void) child;
+                    // Tracktion handles routing automatically for submix folders.
+                }
+            }
+        }
+    }
 }
 
 float AudioEngineManager::getTrackPeak (te::Track* track)
@@ -410,7 +652,13 @@ te::Plugin* AudioEngineManager::getPluginFor (juce::ValueTree& v)
 
 void AudioEngineManager::toggleTrackMute (te::Track* t)
 {
-    if (t != nullptr) t->setMute (! t->isMuted (false));
+    if (t == nullptr) return;
+    bool newState = ! t->isMuted (false);
+    t->setMute (newState);
+    
+    if (auto* f = dynamic_cast<te::FolderTrack*> (t))
+        for (auto* child : f->getAllAudioSubTracks (true))
+            child->setMute (newState);
 }
 
 void AudioEngineManager::removePlugin (te::Plugin* plugin)
@@ -494,7 +742,13 @@ void AudioEngineManager::ensureVolumeRange (te::Track* track)
 
 void AudioEngineManager::toggleTrackSolo (te::Track* t)
 {
-    if (t != nullptr) t->setSolo (! t->isSolo (false));
+    if (t == nullptr) return;
+    bool newState = ! t->isSolo (false);
+    t->setSolo (newState);
+    
+    if (auto* f = dynamic_cast<te::FolderTrack*> (t))
+        for (auto* child : f->getAllAudioSubTracks (true))
+            child->setSolo (newState);
 }
 
 double AudioEngineManager::getTempoAtPosition (double seconds)

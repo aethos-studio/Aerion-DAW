@@ -40,6 +40,19 @@ public:
 
     juce::Array<tracktion::AudioTrack*> getAudioTracks();
     juce::Array<tracktion::Track*>      getTopLevelTracks();
+    juce::Array<tracktion::Track*>      getMixerTracks();
+    
+    void syncFolderRouting();
+    
+    // Routing & Sends (Phase 4)
+    void addSendToNewBus (tracktion::Track* track);
+    void setAuxSendLevelDb (tracktion::AuxSendPlugin* plugin, float db);
+    float getAuxSendLevelDb (tracktion::AuxSendPlugin* plugin);
+    
+    // Snapshots (Phase 5)
+    void saveMixSnapshot (const juce::String& name);
+    void recallMixSnapshot (const juce::String& name);
+    juce::StringArray getMixSnapshotNames();
 
     tracktion::AudioTrack*  addAudioTrack();
     tracktion::FolderTrack* addFolderTrack();
@@ -91,6 +104,11 @@ public:
     tracktion::Plugin::Ptr addPluginToTrack (tracktion::Track* track, const juce::PluginDescription& desc);
     void removePlugin (tracktion::Plugin* plugin);
     tracktion::Plugin* getPluginFor (juce::ValueTree& v);
+    
+    // Plugin Presets (Phase 6)
+    int  getPluginNumPrograms (tracktion::Plugin* plugin);
+    juce::String getPluginProgramName (tracktion::Plugin* plugin, int index);
+    void setPluginProgram (tracktion::Plugin* plugin, int index);
 
     tracktion::Track* getMasterTrack() { return edit->getMasterTrack(); }
 
@@ -122,6 +140,18 @@ public:
     void  setTrackVolumeDb (tracktion::Track* track, float db);
     float getTrackVolumeDb (tracktion::Track* track);
     void  ensureVolumeRange (tracktion::Track* track);
+
+    // Filter, Phase and Mono (Phase 1)
+    float getTrackHPF (tracktion::Track* track);
+    void  setTrackHPF (tracktion::Track* track, float freq);
+    float getTrackLPF (tracktion::Track* track);
+    void  setTrackLPF (tracktion::Track* track, float freq);
+    
+    bool  getTrackPhase (tracktion::Track* track);
+    void  setTrackPhase (tracktion::Track* track, bool phaseInverted);
+    
+    bool  getTrackMono (tracktion::Track* track);
+    void  setTrackMono (tracktion::Track* track, bool mono);
 
     // Linear dB fader: position 0..1 maps uniformly to kMinVolumeDb..kMaxVolumeDb.
     static float getFaderPosFromDb (float db)

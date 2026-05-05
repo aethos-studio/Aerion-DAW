@@ -809,8 +809,51 @@ public:
         drawPill (g, pills.removeFromLeft (48), "MUTE", muted, Theme::meterYellow);
         pills.removeFromLeft (6);
         drawPill (g, pills.removeFromLeft (48), "SOLO", solo,  Theme::accent);
+        
+        // Phase and Mono (Phase 1)
+        if (selectedTrack != nullptr)
+        {
+            pills.removeFromLeft (12);
+            phaseBounds = pills.removeFromLeft (24);
+            bool phaseOn = audioEngine.getTrackPhase (selectedTrack);
+            drawPill (g, phaseBounds, "Ø", phaseOn, Theme::active);
+            
+            pills.removeFromLeft (6);
+            monoBounds = pills.removeFromLeft (24);
+            bool monoOn = audioEngine.getTrackMono (selectedTrack);
+            drawPill (g, monoBounds, "M", monoOn, Theme::active);
+        }
 
         b.removeFromTop (16);
+
+        // Quick Filters (Phase 1)
+        if (selectedTrack != nullptr)
+        {
+            auto filterSection = b.removeFromTop (filtersExpanded ? 80 : 20);
+            juce::Rectangle<int> dummy;
+            drawSectionHeader (g, filterSection.removeFromTop (18), "QUICK FILTERS", dummy);
+            filterAddBtn = dummy; // reuse dummy but it won't be used
+            
+            if (filtersExpanded)
+            {
+                filterSection.removeFromTop (4);
+                auto hpfRow = filterSection.removeFromTop (24);
+                g.setColour (Theme::textMuted);
+                g.setFont (10.0f);
+                g.drawText ("HPF", hpfRow.removeFromLeft (30), juce::Justification::centredLeft);
+                hpfBounds = hpfRow.reduced (0, 4);
+                drawFilterSlider (g, hpfBounds, audioEngine.getTrackHPF (selectedTrack), 20.0f, 20000.0f);
+                
+                filterSection.removeFromTop (4);
+                auto lpfRow = filterSection.removeFromTop (24);
+                g.setColour (Theme::textMuted);
+                g.setFont (10.0f);
+                g.drawText ("LPF", lpfRow.removeFromLeft (30), juce::Justification::centredLeft);
+                lpfBounds = lpfRow.reduced (0, 4);
+                drawFilterSlider (g, lpfBounds, audioEngine.getTrackLPF (selectedTrack), 20.0f, 20000.0f);
+            }
+            b.removeFromTop (10);
+        }
 
         // Collect real plugins from the selected track.
         juce::Array<tracktion::ExternalPlugin*> externals;
@@ -862,6 +905,35 @@ public:
             }
         }
 
+        // Phase and Mono (Phase 1)
+        if (selectedTrack != nullptr)
+        {
+            if (phaseBounds.contains (e.getPosition()))
+            {
+                audioEngine.setTrackPhase (selectedTrack, ! audioEngine.getTrackPhase (selectedTrack));
+                repaint();
+                return;
+            }
+            if (monoBounds.contains (e.getPosition()))
+            {
+                audioEngine.setTrackMono (selectedTrack, ! audioEngine.getTrackMono (selectedTrack));
+                repaint();
+                return;
+            }
+        }
+
+        // Quick Filters Section Header (collapse/expand)
+        if (selectedTrack != nullptr)
+        {
+            auto headerRect = juce::Rectangle<int> (12, filterAddBtn.getY(), getWidth() - 24, 18);
+            if (headerRect.contains (e.getPosition()))
+            {
+                filtersExpanded = ! filtersExpanded;
+                repaint();
+                return;
+            }
+        }
+
         // "+" buttons add a plugin / send.
         if (insertAddBtn.contains (e.getPosition()))
         {
@@ -907,6 +979,13 @@ public:
         {
             audioEngine.setTrackVolumeDb (selectedTrack, 0.0f);
             repaint (faderArea);
+            return;
+        }
+        
+        if (selectedTrack != nullptr)
+        {
+            if (hpfBounds.contains (e.getPosition())) { audioEngine.setTrackHPF (selectedTrack, 20.0f); repaint(); return; }
+            if (lpfBounds.contains (e.getPosition())) { audioEngine.setTrackLPF (selectedTrack, 20000.0f); repaint(); return; }
         }
     }
 
@@ -916,6 +995,24 @@ public:
         {
             ::setFaderFromY (audioEngine, selectedTrack, faderArea, e.y);
             return;
+        }
+        
+        if (selectedTrack != nullptr)
+        {
+            if (hpfBounds.contains (e.getMouseDownPosition()))
+            {
+                float freq = getValueFromX (hpfBounds, e.x, 20.0f, 20000.0f, true);
+                audioEngine.setTrackHPF (selectedTrack, freq);
+                repaint();
+                return;
+            }
+            if (lpfBounds.contains (e.getMouseDownPosition()))
+            {
+                float freq = getValueFromX (lpfBounds, e.x, 20.0f, 20000.0f, true);
+                audioEngine.setTrackLPF (selectedTrack, freq);
+                repaint();
+                return;
+            }
         }
     }
 
@@ -937,8 +1034,42 @@ private:
     juce::Array<juce::Rectangle<int>> insertRows;
     juce::Array<tracktion::ExternalPlugin*> insertPlugins;
     juce::Array<juce::Rectangle<int>> sendRows;
+    juce::Array<tracktion::AuxSendPlugin*> sendPlugins;
+    juce::Array<juce::Rectangle<int>> sendLevelBounds;
     juce::Rectangle<int> insertAddBtn;
     juce::Rectangle<int> faderArea;
+    
+    // Phase 1 Members
+    juce::Rectangle<int> hpfBounds, lpfBounds, phaseBounds, monoBounds, filterAddBtn;
+    bool filtersExpanded = true;
+
+    void drawFilterSlider (juce::Graphics& g, juce::Rectangle<int> r, float value, float min, float max)
+    {
+        g.setColour (juce::Colours::black.withAlpha (0.3f));
+        g.fillRoundedRectangle (r.toFloat(), 2.0f);
+        g.setColour (Theme::border);
+        g.drawRoundedRectangle (r.toFloat(), 2.0f, 1.0f);
+        
+        // Logarithmic scale for frequency
+        float norm = (std::log10 (value) - std::log10 (min)) / (std::log10 (max) - std::log10 (min));
+        int fillW = (int) (norm * (float) r.getWidth());
+        
+        g.setColour (Theme::active.withAlpha (0.4f));
+        g.fillRoundedRectangle (r.getX(), r.getY(), fillW, r.getHeight(), 2.0f);
+        
+        g.setColour (Theme::textMain);
+        g.setFont (10.0f);
+        juce::String txt = (value >= 1000.0f) ? juce::String (value / 1000.0f, 1) + "k" : juce::String ((int) value);
+        g.drawText (txt + " Hz", r.reduced (4, 0), juce::Justification::centredRight);
+    }
+
+    float getValueFromX (juce::Rectangle<int> r, int x, float min, float max, bool log)
+    {
+        float norm = juce::jlimit (0.0f, 1.0f, (float) (x - r.getX()) / (float) r.getWidth());
+        if (log)
+            return std::pow (10.0f, std::log10 (min) + norm * (std::log10 (max) - std::log10 (min)));
+        return min + norm * (max - min);
+    }
 
     void drawSectionHeader (juce::Graphics& g, juce::Rectangle<int> headerArea,
                             const juce::String& title, juce::Rectangle<int>& addBtnOut,
@@ -1018,11 +1149,23 @@ private:
             g.drawText (s->getBusName(), row.getX() + 20, y, row.getWidth() - 70, 30, juce::Justification::centredLeft);
 
             float gainDb = s->getGainDb();
-            g.setColour (Theme::textMuted.withMultipliedAlpha (alpha));
-            g.setFont (10.5f);
-            g.drawText (juce::String::formatted ("%.1f dB", gainDb), row.getRight() - 60, y, 50, 30, juce::Justification::centredRight);
+            auto gainR = row.removeFromRight (60).reduced (0, 4);
+            g.setColour (juce::Colours::black.withAlpha (0.3f));
+            g.fillRoundedRectangle (gainR.toFloat(), 2.0f);
+            g.setColour (Theme::border);
+            g.drawRoundedRectangle (gainR.toFloat(), 2.0f, 1.0f);
+            
+            float norm = juce::jlimit (0.0f, 1.0f, (gainDb - AudioEngineManager::kMinVolumeDb) / AudioEngineManager::kFaderRangeDb);
+            g.setColour (Theme::active.withAlpha (0.4f));
+            g.fillRoundedRectangle (gainR.getX(), gainR.getY(), (int)(norm * gainR.getWidth()), gainR.getHeight(), 2.0f);
+
+            g.setColour (Theme::textMain.withMultipliedAlpha (alpha));
+            g.setFont (9.0f);
+            g.drawText (juce::String::formatted ("%.1f", gainDb), gainR, juce::Justification::centred);
 
             sendRows.add (row);
+            sendPlugins.add (s);
+            sendLevelBounds.add (gainR);
             y += 36;
         }
     }
@@ -2534,8 +2677,9 @@ public:
             currentRowY += th;
 
             if (auto* f = dynamic_cast<tracktion::FolderTrack*>(t))
-                for (auto* child : f->getAllAudioSubTracks (false))
-                    addTrack (child, f, indent + 16);
+                if (! collapsedFolders.contains (f->itemID.toString()))
+                    for (auto* child : f->getAllAudioSubTracks (false))
+                        addTrack (child, f, indent + 16);
         };
 
         for (auto* t : top)
@@ -2580,6 +2724,26 @@ public:
         const int textX = 14 + indent;
         g.setColour(Theme::textMain);
         g.setFont(juce::Font(13.0f).withStyle(juce::Font::bold));
+        
+        if (folder != nullptr)
+        {
+            // Draw expand/collapse chevron
+            auto chevronR = juce::Rectangle<int> (textX - 10, y + 10, 10, 10);
+            g.setColour (Theme::textMuted);
+            juce::Path p;
+            if (collapsedFolders.contains (folder->itemID.toString())) {
+                p.startNewSubPath (chevronR.getX() + 2, chevronR.getY());
+                p.lineTo (chevronR.getRight(), chevronR.getCentreY());
+                p.lineTo (chevronR.getX() + 2, chevronR.getBottom());
+            } else {
+                p.startNewSubPath (chevronR.getX(), chevronR.getY() + 2);
+                p.lineTo (chevronR.getCentreX(), chevronR.getBottom());
+                p.lineTo (chevronR.getRight(), chevronR.getY() + 2);
+            }
+            g.strokePath (p, juce::PathStrokeType (1.5f));
+            g.setColour (Theme::textMain);
+        }
+
         juce::String label = track->getName()
                              + (folder ? juce::String("  [GROUP]") : juce::String());
         g.drawText(label, textX, y + 8, kHeaderWidth - textX - 8, 20, juce::Justification::left);
@@ -2689,16 +2853,18 @@ public:
                             int w = juce::jmax (1, (int) std::ceil (viewportCb.getWidth()));
                             int h = juce::jmax (1, (int) std::ceil (viewportCb.getHeight()));
 
+                            auto& thumb = audioEngine.getThumbnailForClip (*wave, *this);
+                            juce::int64 samplesNow = thumb.getNumSamplesFinished();
                             auto& entry = waveformCache[wave->itemID.getRawID()];
                             if (entry.width != w || entry.height != h
                                 || ! juce::approximatelyEqual (entry.pxPerSec, pxPerSec)
                                 || std::abs (entry.audioStart    - audioStart)    > 0.001
-                                || std::abs (entry.audioDuration - audioDuration) > 0.001)
+                                || std::abs (entry.audioDuration - audioDuration) > 0.001
+                                || entry.samplesLoaded != samplesNow)
                             {
                                 entry.image = juce::Image (juce::Image::ARGB, w, h, true);
                                 juce::Graphics ig (entry.image);
                                 ig.setColour (juce::Colours::white.withAlpha (0.6f));
-                                auto& thumb = audioEngine.getThumbnailForClip (*wave, *this);
                                 tracktion::TimeRange vRange (tracktion::TimePosition::fromSeconds (audioStart),
                                                              tracktion::TimeDuration::fromSeconds (audioDuration));
                                 thumb.drawChannel (ig, {0, 0, w, h}, vRange, 0, 1.0f);
@@ -2707,6 +2873,7 @@ public:
                                 entry.audioDuration = audioDuration;
                                 entry.width         = w;
                                 entry.height        = h;
+                                entry.samplesLoaded = samplesNow;
                             }
                             g.drawImage (entry.image,
                                          viewportCb.getX(), viewportCb.getY(), (float) w, (float) h,
@@ -3203,11 +3370,27 @@ public:
                 auto& row = rows.getReference (i);
                 if (targetY >= row.y && targetY < row.y + row.height)
                 {
-                    tracktion::Track* clickedTrack = row.track;
                     int rowTop = kRulerH + row.y - scrollY;
                     int btnY    = rowTop + 32;
                     int fxY     = btnY + 24;
                     int textX   = 14 + row.indent;
+                    auto* clickedTrack = row.track;
+                    auto* folder = dynamic_cast<tracktion::FolderTrack*> (row.track);
+
+                    // Chevron hit test for folders
+                    if (folder != nullptr)
+                    {
+                        auto chevronR = juce::Rectangle<int> (textX - 10, rowTop + 10, 10, 10);
+                        if (chevronR.contains (e.getPosition()))
+                        {
+                            juce::String fid = folder->itemID.toString();
+                            if (collapsedFolders.contains (fid)) collapsedFolders.removeString (fid);
+                            else                                  collapsedFolders.add (fid);
+                            updateScrollBar();
+                            repaint();
+                            return;
+                        }
+                    }
 
                     // Right-click — context menu.
                     if (e.mods.isPopupMenu())
@@ -3318,31 +3501,38 @@ public:
         {
             dragOffset = selectedClip->getPosition().getStart().inSeconds() - xToTime((float)e.x);
             
-            // Edge detection for trimming / fades / gain
-            float clipX = timeToX((float)selectedClip->getPosition().getStart().inSeconds());
-            float clipW = (float)selectedClip->getPosition().getLength().inSeconds() * pxPerSec;
+            float clipX = timeToX ((float) selectedClip->getPosition().getStart().inSeconds());
+            float clipW = (float) selectedClip->getPosition().getLength().inSeconds() * pxPerSec;
             float edgeThreshold = 8.0f;
 
-            if (e.y < laneTop() + 10) // Near top of row? (could be fades or gain)
-            {
-                // We need to know which row we are in to get the local Y relative to the clip
-                // But for now, we can just use the absolute Y
-                // Wait, it's simpler to just hit-test the rectangles we drew.
-            }
+            // Determine the clip's top-Y in component space so we can hit-test the fade dot handles.
+            int rowTopInComp = 0;
+            for (auto& row : getVisibleRows())
+                if (row.track == selectedClip->getTrack())
+                    { rowTopInComp = kRulerH + row.y - scrollY; break; }
+            float clipTopY = (float) rowTopInComp + 2.0f;
+            float hSize    = 6.0f;
+            bool onFadeInDot  = (e.x >= clipX            && e.x <= clipX + hSize
+                                  && e.y >= clipTopY && e.y <= clipTopY + hSize);
+            bool onFadeOutDot = (e.x >= clipX + clipW - hSize && e.x <= clipX + clipW
+                                  && e.y >= clipTopY && e.y <= clipTopY + hSize);
 
             if (auto* wave = dynamic_cast<tracktion::WaveAudioClip*> (selectedClip))
             {
-                if (e.x >= clipX && e.x <= clipX + edgeThreshold) {
-                    dragMode = DragMode::fadeLeft;
+                if (onFadeInDot) {
+                    dragMode     = DragMode::fadeLeft;
                     dragStartVal = wave->getFadeIn().inSeconds();
                 }
-                else if (e.x >= clipX + clipW - edgeThreshold && e.x <= clipX + clipW) {
-                    dragMode = DragMode::fadeRight;
+                else if (onFadeOutDot) {
+                    dragMode     = DragMode::fadeRight;
                     dragStartVal = wave->getFadeOut().inSeconds();
                 }
-                else {
+                else if (e.x >= clipX && e.x <= clipX + edgeThreshold)
+                    dragMode = DragMode::trimLeft;
+                else if (e.x >= clipX + clipW - edgeThreshold && e.x <= clipX + clipW)
+                    dragMode = DragMode::trimRight;
+                else
                     dragMode = DragMode::move;
-                }
             }
             else
             {
@@ -3391,6 +3581,8 @@ public:
         }
 
         m.addSeparator();
+        m.addItem (10, "Add Send to New Bus...");
+        m.addSeparator();
         m.addItem (2, "Delete Track");
 
         m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ screenPos.x, screenPos.y, 1, 1 }),
@@ -3409,6 +3601,11 @@ public:
                     selectedIds.removeString (track->itemID.toString());
                     audioEngine.deleteTrack (track);
                     if (onTrackSelected) onTrackSelected (-1);
+                    repaint();
+                }
+                else if (chosen == 10)
+                {
+                    audioEngine.addSendToNewBus (track);
                     repaint();
                 }
                 else if (chosen == 3)
@@ -3888,6 +4085,7 @@ private:
     int lastMouseX = -1;
     juce::StringArray selectedIds;
     juce::StringArray automationVisibleTracks;
+    juce::StringArray collapsedFolders;
     juce::HashMap<juce::String, int> automationParamChoice;  // 0=Volume, 1=Pan
     tracktion::AutomatableParameter* draggingParam = nullptr;
     int draggingPointIdx = -1;
@@ -3923,12 +4121,13 @@ private:
     // SmartThumbnail render into a viewport-sized Image; subsequent identical
     // frames blit that Image without touching SmartThumbnail again.
     struct WaveformCacheEntry {
-        juce::Image image;
-        double pxPerSec      = 0.0;
-        double audioStart    = 0.0;
-        double audioDuration = 0.0;
-        int    width         = 0;
-        int    height        = 0;
+        juce::Image   image;
+        double        pxPerSec      = 0.0;
+        double        audioStart    = 0.0;
+        double        audioDuration = 0.0;
+        int           width         = 0;
+        int           height        = 0;
+        juce::int64   samplesLoaded = -1;
     };
     std::map<uint64_t, WaveformCacheEntry> waveformCache;
 
@@ -4063,7 +4262,7 @@ public:
         g.setFont(juce::Font(9.0f).withStyle(juce::Font::bold));
         g.drawText(detached ? juce::String("DOCK") : juce::String("POP OUT"), detachBtn, juce::Justification::centred);
 
-        auto tracks = audioEngine.getAudioTracks();
+        auto tracks = audioEngine.getMixerTracks();
         if (tracks.isEmpty())
         {
             g.setColour(Theme::textMuted);
@@ -4083,7 +4282,7 @@ public:
         for (int i = 0; i <= tracks.size(); ++i)
         {
             bool isMaster = (i == tracks.size());
-            tracktion::Track* track = isMaster ? audioEngine.getMasterTrack() : (tracktion::Track*) tracks[i];
+            tracktion::Track* track = isMaster ? audioEngine.getMasterTrack() : tracks[i];
             juce::Colour tColor = isMaster ? Theme::meterRed : Theme::colourForTrack(i);
 
             paintStrip(g, juce::Rectangle<int>(x, y, kStripW, h), track, tColor, isMaster);
@@ -4100,9 +4299,11 @@ public:
         StripHit hit;
         hit.track    = track;
         hit.isMaster = isMaster;
+        
+        auto* folder = dynamic_cast<tracktion::FolderTrack*>(track);
 
         // Background panel.
-        g.setColour(Theme::bgPanel);
+        g.setColour(folder != nullptr ? Theme::bgPanel.darker(0.1f) : Theme::bgPanel);
         g.fillRoundedRectangle(cb.toFloat(), 4.0f);
         g.setColour(Theme::border);
         g.drawRoundedRectangle(cb.toFloat(), 4.0f, 1.0f);
@@ -4114,11 +4315,24 @@ public:
         g.fillRoundedRectangle(band.toFloat(), 2.0f);
 
         // Name.
-        auto name = inner.removeFromTop(kNameH);
+        auto nameArea = inner.removeFromTop(kNameH);
         g.setColour(Theme::textMain);
         g.setFont(juce::Font(11.0f).withStyle(juce::Font::bold));
-        g.drawText(isMaster ? juce::String("MASTER") : track->getName(),
-                   name, juce::Justification::centred);
+        
+        juce::String name = isMaster ? juce::String("MASTER") : track->getName();
+        if (folder != nullptr)
+        {
+            // Draw folder icon
+            auto iconR = nameArea.removeFromLeft (16).reduced (2);
+            g.setColour (Theme::textMuted);
+            juce::Path p;
+            p.addRoundedRectangle (iconR.getX(), iconR.getY() + 2, iconR.getWidth(), iconR.getHeight() - 4, 1.0f);
+            p.addRectangle (iconR.getX(), iconR.getY(), 6, 4);
+            g.fillPath (p);
+            g.setColour (Theme::textMain);
+        }
+        
+        g.drawText(name, nameArea, juce::Justification::centred);
 
         inner.removeFromTop(2);
 
@@ -4149,14 +4363,21 @@ public:
             {
                 g.setColour(Theme::surface.brighter(0.1f));
                 g.fillRect(slot.reduced(1));
+                
+                auto bypassArea = slot.removeFromLeft(14).reduced(3);
+                bool isEnabled = plugin->isEnabled();
+                g.setColour (isEnabled ? Theme::active : Theme::textMuted.withAlpha (0.4f));
+                g.fillEllipse (bypassArea.toFloat());
+                
                 g.setColour(Theme::active);
-                g.fillRect(slot.getX() + 2, slot.getY() + 2, 2, slot.getHeight() - 4);
+                g.fillRect(slot.getX(), slot.getY() + 2, 2, slot.getHeight() - 4);
                 g.setColour(Theme::textMain);
                 g.setFont(juce::Font(10.0f));
-                g.drawText(plugin->getName(), slot.withTrimmedLeft(8).withTrimmedRight(2),
+                g.drawText(plugin->getName(), slot.withTrimmedLeft(6).withTrimmedRight(2),
                            juce::Justification::centredLeft);
 
                 hit.insertSlots.add (slot);
+                hit.insertBypassBtns.add (bypassArea);
                 hit.insertPlugins.add (plugin);
             }
             else
@@ -4255,81 +4476,151 @@ public:
         }
 
 
-        void mouseDown(const juce::MouseEvent& e) override
+        void showTrackContextMenu (tracktion::Track* t, juce::Point<int> screenPos)
         {
-        if (detachBtn.contains(e.getPosition())) {
-            if (onDetachRequested) onDetachRequested();
-            return;
+            juce::PopupMenu m;
+
+            bool isPhase = audioEngine.getTrackPhase (t);
+            bool isMono  = audioEngine.getTrackMono (t);
+
+            m.addItem (1, "Phase Invert", true, isPhase);
+            m.addItem (2, "Mono Sum", true, isMono);
+            m.addSeparator();
+
+            // Snapshots Submenu
+            juce::PopupMenu snaps;
+            auto names = audioEngine.getMixSnapshotNames();
+            if (names.isEmpty())
+            {
+                snaps.addItem (0, "No snapshots saved", false);
+            }
+            else
+            {
+                for (int i = 0; i < names.size(); ++i)
+                    snaps.addItem (100 + i, names[i]);
+            }
+            snaps.addSeparator();
+            snaps.addItem (200, "Save New Snapshot...");
+
+            m.addSubMenu ("Snapshots", snaps);
+
+            m.addSeparator();
+            m.addItem (3, "Reset Peak");
+
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ screenPos.x, screenPos.y, 1, 1 }),
+                [this, t] (int result)
+                {
+                    if (result == 1)      audioEngine.setTrackPhase (t, ! audioEngine.getTrackPhase (t));
+                    else if (result == 2) audioEngine.setTrackMono (t, ! audioEngine.getTrackMono (t));
+                    else if (result == 3) audioEngine.clearTrackMaxPeak (t);
+                    else if (result == 200)
+                    {
+                        // Show a quick dialog or just auto-name it
+                        juce::String name = "Mix " + juce::String (audioEngine.getMixSnapshotNames().size() + 1);
+                        audioEngine.saveMixSnapshot (name);
+                    }
+                    else if (result >= 100)
+                    {
+                        auto names = audioEngine.getMixSnapshotNames();
+                        int idx = result - 100;
+                        if (idx < names.size())
+                            audioEngine.recallMixSnapshot (names[idx]);
+                    }
+                    repaint();
+                });
         }
 
-        for (auto& hit : stripHits)
+        void mouseDown(const juce::MouseEvent& e) override
         {
-            if (hit.muteBtn.contains(e.getPosition())) { audioEngine.toggleTrackMute(hit.track); repaint(); return; }
-            if (hit.soloBtn.contains(e.getPosition())) { audioEngine.toggleTrackSolo(hit.track); repaint(); return; }
-
-            // Peak readout click -> reset peak.
-            if (hit.peakReadoutArea.contains (e.getPosition()))
-            {
-                audioEngine.clearTrackMaxPeak (hit.track);
-                repaint();
+            if (detachBtn.contains(e.getPosition())) {
+                if (onDetachRequested) onDetachRequested();
                 return;
             }
 
-            // Pan slider: click sets initial position, drag continues from there.
-            if (hit.panArea.contains(e.getPosition())) {
-                activePanTrack  = hit.track;
-                activePanArea   = hit.panArea;
-                dragStartY      = e.y;
-                panAtDragStart  = audioEngine.getTrackPan (hit.track);
-                setPanFromX(activePanTrack, activePanArea, e.x);
-                return;
-            }
-
-            // Existing plugin slot — double-click handled in mouseDoubleClick.
-            // Right-click on a populated slot → remove plugin.
-            for (int i = 0; i < hit.insertSlots.size(); ++i)
+            for (auto& hit : stripHits)
             {
-                if (hit.insertSlots[i].contains(e.getPosition()))
+                if (hit.muteBtn.contains(e.getPosition())) { audioEngine.toggleTrackMute(hit.track); repaint(); return; }
+                if (hit.soloBtn.contains(e.getPosition())) { audioEngine.toggleTrackSolo(hit.track); repaint(); return; }
+
+                // Peak readout click -> reset peak.
+                if (hit.peakReadoutArea.contains (e.getPosition()))
+                {
+                    audioEngine.clearTrackMaxPeak (hit.track);
+                    repaint();
+                    return;
+                }
+
+                // Bypass toggles
+                for (int i = 0; i < hit.insertBypassBtns.size(); ++i)
+                {
+                    if (hit.insertBypassBtns[i].contains (e.getPosition()))
+                    {
+                        auto* p = hit.insertPlugins[i];
+                        p->setEnabled (! p->isEnabled());
+                        repaint();
+                        return;
+                    }
+                }
+
+                // Pan slider: click sets initial position, drag continues from there.
+                if (hit.panArea.contains(e.getPosition())) {
+                    activePanTrack  = hit.track;
+                    activePanArea   = hit.panArea;
+                    dragStartY      = e.y;
+                    panAtDragStart  = audioEngine.getTrackPan (hit.track);
+                    setPanFromX(activePanTrack, activePanArea, e.x);
+                    return;
+                }
+
+                // Existing plugin slot — double-click handled in mouseDoubleClick.
+                // Right-click on a populated slot → remove plugin.
+                for (int i = 0; i < hit.insertSlots.size(); ++i)
+                {
+                    if (hit.insertSlots[i].contains(e.getPosition()))
+                    {
+                        if (e.mods.isPopupMenu())
+                        {
+                            showInsertContextMenu(hit.insertPlugins[i], hit.track, e.getScreenPosition());
+                            return;
+                        }
+                        return;
+                    }
+                }
+
+                // Empty slot click — open plugin picker for this track.
+                for (auto& slot : hit.insertEmptySlots)
+                {
+                    if (slot.contains(e.getPosition()))
+                    {
+                        bool slotIsPopulated = false;
+                        for (auto& used : hit.insertSlots)
+                            if (used == slot) { slotIsPopulated = true; break; }
+                        if (slotIsPopulated) continue;
+
+                        auto* trk = hit.track;
+                        auto screen = localAreaToGlobal(slot);
+                        PluginPicker::show(audioEngine, screen, [this, trk] (const juce::PluginDescription& d) {
+                            if (auto p = audioEngine.addPluginToTrack(trk, d))
+                                p->showWindowExplicitly();
+                            repaint();
+                        });
+                        return;
+                    }
+                }
+
+                // Fader area: capture for drag only, do not jump on click.
+                if (hit.faderArea.contains(e.getPosition()))
                 {
                     if (e.mods.isPopupMenu())
                     {
-                        showInsertContextMenu(hit.insertPlugins[i], hit.track, e.getScreenPosition());
+                        showTrackContextMenu (hit.track, e.getScreenPosition());
                         return;
                     }
+                    activeFaderTrack = hit.track;
                     return;
                 }
             }
-
-            // Empty slot click — open plugin picker for this track.
-            for (auto& slot : hit.insertEmptySlots)
-            {
-                if (slot.contains(e.getPosition()))
-                {
-                    bool slotIsPopulated = false;
-                    for (auto& used : hit.insertSlots)
-                        if (used == slot) { slotIsPopulated = true; break; }
-                    if (slotIsPopulated) continue;
-
-                    auto* trk = hit.track;
-                    auto screen = localAreaToGlobal(slot);
-                    PluginPicker::show(audioEngine, screen, [this, trk] (const juce::PluginDescription& d) {
-                        if (auto p = audioEngine.addPluginToTrack(trk, d))
-                            p->showWindowExplicitly();
-                        repaint();
-                    });
-                    return;
-                }
-            }
-
-            // Fader area: capture for drag only, do not jump on click.
-            if (hit.faderArea.contains(e.getPosition()))
-            {
-                activeFaderTrack = hit.track;
-                return;
-            }
         }
-        }
-
     void mouseDrag(const juce::MouseEvent& e) override
     {
         if (activePanTrack)
@@ -4393,6 +4684,7 @@ private:
         juce::Rectangle<int> muteBtn, soloBtn, panArea, faderArea, peakReadoutArea;
         juce::Array<juce::Rectangle<int>>      insertSlots;
         juce::Array<juce::Rectangle<int>>      insertEmptySlots;
+        juce::Array<juce::Rectangle<int>>      insertBypassBtns;
         juce::Array<tracktion::Plugin*>        insertPlugins;
     };
 
@@ -4409,17 +4701,39 @@ private:
     {
         juce::PopupMenu m;
         m.addItem (1, "Open Editor");
+        m.addItem (2, "Bypass", true, ! plugin->isEnabled());
         m.addSeparator();
-        m.addItem (2, "Remove Plugin");
+        
+        // Presets Submenu
+        juce::PopupMenu presets;
+        int numProgs = audioEngine.getPluginNumPrograms (plugin);
+        if (numProgs > 0)
+        {
+            for (int i = 0; i < juce::jmin (32, numProgs); ++i)
+                presets.addItem (100 + i, audioEngine.getPluginProgramName (plugin, i));
+            
+            if (numProgs > 32) presets.addItem (0, "... (more in editor)", false);
+        }
+        else
+        {
+            presets.addItem (0, "No presets found", false);
+        }
+        m.addSubMenu ("Presets", presets);
+        
+        m.addSeparator();
+        m.addItem (3, "Remove Plugin");
 
         m.showMenuAsync(juce::PopupMenu::Options()
                         .withTargetScreenArea({ screenPos.x, screenPos.y, 1, 1 }),
             [this, plugin] (int chosen) {
-                if (chosen == 1 && plugin) plugin->showWindowExplicitly();
-                else if (chosen == 2 && plugin) {
+                if (chosen == 1 && plugin)      plugin->showWindowExplicitly();
+                else if (chosen == 2 && plugin) plugin->setEnabled (! plugin->isEnabled());
+                else if (chosen == 3 && plugin) {
                     audioEngine.removePlugin(plugin);
                     repaint();
                 }
+                else if (chosen >= 100) audioEngine.setPluginProgram (plugin, chosen - 100);
+                repaint();
             });
     }
 

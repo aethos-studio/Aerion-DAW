@@ -16,6 +16,10 @@ namespace IDs
     DECLARE_ID (Sends);
     DECLARE_ID (Send);
 
+    DECLARE_ID (MixSnapshots);
+    DECLARE_ID (Snapshot);
+    DECLARE_ID (Data);
+    
     DECLARE_ID (id);
     DECLARE_ID (name);
     DECLARE_ID (color);

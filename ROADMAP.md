@@ -72,36 +72,38 @@ All items below are fully implemented and working in the current build.
 
 ---
 
-## Milestone 1 — DAW Essentials: Editing (v0.3.0)
+## Milestone 1 — DAW Essentials: Editing (v0.0.1)
 *Everything a producer needs to actually edit a song.*
 
-- [ ] **Clip Editing — Trim & Split:** Click-drag clip edges to trim; razor/split tool to cut clips at the playhead or a click point.
-- [ ] **Clip Move & Nudge:** Drag clips freely on the timeline; nudge by one frame/beat with arrow keys.
-- [ ] **Clip Gain & Fade Handles:** Per-clip input gain knob; drag-in fade-in and fade-out handles directly on the clip.
-- [ ] **Comp Tool / Takes:** Record multiple takes on a track; display take lanes and allow comping by selecting segments from different takes.
-- [ ] **Loop / Cycle Range:** Set a loop region on the ruler; transport loops automatically within it.
-- [ ] **Markers:** Add, name, and navigate between named markers on the ruler.
-- [ ] **Snap Settings UI:** Snap mode selector (Bar / Beat / Sub-beat / Off) accessible from the toolbar.
+- [x] **Clip Editing — Trim & Split:** Click-drag clip edges to trim; razor/split tool to cut clips at the playhead or a click point.
+- [x] **Clip Move & Nudge:** Drag clips freely on the timeline; nudge by one frame/beat with arrow keys.
+- [x] **Clip Gain & Fade Handles:** Per-clip input gain knob; drag-in fade-in and fade-out handles directly on the clip.
+- [x] **Comp Tool / Takes:** Record multiple takes on a track; display take lanes and allow comping by selecting segments from different takes.
+- [x] **Loop / Cycle Range:** Set a loop region on the ruler; transport loops automatically within it.
+- [x] **Markers:** Add, name, and navigate between named markers on the ruler.
+- [x] **Snap Settings UI:** Snap mode selector (Bar / Beat / Sub-beat / Off) accessible from the toolbar.
 - [ ] **MIDI Quantization:** Quantize selected MIDI notes to grid in the Piano Roll (Q shortcut).
 - [ ] **MIDI Velocity Editor:** Velocity lane below the Piano Roll grid; drag bars to adjust per-note velocity.
 - [ ] **MIDI CC Lanes:** Display and edit Mod Wheel, Pitch Bend, and other CC data in the Piano Roll.
 
 ---
 
-## Milestone 2 — DAW Essentials: Mixing (v0.5.0)
-*Everything needed for a proper mix session.*
+## Milestone 2 — DAW Essentials: Mixing (v0.1.0 pre-Alpha)
+Implementing professional mixing workflows while preserving a clean, beginner-friendly UI through progressive disclosure.
+Keep the Console clean. Put the advanced technical tools in the Inspector.
 
-- [ ] **Send / Return Routing:** Create Aux/Bus tracks and route sends from any track to them via the Mixer. Wire up the existing mock `Send` data in `ProjectData` to real Tracktion buses.
-- [ ] **Channel Strip — High-pass / Low-pass:** Inline HPF/LPF filters per channel in the Mixer (pre-fader).
-- [ ] **Insert Slot UI:** Visual slot rack in the Inspector / Mixer strip showing loaded plugins in order; drag to reorder, bypass toggle per slot.
-- [ ] **Plugin Preset Browser:** Load/save named presets from within the plugin inspector panel.
-- [ ] **Gain Staging Indicators:** Per-track clip indicators that flag when a channel is hitting 0 dBFS.
-- [ ] **Master Bus Chain:** Dedicated visible master bus strip in the Mixer with insert slots and a K-metering display.
-- [ ] **Mix Scene Snapshots:** Save and recall complete mixer state (levels, pans, mutes, solos) as named snapshots.
-- [ ] **Mono / Stereo Switch:** Per-track mono-sum button on the Mixer strip.
-- [ ] **Phase Invert:** Per-track polarity invert button on the Mixer strip.
-
----
+- [ ] Phase Invert & Mono/Stereo Summing: Implement the DSP logic. UI Adaptation: Do not put these on the Console strips. Add these as small, elegant toggle buttons inside the left-hand Inspector panel that appear only when a track is selected.
+- [ ] Channel Strip Filters (HPF/LPF): Implement pre-fader filters. UI Adaptation: Instead of cluttering the Mixer with EQ knobs, add a small, collapsible "Quick Filters" section in the Inspector above the INSERTS list.
+- [ ] Gain Staging & Metering: Implement clip detection. Add a subtle red clipping indicator to the very top of the existing level meters in the Console. Add K-metering logic specifically to the existing Master Bus display.
+- [ ] Folder Track Nesting (Arranger): Wire up that existing + Folder button. Implement the drag-and-drop indenting in the Arranger timeline and add an expand/collapse chevron to the Folder track header.
+- [ ] Folder Channel Strip (Console): Ensure the Console generates a strip for Folder tracks. UI Adaptation: Give Folder strips a distinct visual cue in the Console (e.g., a slightly wider strip, or a colored outline matching the folder color) to distinguish them from standard audio tracks.
+- [ ] Hierarchical Signal Routing: Update the engine so nested tracks route audio to the parent Folder Track instead of Main Out.
+- [ ] Cascading Mute / Solo: Link state management so clicking M or S on a folder applies logically to child tracks.
+- [ ] Context Menu "Quick Send": Implement the right-click "Add Send to New Bus..." on track headers.
+- [ ] Inspector SENDS Wiring: Wire up the SENDS section in the Inspector. When a user creates a Quick Send, populate a slot in the Inspector with a Send Level slider so they don't have to look at sends on the main Console.
+- [ ] Insert Slot Sync: Wire up the + FX slots in the Console to strictly mirror the INSERTS list in the Inspector. If a user adds a plugin via the Console, it must instantly appear in the Inspector (and vice versa).
+- [ ] Insert Logic: Implement the serial DSP processing for these slots, plus drag-to-reorder and click-to-bypass functionality.
+- [ ] Plugin Preset Browser: Implement the save/load schema for plugin states, accessible via the plugin's pop-out window.
 
 ## Milestone 3 — DAW Essentials: Recording & Monitoring (v0.6.0)
 *A reliable, low-latency recording experience.*
@@ -150,8 +152,8 @@ All items below are fully implemented and working in the current build.
 
 These are what make Aerion *Aerion*. They are deliberately deferred until the DAW foundation is solid.
 
-### Mac and Linux Support
-Adding support for Mac and Linux Systems
+### Linux Support
+Adding support for Linux Systems (Flatpak)
 
 ### Cloud Sync
 - Automatic background sync of `.aerion` project files and referenced audio to Google Drive
