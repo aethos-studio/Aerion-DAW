@@ -28,6 +28,9 @@ namespace IDs
 
     DECLARE_ID (start);
     DECLARE_ID (width);
+
+    DECLARE_ID (snapEnabled);
+    DECLARE_ID (snapInterval);
 }
 
 class ProjectData

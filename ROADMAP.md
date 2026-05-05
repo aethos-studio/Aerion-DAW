@@ -150,6 +150,9 @@ All items below are fully implemented and working in the current build.
 
 These are what make Aerion *Aerion*. They are deliberately deferred until the DAW foundation is solid.
 
+### Mac and Linux Support
+Adding support for Mac and Linux Systems
+
 ### Cloud Sync
 - Automatic background sync of `.aerion` project files and referenced audio to Google Drive
 - Version history — browse and restore previous project snapshots from Drive

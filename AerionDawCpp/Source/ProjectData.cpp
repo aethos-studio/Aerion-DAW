@@ -117,6 +117,9 @@ void ProjectData::createMockData()
     projectTree.addChild (tracksTree, -1, nullptr);
     projectTree.addChild (auxTracksTree, -1, nullptr);
 
+    projectTree.setProperty (IDs::snapEnabled, true, nullptr);
+    projectTree.setProperty (IDs::snapInterval, 1.0, nullptr);
+
     // Helper lambda to create a track
     auto createTrack = [&](int id, const juce::String& name, const juce::String& color, const juce::String& type, float level, const juce::String& pan)
     {

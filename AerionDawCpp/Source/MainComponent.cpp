@@ -41,6 +41,8 @@ MainComponent::MainComponent()
         resized();
     };
 
+    projectData.getProjectTree().addListener (this);
+
     audioEngine.addListener (this);
     audioEngine.getEdit().state.addListener (this);
     addKeyListener (this);
@@ -92,7 +94,11 @@ MainComponent::MainComponent()
     browser.setDriveClient (&driveClient);
 
     toolbar.onToggleSnap = [this] {
-        timeline.snapEnabled = toolbar.snapEnabled;
+        projectData.getProjectTree().setProperty (IDs::snapEnabled, ! (bool)projectData.getProjectTree().getProperty (IDs::snapEnabled), nullptr);
+    };
+
+    toolbar.onSnapIntervalChanged = [this] (double interval) {
+        projectData.getProjectTree().setProperty (IDs::snapInterval, interval, nullptr);
     };
 
     toolbar.onToggleMetronome = [this] {
@@ -261,6 +267,38 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component*)
         
         transport.repaint();
         return true;
+    }
+
+    if (key.getKeyCode() == juce::KeyPress::leftKey || key.getKeyCode() == juce::KeyPress::rightKey)
+    {
+        if (auto* clip = timeline.selectedClip)
+        {
+            double interval = projectData.getProjectTree().getProperty (IDs::snapInterval);
+            if (! (bool) projectData.getProjectTree().getProperty (IDs::snapEnabled))
+                interval = 0.1; // small nudge if snap is off
+
+            double delta = (key.getKeyCode() == juce::KeyPress::leftKey) ? -interval : interval;
+            
+            auto& ts = audioEngine.getEdit().tempoSequence;
+            if (key.getModifiers().isAltDown())
+            {
+                // Nudge length (trim right)
+                auto start = clip->getPosition().getStart();
+                auto end = clip->getPosition().getEnd();
+                auto bStart = ts.toBeats (start);
+                auto bEnd = ts.toBeats (end);
+                auto newBEnd = tracktion::BeatPosition::fromBeats (juce::jmax (bStart.inBeats() + 0.01, bEnd.inBeats() + delta));
+                clip->setLength (ts.toTime (newBEnd) - start, true);
+            }
+            else
+            {
+                // Nudge position
+                auto b = ts.toBeats (clip->getPosition().getStart());
+                clip->setStart (ts.toTime (tracktion::BeatPosition::fromBeats (juce::jmax (0.0, b.inBeats() + delta))), false, true);
+            }
+            timeline.repaint();
+            return true;
+        }
     }
 
     if (key == juce::KeyPress::homeKey)
@@ -524,6 +562,17 @@ void MainComponent::editStateChanged()
 
 void MainComponent::valueTreePropertyChanged (juce::ValueTree& v, const juce::Identifier& i)
 {
+    if (i == IDs::snapEnabled)
+    {
+        toolbar.snapEnabled = v.getProperty (i);
+        toolbar.repaint();
+    }
+    else if (i == IDs::snapInterval)
+    {
+        toolbar.snapInterval = v.getProperty (i);
+        toolbar.repaint();
+    }
+
     // Reactive synchronization: Tracktion Engine -> ProjectData
     if (v.hasType (tracktion::IDs::TRACK) || v.hasType (tracktion::IDs::FOLDERTRACK))
     {
