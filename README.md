@@ -19,7 +19,6 @@ The application is stable on Windows 11 and features a high-performance audio en
 Aerion is designed to bridge the gap between high-end professional production and modern, cloud-connected workflows.
 
 *   **⚡ Native Performance:** Built in C++20 with JUCE 8 and the Tracktion Engine for rock-solid, low-latency audio processing.
-*   **☁️ Cloud-Native:** Built-in Google Drive synchronization allows you to connect your studio to the cloud, fetching and saving projects directly within the browser.
 *   **🎨 High-Polish UI:** Features a unique "Celtic Metal" dark theme, animated splash screens, and Studio One-style position-aware drag-and-drop.
 *   **🤖 AI-Ready:** Foundation laid for future AI-enhanced workflows including audio-to-MIDI transcription and stem separation.
 
