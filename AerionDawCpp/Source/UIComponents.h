@@ -2025,19 +2025,33 @@ public:
         g.drawLine(0.0f, (float)kRulerH, (float)getWidth(), (float)kRulerH);
         g.drawLine((float)kHeaderWidth, 0.0f, (float)getWidth(), 0.0f);
 
-        g.setColour(Theme::textMuted);
         g.setFont(10.0f);
-        
+
         auto& ts = audioEngine.getEdit().tempoSequence;
         double startBeat = ts.toBeats (tracktion::TimePosition::fromSeconds (startTime)).inBeats();
         double endBeat   = ts.toBeats (tracktion::TimePosition::fromSeconds (xToTime ((float)getWidth()))).inBeats();
 
-        // Determine beat step based on zoom
-        double beatStep = 1.0;
-        if (pxPerSec < 15.0)      beatStep = 16.0; // 4 bars
-        else if (pxPerSec < 40.0) beatStep = 4.0;  // 1 bar
-        else if (pxPerSec < 120.0) beatStep = 1.0; // 1 beat
-        else                       beatStep = 0.25; // 1/4 beat
+        // Compute pixels per beat at the current zoom level and tempo
+        double pxPerBeat = [&]() -> double {
+            double t0 = ts.toTime (tracktion::BeatPosition::fromBeats (startBeat)).inSeconds();
+            double t1 = ts.toTime (tracktion::BeatPosition::fromBeats (startBeat + 1.0)).inSeconds();
+            return (t1 - t0) * pxPerSec;
+        }();
+
+        // Pick the finest tick subdivision where ticks stay at least 8px apart
+        double beatStep;
+        if      (pxPerBeat * 0.125 >= 8.0)  beatStep = 0.125; // 1/8 beat (32nd notes in 4/4)
+        else if (pxPerBeat * 0.25  >= 8.0)  beatStep = 0.25;  // 1/4 beat (16th notes in 4/4)
+        else if (pxPerBeat * 0.5   >= 8.0)  beatStep = 0.5;   // half beat
+        else if (pxPerBeat         >= 8.0)  beatStep = 1.0;   // beat
+        else if (pxPerBeat * 2.0   >= 8.0)  beatStep = 2.0;   // 2 beats
+        else if (pxPerBeat * 4.0   >= 8.0)  beatStep = 4.0;   // bar (4/4)
+        else if (pxPerBeat * 8.0   >= 8.0)  beatStep = 8.0;   // 2 bars
+        else                                 beatStep = 16.0;  // 4 bars
+
+        // Gate label visibility so text never crowds
+        bool showBeatLabels    = (pxPerBeat >= 40.0);           // "1.2", "1.3" etc.
+        bool showSubBeatLabels = (pxPerBeat * 0.25 >= 30.0);    // fraction labels at 1/4-beat+
 
         for (double b = std::floor (startBeat / beatStep) * beatStep; b <= endBeat; b += beatStep)
         {
@@ -2046,16 +2060,33 @@ public:
             if (x > getWidth()) break;
 
             auto bb = ts.toBarsAndBeats (ts.toTime (tracktion::BeatPosition::fromBeats (b)));
-            bool isBar = (bb.beats.inBeats() < 0.001);
-            
-            g.setColour (Theme::border.withAlpha (isBar ? 1.0f : 0.4f));
-            g.drawLine (x, kRulerH - (isBar ? 12.0f : 6.0f), x, (float)kRulerH);
-            
-            if (isBar || (beatStep < 4.0 && bb.beats.inBeats() > 0.001))
+            double beatsInBar = bb.beats.inBeats();
+            bool isBar  = (beatsInBar < 0.001);
+            bool isBeat = !isBar && (std::fmod (beatsInBar, 1.0) < 0.001);
+
+            float tickH = isBar ? 14.0f : (isBeat ? 8.0f : 4.0f);
+            float alpha  = isBar ? 1.0f  : (isBeat ? 0.5f : 0.25f);
+            g.setColour (Theme::border.withAlpha (alpha));
+            g.drawLine (x, (float)kRulerH - tickH, x, (float)kRulerH);
+
+            if (isBar)
             {
                 g.setColour (Theme::textMuted);
-                juce::String label = isBar ? juce::String ((int)bb.bars + 1) : juce::String::formatted ("%d.%d", (int)bb.bars + 1, (int)bb.beats.inBeats() + 1);
-                g.drawText (label, (int)x + 4, 8, 40, 18, juce::Justification::left);
+                g.drawText (juce::String ((int)bb.bars + 1), (int)x + 4, 4, 40, 18, juce::Justification::left);
+            }
+            else if (isBeat && showBeatLabels)
+            {
+                g.setColour (Theme::textMuted.withAlpha (0.7f));
+                g.drawText (juce::String::formatted ("%d.%d", (int)bb.bars + 1, (int)beatsInBar + 1),
+                            (int)x + 4, 4, 40, 18, juce::Justification::left);
+            }
+            else if (!isBeat && showSubBeatLabels)
+            {
+                g.setColour (Theme::textMuted.withAlpha (0.5f));
+                g.drawText (juce::String::formatted ("%d.%d.%d", (int)bb.bars + 1,
+                                                     (int)beatsInBar + 1,
+                                                     (int)(std::fmod (beatsInBar, 1.0) * 4.0) + 1),
+                            (int)x + 4, 4, 40, 18, juce::Justification::left);
             }
         }
 

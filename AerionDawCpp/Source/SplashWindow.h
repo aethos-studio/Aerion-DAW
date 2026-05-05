@@ -18,8 +18,14 @@ public:
                 BinaryData::aerion_logo_vertical_svgSize)))
             logoDrawable = juce::Drawable::createFromSVG (*xml);
 
+        // Load the Regular weight for "AERION" and Subtitle
         cinzelTypeface = juce::Typeface::createSystemTypefaceFor (
             BinaryData::CinzelRegular_ttf, (size_t) BinaryData::CinzelRegular_ttfSize);
+
+        // Load the Bold/SemiBold weight for "DAW"
+        // IMPORTANT: Change "CinzelBold_ttf" to match your actual BinaryData variable name
+        cinzelBoldTypeface = juce::Typeface::createSystemTypefaceFor (
+            BinaryData::CinzelBold_ttf, (size_t) BinaryData::CinzelBold_ttfSize);
 
         setOpaque (true);
         setInterceptsMouseClicks (false, false);
@@ -94,33 +100,43 @@ public:
         const float subtitleAlpha = juce::jlimit (0.0f, 1.0f, (elapsedFrames - 130.0f) / 50.0f);
         const float textBaseY = logoCenter.y + 126.0f;
 
-if (titleAlpha > 0.0f)
-    {
-        // Define the shared font
-        juce::Font titleFont (juce::FontOptions().withHeight (25.0f).withStyle ("Bold"));
-        
-        juce::AttributedString titleText;
-        titleText.setJustification (juce::Justification::centred);
+        if (titleAlpha > 0.0f)
+        {
+            // 1. Setup Cinzel Regular Font for "AERION"
+            juce::Font aerionFont (cinzelTypeface != nullptr
+                ? juce::FontOptions (cinzelTypeface).withHeight (30.0f)
+                : juce::FontOptions().withHeight (30.0f));
+            aerionFont.setExtraKerningFactor (0.12f);
+            
+            // 2. Setup Cinzel Bold Font for "DAW"
+            juce::Font dawFont (cinzelBoldTypeface != nullptr
+                ? juce::FontOptions (cinzelBoldTypeface).withHeight (30.0f)
+                : juce::FontOptions().withHeight (30.0f).withStyle("Bold")); // Fallback to system bold if missing
+            dawFont.setExtraKerningFactor (0.12f);
 
-        // 1. Append "AERION " in the original off-white color
-        titleText.append ("AERION ", titleFont, juce::Colour (0xffebf8ff).withAlpha (titleAlpha));
+            juce::AttributedString titleText;
+            titleText.setJustification (juce::Justification::centred);
 
-        // 2. Append "DAW" in Ice Blue (0xFF3182CE)
-        titleText.append ("DAW", titleFont, juce::Colour (0xff3182ce).withAlpha (titleAlpha));
+            // Append with their respective fonts and colors
+            titleText.append ("AERION ", aerionFont, juce::Colour (0xffebf8ff).withAlpha (titleAlpha));
+            titleText.append ("DAW", dawFont, juce::Colour (0xff3182ce).withAlpha (titleAlpha));
 
-        // 3. Draw the combined formatted string
-        // Note: AttributedString::draw requires a Rectangle<float>
-        titleText.draw (g, juce::Rectangle<float> (0.0f, textBaseY, (float) W, 32.0f));
-    }
+            titleText.draw (g, juce::Rectangle<float> (0.0f, textBaseY, (float) W, 40.0f));
+        }
 
         if (subtitleAlpha > 0.0f)
         {
-            juce::Font cinzelFont (cinzelTypeface != nullptr
-                ? juce::FontOptions (cinzelTypeface).withHeight (20.0f)
-                : juce::FontOptions().withHeight (16.0f));
-            g.setFont (cinzelFont);
+            // Set up subtitle font using the Regular Cinzel
+            juce::Font subtitleFont (cinzelTypeface != nullptr
+                ? juce::FontOptions (cinzelTypeface).withHeight (22.0f)
+                : juce::FontOptions().withHeight (22.0f));
+            
+            subtitleFont.setExtraKerningFactor (0.22f);
+
+            g.setFont (subtitleFont);
             g.setColour (juce::Colour (0xff63b3ed).withAlpha (subtitleAlpha * 0.60f));
-            g.drawText ("BY AETHOS STUDIO", 0, (int) textBaseY + 36, (int) W, 24,
+            
+            g.drawText ("BY AETHOS STUDIO", 0, (int) textBaseY + 46, (int) W, 36,
                         juce::Justification::centred);
         }
     }
@@ -156,6 +172,7 @@ private:
 
     std::unique_ptr<juce::Drawable> logoDrawable;
     juce::Typeface::Ptr cinzelTypeface;
+    juce::Typeface::Ptr cinzelBoldTypeface; // Added to hold the Bold/SemiBold variant
     std::function<void()> onFinished;
     int elapsedFrames  = 0;
     int fadeBeginFrame = 0;

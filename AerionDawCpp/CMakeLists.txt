@@ -44,6 +44,7 @@ juce_add_binary_data(AerionDawResources
         Resources/aerion_logo_vertical.svg
         Resources/aerion_fader.svg
         Resources/Cinzel-Regular.ttf
+        Resources/Cinzel-Bold.ttf
 )
 
 juce_generate_juce_header(AerionDaw)
