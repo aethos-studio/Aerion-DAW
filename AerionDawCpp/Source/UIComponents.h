@@ -532,12 +532,18 @@ public:
     std::function<void(EditTool)> onToolChanged;
     std::function<void()> onToggleMetronome;
     std::function<void()> onShowMetronomeSettings;
+    std::function<void(bool)> onPunchChanged;
+    std::function<void(bool)> onPdcChanged;
+    std::function<void(int)>  onCountInChanged;
 
     bool snapEnabled = true;
     double snapInterval = 1.0;
     bool inspectorVisible = true;
     bool browserVisible = true;
     bool metronomeEnabled = false;
+    bool punchEnabled  = false;
+    bool pdcEnabled    = true;
+    int  countInBars   = 0;
     EditTool activeTool = EditTool::select;
 
     void paint(juce::Graphics& g) override
@@ -593,15 +599,28 @@ public:
         g.drawText("CLICK", clickBtn, juce::Justification::centred);
         x += 52;
 
-        // Other mock tools
-        const char* extra[] = { "Era", "Mut" };
-        for (auto* label : extra) {
-            g.setColour(Theme::surface.withAlpha(0.4f));
-            g.fillRoundedRectangle((float)x, 6.0f, 32.0f, 28.0f, 4.0f);
-            g.setColour(Theme::textMuted.withAlpha(0.3f));
-            g.drawText(label, x, 6, 32, 28, juce::Justification::centred);
-            x += 36;
-        }
+        // PUNCH toggle
+        x += 8;
+        punchBtn = juce::Rectangle<int>(x, 6, 48, 28);
+        g.setColour(punchEnabled ? Theme::recordRed.withAlpha(0.2f) : Theme::surface);
+        g.fillRoundedRectangle(punchBtn.toFloat(), 4.0f);
+        g.setColour(punchEnabled ? Theme::recordRed : Theme::border);
+        g.drawRoundedRectangle(punchBtn.toFloat(), 4.0f, 1.0f);
+        g.setColour(punchEnabled ? Theme::recordRed : Theme::textMuted);
+        g.setFont(juce::Font(10.0f).withStyle(juce::Font::bold));
+        g.drawText("PUNCH", punchBtn, juce::Justification::centred);
+        x += 56;
+
+        // PDC toggle
+        pdcBtn = juce::Rectangle<int>(x, 6, 36, 28);
+        g.setColour(pdcEnabled ? Theme::active.withAlpha(0.15f) : Theme::surface);
+        g.fillRoundedRectangle(pdcBtn.toFloat(), 4.0f);
+        g.setColour(pdcEnabled ? Theme::active : Theme::border);
+        g.drawRoundedRectangle(pdcBtn.toFloat(), 4.0f, 1.0f);
+        g.setColour(pdcEnabled ? Theme::active : Theme::textMuted);
+        g.setFont(juce::Font(10.0f).withStyle(juce::Font::bold));
+        g.drawText("PDC", pdcBtn, juce::Justification::centred);
+        x += 44;
 
         // Right side: Browser | Quantize | Timebase | Snap
         // Anchored from right to avoid overlapping snap button.
@@ -618,11 +637,17 @@ public:
         g.drawText("Browser", browserBtn, juce::Justification::centred);
         rx += 84;
 
-        g.setColour(Theme::surface.withAlpha(0.4f));
-        g.fillRoundedRectangle((float)rx, 6.0f, 120.0f, 28.0f, 4.0f);
-        g.setColour(Theme::textMuted.withAlpha(0.3f));
-        g.setFont(10.0f);
-        g.drawText("QUANTIZE  1/16", rx + 8, 6, 100, 28, juce::Justification::centredLeft);
+        {
+            const char* countLabels[] = { "COUNT IN: Off", "COUNT IN: 1 Bar", "COUNT IN: 2 Bars" };
+            countInBtn = juce::Rectangle<int>(rx, 6, 120, 28);
+            g.setColour(countInBars > 0 ? Theme::active.withAlpha(0.12f) : Theme::surface.withAlpha(0.4f));
+            g.fillRoundedRectangle(countInBtn.toFloat(), 4.0f);
+            g.setColour(countInBars > 0 ? Theme::active : Theme::border.withAlpha(0.4f));
+            g.drawRoundedRectangle(countInBtn.toFloat(), 4.0f, 1.0f);
+            g.setColour(countInBars > 0 ? Theme::active : Theme::textMuted);
+            g.setFont(10.0f);
+            g.drawText(countLabels[countInBars], countInBtn.reduced(4, 0), juce::Justification::centred);
+        }
 
         rx += 132;
         g.setColour(Theme::surface.withAlpha(0.4f));
@@ -694,6 +719,24 @@ public:
             }
             return;
         }
+        if (punchBtn.contains(e.getPosition())) {
+            punchEnabled = !punchEnabled;
+            repaint();
+            if (onPunchChanged) onPunchChanged(punchEnabled);
+            return;
+        }
+        if (pdcBtn.contains(e.getPosition())) {
+            pdcEnabled = !pdcEnabled;
+            repaint();
+            if (onPdcChanged) onPdcChanged(pdcEnabled);
+            return;
+        }
+        if (countInBtn.contains(e.getPosition())) {
+            countInBars = (countInBars + 1) % 3;
+            repaint();
+            if (onCountInChanged) onCountInChanged(countInBars);
+            return;
+        }
         if (snapBounds.contains(e.getPosition())) {
             if (e.mods.isRightButtonDown() || e.x > snapBounds.getRight() - 30)
             {
@@ -727,6 +770,7 @@ public:
 
 private:
     juce::Rectangle<int> snapBounds, selectBounds, razorBounds, compBounds, inspectorBtn, browserBtn, clickBtn;
+    juce::Rectangle<int> punchBtn, pdcBtn, countInBtn;
 };
 
 //==============================================================================
@@ -795,20 +839,37 @@ public:
 
         g.setColour (Theme::textMuted);
         g.setFont (11.0f);
-        g.drawText ("In",  headerB.getX(),       headerB.getY() + 32, 40, 18, juce::Justification::left);
-        g.drawText ("Out", headerB.getX(),       headerB.getY() + 50, 40, 18, juce::Justification::left);
+        g.drawText ("In",  headerB.getX(), headerB.getY() + 32, 40, 18, juce::Justification::left);
+        g.drawText ("Out", headerB.getX(), headerB.getY() + 50, 40, 18, juce::Justification::left);
+
+        // Input routing — clickable panel showing current device name
+        {
+            juce::String inputName = "Input L+R";
+            if (selectedTrack != nullptr)
+            {
+                int devIdx = audioEngine.getTrackInputDeviceIdx (selectedTrack);
+                auto names = audioEngine.getInputDeviceNames();
+                if (devIdx >= 0 && devIdx < names.size()) inputName = names[devIdx];
+                else if (!names.isEmpty())                 inputName = names[0];
+            }
+            inputRoutingBounds = juce::Rectangle<int> (headerB.getRight() - 100, headerB.getY() + 28, 100, 20);
+            Theme::drawRoundedPanel (g, inputRoutingBounds.toFloat(), Theme::surface);
+            g.setColour (Theme::textMain);
+            g.setFont (10.5f);
+            g.drawText (inputName, inputRoutingBounds.reduced (4, 0), juce::Justification::centredRight);
+        }
         g.setColour (Theme::textMain);
-        g.drawText ("Input L+R", headerB.getRight() - 100, headerB.getY() + 32, 100, 18, juce::Justification::right);
-        g.drawText ("Main",      headerB.getRight() - 100, headerB.getY() + 50, 100, 18, juce::Justification::right);
+        g.setFont (11.0f);
+        g.drawText ("Main", headerB.getRight() - 100, headerB.getY() + 50, 100, 18, juce::Justification::right);
 
         // State pills
         b.removeFromTop (8);
         auto pills = b.removeFromTop (24);
-        drawPill (g, pills.removeFromLeft (48), "ARM",  armed, Theme::recordRed);
+        armBounds  = pills.removeFromLeft (48); drawPill (g, armBounds,  "ARM",  armed, Theme::recordRed);
         pills.removeFromLeft (6);
-        drawPill (g, pills.removeFromLeft (48), "MUTE", muted, Theme::meterYellow);
+        muteBounds = pills.removeFromLeft (48); drawPill (g, muteBounds, "MUTE", muted, Theme::meterYellow);
         pills.removeFromLeft (6);
-        drawPill (g, pills.removeFromLeft (48), "SOLO", solo,  Theme::accent);
+        soloBounds = pills.removeFromLeft (48); drawPill (g, soloBounds, "SOLO", solo,  Theme::accent);
         
         // Phase and Mono (Phase 1)
         if (selectedTrack != nullptr)
@@ -895,6 +956,40 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override
     {
+        // ARM / MUTE / SOLO pills
+        if (armBounds.contains (e.getPosition()) && selectedTrack != nullptr)
+        {
+            armed = !armed;
+            audioEngine.setTrackArmed (selectedTrack, armed);
+            repaint(); return;
+        }
+        if (muteBounds.contains (e.getPosition()) && selectedTrack != nullptr)
+        {
+            audioEngine.toggleTrackMute (selectedTrack);
+            muted = selectedTrack->isMuted (false); repaint(); return;
+        }
+        if (soloBounds.contains (e.getPosition()) && selectedTrack != nullptr)
+        {
+            audioEngine.toggleTrackSolo (selectedTrack);
+            solo = selectedTrack->isSolo (false); repaint(); return;
+        }
+
+        // Input routing dropdown
+        if (inputRoutingBounds.contains (e.getPosition()) && selectedTrack != nullptr)
+        {
+            auto names = audioEngine.getInputDeviceNames();
+            juce::PopupMenu m;
+            for (int i = 0; i < names.size(); ++i)
+                m.addItem (i + 1, names[i]);
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+                [this](int r) {
+                    if (r > 0 && selectedTrack != nullptr)
+                        audioEngine.setTrackInputDevice (selectedTrack, r - 1);
+                    repaint();
+                });
+            return;
+        }
+
         // Fader interaction
         if (faderArea.contains (e.getPosition()))
         {
@@ -1041,6 +1136,7 @@ private:
     
     // Phase 1 Members
     juce::Rectangle<int> hpfBounds, lpfBounds, phaseBounds, monoBounds, filterAddBtn;
+    juce::Rectangle<int> armBounds, muteBounds, soloBounds, inputRoutingBounds;
     bool filtersExpanded = true;
 
     void drawFilterSlider (juce::Graphics& g, juce::Rectangle<int> r, float value, float min, float max)
@@ -2820,6 +2916,32 @@ public:
                 {
                     auto start = (float)clip->getPosition().getStart().inSeconds();
                     auto len   = (float)clip->getPosition().getLength().inSeconds();
+
+                    // Real-time recording expansion: if the engine is recording and this track is armed,
+                    // check if this clip's file matches an active recording destination.
+                    tracktion::RecordingThumbnailManager::Thumbnail::Ptr recThumb;
+                    if (audioEngine.isRecording() && audioEngine.isTrackArmed (audio))
+                    {
+                        if (auto* wave = dynamic_cast<tracktion::WaveAudioClip*> (clip))
+                        {
+                            for (auto idi : audioEngine.getEdit().getEditInputDevices().getDevicesForTargetTrack (*audio))
+                            {
+                                if (idi->isRecordingActive (audio->itemID))
+                                {
+                                    auto rf = idi->getRecordingFile (audio->itemID);
+                                    if (rf == wave->getAudioFile().getFile())
+                                    {
+                                        recThumb = audioEngine.getEngine().getRecordingThumbnailManager().getThumbnailFor (rf);
+                                        double cur = audioEngine.getTransportPosition();
+                                        if (cur > start)
+                                            len = juce::jmax ((float)len, (float)(cur - start));
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     juce::Rectangle<float> cb(timeToX(start),
                                               (float)y + 2.0f, len * pxPerSec, (float)kTrackH - 4.0f);
 
@@ -2835,7 +2957,7 @@ public:
                     if (auto* wave = dynamic_cast<tracktion::WaveAudioClip*>(clip))
                     {
                         double offset  = wave->getPosition().getOffset().inSeconds();
-                        double clipLen = wave->getPosition().getLength().inSeconds();
+                        double clipLen = (double) len;
 
                         // Crop to visible viewport — avoids rendering enormous rects
                         // for long clips at high zoom (e.g. a 30s clip at 2000px/s = 60000px wide)
@@ -2853,8 +2975,12 @@ public:
                             int w = juce::jmax (1, (int) std::ceil (viewportCb.getWidth()));
                             int h = juce::jmax (1, (int) std::ceil (viewportCb.getHeight()));
 
-                            auto& thumb = audioEngine.getThumbnailForClip (*wave, *this);
-                            juce::int64 samplesNow = thumb.getNumSamplesFinished();
+                            juce::int64 samplesNow = 0;
+                            if (recThumb != nullptr)
+                                samplesNow = recThumb->thumb->getNumSamplesFinished();
+                            else
+                                samplesNow = audioEngine.getThumbnailForClip (*wave, *this).getNumSamplesFinished();
+
                             auto& entry = waveformCache[wave->itemID.getRawID()];
                             if (entry.width != w || entry.height != h
                                 || ! juce::approximatelyEqual (entry.pxPerSec, pxPerSec)
@@ -2865,9 +2991,19 @@ public:
                                 entry.image = juce::Image (juce::Image::ARGB, w, h, true);
                                 juce::Graphics ig (entry.image);
                                 ig.setColour (juce::Colours::white.withAlpha (0.6f));
-                                tracktion::TimeRange vRange (tracktion::TimePosition::fromSeconds (audioStart),
-                                                             tracktion::TimeDuration::fromSeconds (audioDuration));
-                                thumb.drawChannel (ig, {0, 0, w, h}, vRange, 0, 1.0f);
+
+                                if (recThumb != nullptr)
+                                {
+                                    recThumb->thumb->drawChannels (ig, { 0, 0, w, h }, audioStart, audioStart + audioDuration, 1.0f);
+                                }
+                                else
+                                {
+                                    auto& thumb = audioEngine.getThumbnailForClip (*wave, *this);
+                                    tracktion::TimeRange vRange (tracktion::TimePosition::fromSeconds (audioStart),
+                                                                 tracktion::TimeDuration::fromSeconds (audioDuration));
+                                    thumb.drawChannel (ig, { 0, 0, w, h }, vRange, 0, 1.0f);
+                                }
+
                                 entry.pxPerSec      = pxPerSec;
                                 entry.audioStart    = audioStart;
                                 entry.audioDuration = audioDuration;
@@ -4920,17 +5056,33 @@ public:
         g.setFont(juce::Font(8.0f).withStyle(juce::Font::bold));
         g.drawText("TIME", rx, getHeight() - 16, 60, 12, juce::Justification::centredLeft);
 
-        // Left side: Perform / CPU mock
-        g.setColour(Theme::textMuted.withAlpha(0.4f));
-        g.setFont(juce::Font(9.0f).withStyle(juce::Font::bold));
-        g.drawText("PERFORM", 16, 12, 60, 12, juce::Justification::left);
-        g.drawText("CPU",     16, 32, 60, 12, juce::Justification::left);
-        g.setColour(Theme::surface.withAlpha(0.5f));
-        g.fillRoundedRectangle(70.0f, 14.0f, 80.0f, 6.0f, 2.0f);
-        g.fillRoundedRectangle(70.0f, 34.0f, 80.0f, 6.0f, 2.0f);
-        g.setColour(Theme::accent.withAlpha(0.2f));
-        g.fillRoundedRectangle(70.0f, 14.0f, 30.0f, 6.0f, 2.0f);
-        g.fillRoundedRectangle(70.0f, 34.0f, 22.0f, 6.0f, 2.0f);
+        // Left side: real SR / buffer / CPU info
+        {
+            auto bi = audioEngine.getBufferInfo();
+            juce::String srStr  = juce::String (bi.sampleRate / 1000.0, 1) + " kHz";
+            juce::String bufStr = juce::String (bi.blockSize) + " smp";
+            float cpu = juce::jlimit (0.0f, 1.0f, bi.cpuUsage);
+            juce::Colour cpuCol = cpu > 0.85f ? Theme::meterRed
+                                : cpu > 0.60f ? Theme::meterYellow
+                                              : Theme::accent;
+
+            g.setColour (Theme::textMuted.withAlpha (0.5f));
+            g.setFont (juce::Font (8.0f).withStyle (juce::Font::bold));
+            g.drawText ("SR",  12, 12, 30, 12, juce::Justification::left);
+            g.drawText ("BUF", 12, 30, 30, 12, juce::Justification::left);
+            g.setColour (Theme::active);
+            g.setFont (juce::Font (10.0f).withStyle (juce::Font::bold));
+            g.drawText (srStr,  42, 8,  72, 18, juce::Justification::centredLeft);
+            g.drawText (bufStr, 42, 26, 72, 18, juce::Justification::centredLeft);
+            // CPU bar
+            g.setColour (Theme::surface.withAlpha (0.5f));
+            g.fillRoundedRectangle (120.0f, 14.0f, 60.0f, 6.0f, 2.0f);
+            g.setColour (cpuCol.withAlpha (0.8f));
+            g.fillRoundedRectangle (120.0f, 14.0f, 60.0f * cpu, 6.0f, 2.0f);
+            g.setColour (Theme::textMuted.withAlpha (0.4f));
+            g.setFont (juce::Font (8.0f).withStyle (juce::Font::bold));
+            g.drawText ("CPU", 120, 24, 60, 12, juce::Justification::left);
+        }
     }
 
     enum class Glyph { play, stop, record, rewind, forward, loop };
@@ -5035,7 +5187,15 @@ public:
         label.setFont (juce::Font (10.0f).withStyle (juce::Font::bold));
         label.setColour (juce::Label::textColourId, Theme::textMuted);
 
-        setSize (200, 60);
+        addAndMakeVisible (accentToggle);
+        accentToggle.setButtonText ("Accent downbeat");
+        accentToggle.setToggleState (audioEngine.isMetronomeAccentEnabled(), juce::dontSendNotification);
+        accentToggle.setColour (juce::ToggleButton::textColourId, Theme::textMuted);
+        accentToggle.onStateChange = [this] {
+            audioEngine.setMetronomeAccentEnabled (accentToggle.getToggleState());
+        };
+
+        setSize (210, 98);
     }
 
     void paint (juce::Graphics& g) override
@@ -5047,11 +5207,15 @@ public:
     {
         auto b = getLocalBounds().reduced (10);
         label.setBounds (b.removeFromTop (20));
-        slider.setBounds (b);
+        b.removeFromTop (4);
+        slider.setBounds (b.removeFromTop (28));
+        b.removeFromTop (6);
+        accentToggle.setBounds (b.removeFromTop (22));
     }
 
 private:
     AudioEngineManager& audioEngine;
-    juce::Slider slider;
-    juce::Label  label;
+    juce::Slider       slider;
+    juce::Label        label;
+    juce::ToggleButton accentToggle;
 };

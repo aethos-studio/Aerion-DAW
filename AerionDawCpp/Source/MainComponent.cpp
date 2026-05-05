@@ -115,6 +115,10 @@ MainComponent::MainComponent()
         timeline.activeTool = t;
     };
 
+    toolbar.onPunchChanged   = [this] (bool on)   { audioEngine.setPunchEnabled (on); };
+    toolbar.onPdcChanged     = [this] (bool on)   { audioEngine.setLatencyCompensationEnabled (on); };
+    toolbar.onCountInChanged = [this] (int bars)  { audioEngine.setCountInMode (bars); };
+
     menuBar.onNew      = [this] { createNewProject(); };
     menuBar.onOpen     = [this] { openProject(); };
     menuBar.onSave     = [this] { saveProject(); };
@@ -355,6 +359,7 @@ void MainComponent::createNewProject()
 {
     audioEngine.createNewProject();
     currentProjectFile = juce::File();
+    syncToolbarFromEngine();
 }
 
 void MainComponent::updateTitleBar()
@@ -364,6 +369,14 @@ void MainComponent::updateTitleBar()
                              : "Aerion DAW";
     if (auto* dw = findParentComponentOfClass<juce::DocumentWindow>())
         dw->setName (title);
+}
+
+void MainComponent::syncToolbarFromEngine()
+{
+    toolbar.punchEnabled = audioEngine.isPunchEnabled();
+    toolbar.pdcEnabled   = audioEngine.isLatencyCompensationEnabled();
+    toolbar.countInBars  = audioEngine.getCountInBars();
+    toolbar.repaint();
 }
 
 void MainComponent::openProject()
@@ -378,6 +391,7 @@ void MainComponent::openProject()
                                   audioEngine.loadProject (file);
                                   currentProjectFile = file;
                                   updateTitleBar();
+                                  syncToolbarFromEngine();
                               }
                           });
 }

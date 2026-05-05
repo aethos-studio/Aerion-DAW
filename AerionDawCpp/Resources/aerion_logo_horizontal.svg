@@ -22,6 +22,18 @@
         <feMergeNode in="SourceGraphic" />
       </feMerge>
     </filter>
+
+    <!-- Subtle Glow for Typography -->
+    <filter id="textGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feComponentTransfer in="blur" result="faintBlur">
+        <feFuncA type="linear" slope="0.5" />
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode in="faintBlur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
   </defs>
 
   <!-- Background Base -->
@@ -59,17 +71,18 @@
         stroke-linejoin="miter" />
 
   <!-- Typography: Aerion DAW (Dynamic Weight & Color) -->
-  <text x="480" y="195"
-        font-family="'Montserrat', 'Orbitron', 'Segoe UI', 'Helvetica Neue', sans-serif"
-        text-anchor="start">
-    <tspan font-size="48" font-weight="900" fill="#F0F4F8" letter-spacing="8">AERION</tspan>
-    <tspan font-size="48" font-weight="300" fill="#3182CE" letter-spacing="4"> DAW</tspan>
+  <text x="480" y="200"
+        font-family="'Cinzel', serif"
+        text-anchor="start"
+        filter="url(#textGlow)">
+    <tspan font-size="64" font-weight="900" fill="#F0F4F8" letter-spacing="8">AERION</tspan>
+    <tspan dx="10" font-size="64" font-weight="300" fill="#3182CE" letter-spacing="4"> DAW</tspan>
   </text>
 
   <!-- Typography: By Aethos Studio (Monospace Technical Spec Vibe) -->
-  <text x="485" y="245"
-        font-family="'Roboto Mono', 'Courier New', monospace"
-        font-size="16"
+  <text x="485" y="260"
+        font-family="'Cinzel', serif"
+        font-size="22"
         font-weight="bold"
         fill="#8A99A8"
         letter-spacing="8"

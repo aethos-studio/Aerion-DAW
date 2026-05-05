@@ -35,6 +35,12 @@ namespace IDs
 
     DECLARE_ID (snapEnabled);
     DECLARE_ID (snapInterval);
+
+    DECLARE_ID (countInMode);
+    DECLARE_ID (metronomeAccent);
+    DECLARE_ID (punchEnabled);
+    DECLARE_ID (pdcEnabled);
+    DECLARE_ID (trackInputDeviceIdx);
 }
 
 class ProjectData

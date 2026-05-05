@@ -139,17 +139,19 @@ AudioEngineManager::AudioEngineManager()
     engine.getDeviceManager().deviceManager.addChangeListener (this);
     
     setupInitialEdit();
+    startTimerHz (30);
 }
 
 AudioEngineManager::~AudioEngineManager()
 {
+    stopTimer();
     engine.getDeviceManager().removeChangeListener (this);
     if (auto state = engine.getDeviceManager().deviceManager.createStateXml())
     {
         appProperties.getUserSettings()->setValue ("audioDeviceState", state.get());
         appProperties.getUserSettings()->saveIfNeeded();
     }
-    
+
     engine.getDeviceManager().closeDevices();
     edit = nullptr;
 }
@@ -590,19 +592,37 @@ void AudioEngineManager::setTrackArmed (te::Track* t, bool enabled)
         edit->getTransport().ensureContextAllocated();
 
         // Target each wave input to this track and enable recording.
+        // If the track has a preferred device index, route only that device; otherwise route all.
+        int preferredIdx = inputDeviceMap.contains (t->itemID.toString())
+                               ? inputDeviceMap[t->itemID.toString()] : -1;
+
+        int devIdx = 0;
         for (auto* in : edit->getAllInputDevices())
         {
             if (in->getInputDevice().getDeviceType() == te::InputDevice::waveDevice)
             {
-                [[maybe_unused]] auto setTargetResult = in->setTarget (t->itemID, true, &edit->getUndoManager(), 0);
-                in->setRecordingEnabled (t->itemID, true);
+                if (preferredIdx < 0 || devIdx == preferredIdx)
+                {
+                    [[maybe_unused]] auto res = in->setTarget (t->itemID, true, &edit->getUndoManager(), 0);
+                    in->setRecordingEnabled (t->itemID, true);
+                }
+                ++devIdx;
             }
         }
+
+        // Enable input monitoring through the FX chain while armed.
+        for (auto* in : edit->getAllInputDevices())
+            if (in->getInputDevice().getDeviceType() == te::InputDevice::waveDevice)
+                in->getInputDevice().setMonitorMode (te::InputDevice::MonitorMode::automatic);
     }
     else
     {
         for (auto* in : edit->getAllInputDevices())
+        {
             in->setRecordingEnabled (t->itemID, false);
+            if (in->getInputDevice().getDeviceType() == te::InputDevice::waveDevice)
+                in->getInputDevice().setMonitorMode (te::InputDevice::MonitorMode::off);
+        }
     }
 }
 
@@ -1023,4 +1043,96 @@ tracktion::Plugin::Ptr AudioEngineManager::addPluginToTrack (te::Track* track, c
         return p;
     }
     return {};
+}
+
+//==============================================================================
+// Milestone 3 — Recording & Monitoring
+//==============================================================================
+
+void AudioEngineManager::timerCallback()
+{
+    if (!punchEnabled || !isRecording()) return;
+
+    auto& t = edit->getTransport();
+    if (!t.looping) return;
+
+    double pos     = getTransportPosition();
+    double loopEnd = t.getLoopRange().getEnd().inSeconds();
+    if (pos >= loopEnd)
+        stop();
+}
+
+void AudioEngineManager::setMetronomeAccentEnabled (bool on)
+{
+    edit->clickTrackEmphasiseBars = on;
+}
+
+bool AudioEngineManager::isMetronomeAccentEnabled() const
+{
+    return edit->clickTrackEmphasiseBars;
+}
+
+void AudioEngineManager::setCountInMode (int bars)
+{
+    using CI = te::Edit::CountIn;
+    edit->setCountInMode (bars == 1 ? CI::oneBar : bars == 2 ? CI::twoBar : CI::none);
+}
+
+int AudioEngineManager::getCountInBars() const
+{
+    using CI = te::Edit::CountIn;
+    switch (edit->getCountInMode())
+    {
+        case CI::oneBar: return 1;
+        case CI::twoBar: return 2;
+        default:         return 0;
+    }
+}
+
+void AudioEngineManager::setPunchEnabled (bool on)
+{
+    punchEnabled = on;
+}
+
+void AudioEngineManager::setLatencyCompensationEnabled (bool on)
+{
+    edit->setLatencyCompensationEnabled (on);
+}
+
+bool AudioEngineManager::isLatencyCompensationEnabled() const
+{
+    return edit->isLatencyCompensationEnabled();
+}
+
+juce::StringArray AudioEngineManager::getInputDeviceNames() const
+{
+    juce::StringArray names;
+    auto& dm = engine.getDeviceManager();
+    for (int i = 0; i < dm.getNumWaveInDevices(); ++i)
+        if (auto* d = dm.getWaveInDevice (i))
+            names.add (d->getName());
+    return names;
+}
+
+void AudioEngineManager::setTrackInputDevice (te::Track* track, int waveDeviceIdx)
+{
+    if (track == nullptr) return;
+    inputDeviceMap.set (track->itemID.toString(), waveDeviceIdx);
+
+    // If currently armed, re-arm with the new device selection.
+    if (isTrackArmed (track))
+        setTrackArmed (track, true);
+}
+
+int AudioEngineManager::getTrackInputDeviceIdx (te::Track* track) const
+{
+    if (track == nullptr) return -1;
+    auto key = track->itemID.toString();
+    return inputDeviceMap.contains (key) ? inputDeviceMap[key] : -1;
+}
+
+AudioEngineManager::BufferInfo AudioEngineManager::getBufferInfo() const
+{
+    auto& dm = engine.getDeviceManager();
+    return { dm.getSampleRate(), dm.getBlockSize(), dm.getCpuUsage() };
 }

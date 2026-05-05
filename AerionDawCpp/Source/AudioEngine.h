@@ -2,7 +2,8 @@
 #include <JuceHeader.h>
 #include <map>
 
-class AudioEngineManager : public juce::ChangeListener
+class AudioEngineManager : public juce::ChangeListener,
+                           private juce::Timer
 {
 public:
     struct Listener
@@ -123,6 +124,29 @@ public:
     void toggleMetronome();
     float getMetronomeVolumeDb() const;
     void setMetronomeVolumeDb (float db);
+    void setMetronomeAccentEnabled (bool on);
+    bool isMetronomeAccentEnabled() const;
+
+    // Count-in / Pre-roll
+    void setCountInMode (int bars);   // 0=off, 1=1bar, 2=2bars
+    int  getCountInBars() const;
+
+    // Punch in/out (uses loop range as punch region)
+    void setPunchEnabled (bool on);
+    bool isPunchEnabled() const { return punchEnabled; }
+
+    // Plugin Delay Compensation
+    void setLatencyCompensationEnabled (bool on);
+    bool isLatencyCompensationEnabled() const;
+
+    // Multi-channel input routing
+    juce::StringArray getInputDeviceNames() const;
+    void setTrackInputDevice (tracktion::Track* track, int waveDeviceIdx);
+    int  getTrackInputDeviceIdx (tracktion::Track* track) const;
+
+    // Buffer / CPU info for status bar
+    struct BufferInfo { double sampleRate; int blockSize; float cpuUsage; };
+    BufferInfo getBufferInfo() const;
 
     // Pan helpers (range -1..1). No-op for tracks without a VolumeAndPanPlugin (e.g. Master).
     void  setTrackPan (tracktion::Track* track, float pan);
@@ -165,6 +189,7 @@ public:
     }
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
+    void timerCallback() override;
 
 private:
     static std::unique_ptr<tracktion::UIBehaviour> makeUIBehaviour();
@@ -188,6 +213,9 @@ private:
     void broadcastChange();
 
     juce::HashMap<juce::String, bool> armedTracks;
+    juce::HashMap<juce::String, int>  inputDeviceMap;   // trackID -> waveDeviceIdx
+
+    bool punchEnabled = false;
     std::map<uint64_t, std::unique_ptr<tracktion::SmartThumbnail>> thumbnails;
 
     std::atomic<bool> scanInFlight { false };

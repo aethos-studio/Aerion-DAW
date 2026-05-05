@@ -44,6 +44,7 @@ private:
     void detachMixer();
     void reattachMixer();
     void updateTitleBar();
+    void syncToolbarFromEngine();
 
     struct MixerResizer : public juce::Component
     {
