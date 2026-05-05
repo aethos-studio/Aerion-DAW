@@ -2049,9 +2049,17 @@ public:
         else if (pxPerBeat * 8.0   >= 8.0)  beatStep = 8.0;   // 2 bars
         else                                 beatStep = 16.0;  // 4 bars
 
-        // Gate label visibility so text never crowds
-        bool showBeatLabels    = (pxPerBeat >= 40.0);           // "1.2", "1.3" etc.
-        bool showSubBeatLabels = (pxPerBeat * 0.25 >= 30.0);    // fraction labels at 1/4-beat+
+        // Estimate pixels per bar (assumes 4/4; good enough for spacing decisions)
+        double pxPerBar = pxPerBeat * 4.0;
+
+        // Bar label step: power-of-2 number of bars between labels so text never overlaps
+        int barLabelStep = 1;
+        while (pxPerBar * barLabelStep < 35.0)
+            barLabelStep *= 2;
+
+        // Gate beat/sub-beat label visibility
+        bool showBeatLabels    = (pxPerBeat >= 40.0);
+        bool showSubBeatLabels = (pxPerBeat * 0.25 >= 30.0);
 
         for (double b = std::floor (startBeat / beatStep) * beatStep; b <= endBeat; b += beatStep)
         {
@@ -2069,7 +2077,7 @@ public:
             g.setColour (Theme::border.withAlpha (alpha));
             g.drawLine (x, (float)kRulerH - tickH, x, (float)kRulerH);
 
-            if (isBar)
+            if (isBar && ((int)bb.bars % barLabelStep == 0))
             {
                 g.setColour (Theme::textMuted);
                 g.drawText (juce::String ((int)bb.bars + 1), (int)x + 4, 4, 40, 18, juce::Justification::left);

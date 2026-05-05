@@ -102,16 +102,16 @@ public:
 
         if (titleAlpha > 0.0f)
         {
-            // 1. Setup Cinzel Regular Font for "AERION"
+            // 1. Setup Cinzel Regular Font for "AERION" - Increased to 38.0f
             juce::Font aerionFont (cinzelTypeface != nullptr
-                ? juce::FontOptions (cinzelTypeface).withHeight (30.0f)
-                : juce::FontOptions().withHeight (30.0f));
+                ? juce::FontOptions (cinzelTypeface).withHeight (38.0f)
+                : juce::FontOptions().withHeight (38.0f));
             aerionFont.setExtraKerningFactor (0.12f);
             
-            // 2. Setup Cinzel Bold Font for "DAW"
+            // 2. Setup Cinzel Bold Font for "DAW" - Increased to 38.0f
             juce::Font dawFont (cinzelBoldTypeface != nullptr
-                ? juce::FontOptions (cinzelBoldTypeface).withHeight (30.0f)
-                : juce::FontOptions().withHeight (30.0f).withStyle("Bold")); // Fallback to system bold if missing
+                ? juce::FontOptions (cinzelBoldTypeface).withHeight (38.0f)
+                : juce::FontOptions().withHeight (38.0f).withStyle("Bold")); // Fallback to system bold if missing
             dawFont.setExtraKerningFactor (0.12f);
 
             juce::AttributedString titleText;
@@ -121,7 +121,8 @@ public:
             titleText.append ("AERION ", aerionFont, juce::Colour (0xffebf8ff).withAlpha (titleAlpha));
             titleText.append ("DAW", dawFont, juce::Colour (0xff3182ce).withAlpha (titleAlpha));
 
-            titleText.draw (g, juce::Rectangle<float> (0.0f, textBaseY, (float) W, 40.0f));
+            // Increased bounding box height to 50.0f to fit the larger text
+            titleText.draw (g, juce::Rectangle<float> (0.0f, textBaseY, (float) W, 50.0f));
         }
 
         if (subtitleAlpha > 0.0f)
@@ -136,7 +137,8 @@ public:
             g.setFont (subtitleFont);
             g.setColour (juce::Colour (0xff63b3ed).withAlpha (subtitleAlpha * 0.60f));
             
-            g.drawText ("BY AETHOS STUDIO", 0, (int) textBaseY + 46, (int) W, 36,
+            // Pushed the subtitle down slightly (from +46 to +54) to account for the larger title text
+            g.drawText ("BY AETHOS STUDIO", 0, (int) textBaseY + 54, (int) W, 36,
                         juce::Justification::centred);
         }
     }
