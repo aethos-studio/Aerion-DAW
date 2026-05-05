@@ -19,7 +19,7 @@ The application is stable on Windows 11 and features a high-performance audio en
 Aerion is designed to bridge the gap between high-end professional production and modern, cloud-connected workflows.
 
 *   **⚡ Native Performance:** Built in C++20 with JUCE 8 and the Tracktion Engine for rock-solid, low-latency audio processing.
-*   **🎨 High-Polish UI:** Features a unique "Celtic Metal" dark theme, animated splash screens, and Studio One-style position-aware drag-and-drop.
+*   **🎨 High-Polish UI:** Features a unique dark theme, animated splash screens, and Studio One-style position-aware drag-and-drop.
 *   **🤖 AI-Ready:** Foundation laid for future AI-enhanced workflows including audio-to-MIDI transcription and stem separation.
 
 ---
@@ -34,7 +34,7 @@ Aerion is designed to bridge the gap between high-end professional production an
 | **Cloud Sync** | Integrated Google Drive client for OAuth2/PKCE login and background file synchronization. |
 | **Mixer** | Real-time level meters, detachable mixer window, and per-track fader/pan control with branded JUCE-rendered windowing. |
 | **Browser** | Waveform previews for local files, plugin category browsing, and a dedicated "Cloud" tab for remote projects. |
-| **Branding** | Custom "Spectre from the fog" animated splash screen and full Celtic Metal dark theme throughout. |
+| **Branding** | Custom "Spectre from the fog" animated splash screen. |
 
 ---
 
