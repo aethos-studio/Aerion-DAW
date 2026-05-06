@@ -3,265 +3,14 @@
 #include "ProjectData.h"
 #include "AudioEngine.h"
 #include "GoogleDriveClient.h"
-
-namespace Theme
-{
-    const juce::Colour bgBase        = juce::Colour::fromString("#ff080a0e"); // Deep Charcoal
-    const juce::Colour bgPanel       = juce::Colour::fromString("#ff11141a"); // Cool Dark Blue-Gray
-    const juce::Colour surface       = juce::Colour::fromString("#ff1c212b"); // Dark Slate
-    const juce::Colour border        = juce::Colour::fromString("#ff2d3748"); // Metallic Slate
-    const juce::Colour accent        = juce::Colour::fromString("#ff63b3ed"); // Arctic Blue (Faint)
-    const juce::Colour active        = juce::Colour::fromString("#ff3182ce"); // Ice Blue
-    const juce::Colour textMain      = juce::Colour::fromString("#fff0f4f8"); // Off-White
-    const juce::Colour textMuted     = juce::Colour::fromString("#ff8a99a8"); // Steel Gray
-    const juce::Colour playhead      = juce::Colour::fromString("#ffebf8ff"); // Polar White
-    const juce::Colour meterGreen    = juce::Colour::fromString("#ff48bb78"); // Arctic Emerald
-    const juce::Colour meterYellow   = juce::Colour::fromString("#ffecc94b"); // Gold-Tinted Steel
-    const juce::Colour meterRed      = juce::Colour::fromString("#fff56565"); // Cold Crimson
-    const juce::Colour recordRed     = juce::Colour::fromString("#ffe53e3e"); // Warning Red
-
-    const juce::Colour trackColours[6] = {
-        juce::Colour::fromString("#ff3182ce"), // Ice Blue
-        juce::Colour::fromString("#ff4a5568"), // Deep Steel
-        juce::Colour::fromString("#ff63b3ed"), // Arctic Blue
-        juce::Colour::fromString("#ffa0aec0"), // Silver
-        juce::Colour::fromString("#ff2c5282"), // Dark Arctic
-        juce::Colour::fromString("#ff4299e1")  // Sky Steel
-    };
-
-    inline juce::Colour colourForTrack (int idx) { return trackColours[((unsigned)idx) % 6]; }
-
-    static void drawRoundedPanel(juce::Graphics& g, juce::Rectangle<float> b, juce::Colour color = surface, float alpha = 1.0f)
-    {
-        g.setColour(color.withMultipliedAlpha(alpha));
-        g.fillRoundedRectangle(b, 4.0f);
-        g.setColour(border.withMultipliedAlpha(alpha));
-        g.drawRoundedRectangle(b, 4.0f, 1.0f);
-    }
-}
+#include "UI/ThemeTokens.h"
+#include "UI/Primitives.h"
+#include "UI/LookAndFeel.h"
 
 enum class EditTool { select, razor, comp };
 
 //==============================================================================
-inline void setFaderFromY (AudioEngineManager& audioEngine, tracktion::Track* t, juce::Rectangle<int> area, int y)
-{
-    if (! t) return;
-    int faderTop = area.getY() + 4;
-    int faderH   = area.getHeight() - 28;
-    float sPos = 1.0f - juce::jlimit(0.0f, 1.0f, (float)(y - faderTop) / (float)juce::jmax(1, faderH));
-    audioEngine.setTrackVolumeDb (t, AudioEngineManager::getDbFromFaderPos (sPos));
-}
-
-inline void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
-                 AudioEngineManager& audioEngine,
-                 tracktion::Track* track, juce::Colour tColor, bool isMaster,
-                 juce::Drawable* faderKnobDrawable,
-                 juce::Rectangle<int>* readoutAreaOut = nullptr)
-{
-    if (area.getHeight() < 30) return;
-
-    int faderTop = area.getY() + 4;
-    int faderH   = area.getHeight() - 24;
-
-    int cx      = area.getCentreX();
-    int track_w = 6;
-    int track_x = cx - track_w / 2;
-
-    int meter_w   = 8;
-    int meter_gap = 4;
-    int meter_lx  = track_x - meter_gap - meter_w;
-    int meter_rx  = track_x + track_w + meter_gap;
-
-    // Scale tick marks to the left of the left meter
-    struct Tick { float db; const char* label; };
-    static const Tick kTicks[] = {
-        { -60.0f, "-inf" }, { -30.0f, "-30" }, { -18.0f, "-18" },
-        { -12.0f, "-12"  }, {  -6.0f, "-6"  }, {   0.0f, "0"   }, { 6.0f, "+6" }
-    };
-    int tick_x2 = meter_lx - 1;
-    int tick_x1 = tick_x2 - 5;
-    g.setFont (juce::Font (7.0f));
-    for (auto& tick : kTicks)
-    {
-        float fPos = AudioEngineManager::getFaderPosFromDb (tick.db);
-        int   tY   = faderTop + (int) (faderH * (1.0f - fPos));
-        bool  is0  = juce::approximatelyEqual (tick.db, 0.0f);
-        g.setColour (is0 ? Theme::border.brighter (0.3f) : Theme::border.withAlpha (0.5f));
-        g.drawHorizontalLine (tY, (float) tick_x1, (float) tick_x2);
-        g.setColour (Theme::textMuted.withAlpha (0.6f));
-        g.drawText (tick.label,
-                    juce::Rectangle<int> (area.getX(), tY - 4, tick_x1 - area.getX(), 9),
-                    juce::Justification::centredRight, false);
-    }
-
-    // Fader rail
-    g.setColour (juce::Colours::black.withAlpha (0.6f));
-    g.fillRoundedRectangle ((float) track_x, (float) faderTop, (float) track_w, (float) faderH, 3.0f);
-
-    // 0dB tick on fader rail
-    {
-        float zeroPos = AudioEngineManager::getFaderPosFromDb (0.0f);
-        int   zeroY   = faderTop + (int) (faderH * (1.0f - zeroPos));
-        g.setColour (Theme::border.withAlpha (0.5f));
-        g.drawHorizontalLine (zeroY, (float) (track_x - 2), (float) (track_x + track_w + 2));
-    }
-
-    // Dual meters (same peak for L and R — no separate L/R API)
-    float peak = audioEngine.getTrackPeak (track);
-    float pPos = AudioEngineManager::getFaderPosFromDb (peak);
-    bool  clip = peak > 0.0f;
-
-    auto drawMeter = [&] (int mx)
-    {
-        g.setColour (juce::Colours::black.withAlpha (0.5f));
-        g.fillRoundedRectangle ((float) mx, (float) faderTop, (float) meter_w, (float) faderH, 2.0f);
-        g.setColour (Theme::border.withAlpha (0.4f));
-        g.drawRoundedRectangle ((float) mx, (float) faderTop, (float) meter_w, (float) faderH, 2.0f, 1.0f);
-
-        if (clip)
-        {
-            g.setColour (Theme::recordRed);
-            g.fillRoundedRectangle ((float) mx, (float) faderTop, (float) meter_w, 5.0f, 1.5f);
-        }
-
-        if (pPos > 0.0f)
-        {
-            int mY = faderTop + (int) (faderH * (1.0f - pPos));
-            juce::ColourGradient mg (Theme::meterRed,   0, (float) faderTop,
-                                     Theme::meterGreen, 0, (float) (faderTop + faderH), false);
-            mg.addColour (0.17, Theme::meterYellow);
-            mg.addColour (0.33, Theme::meterGreen);
-            g.setGradientFill (mg);
-            g.fillRoundedRectangle ((float) mx, (float) mY, (float) meter_w,
-                                    (float) (faderTop + faderH - mY), 2.0f);
-        }
-    };
-
-    drawMeter (meter_lx);
-    drawMeter (meter_rx);
-
-    // Fader cap
-    float db   = audioEngine.getTrackVolumeDb (track);
-    float sPos = AudioEngineManager::getFaderPosFromDb (db);
-    int   capY = faderTop + (int) (faderH * (1.0f - sPos));
-    juce::Rectangle<float> cap ((float) (cx - 9), (float) (capY - 24), 18.0f, 48.0f);
-    if (faderKnobDrawable != nullptr)
-        faderKnobDrawable->drawWithin (g, cap, juce::RectanglePlacement::centred, 1.0f);
-
-    // Peak-hold dB readout
-    float maxPeak = audioEngine.getTrackMaxPeak (track);
-    bool clipping = maxPeak > 0.0f;
-    g.setColour (clipping ? Theme::recordRed : Theme::textMuted);
-    g.setFont (juce::Font (9.0f).withStyle (juce::Font::bold));
-    juce::String dbText = (maxPeak > -90.0f)
-        ? juce::String::formatted ("%+.1f dB", maxPeak)
-        : juce::String::formatted ("%+.1f dB", db);
-
-    auto readoutArea = area.withY (area.getBottom() - 16).withHeight (14);
-    g.drawText (dbText, readoutArea, juce::Justification::centred);
-    if (readoutAreaOut) *readoutAreaOut = readoutArea;
-}
-
-//==============================================================================
-/** A custom LookAndFeel that implements the "Metal" arctic theme for all
-    standard JUCE widgets, including window title bar buttons.
-*/
-class MetalLookAndFeel : public juce::LookAndFeel_V4
-{
-public:
-    MetalLookAndFeel()
-    {
-        auto scheme = getDarkColourScheme();
-        scheme.setUIColour (juce::LookAndFeel_V4::ColourScheme::windowBackground, Theme::bgBase);
-        scheme.setUIColour (juce::LookAndFeel_V4::ColourScheme::widgetBackground, Theme::bgPanel);
-        scheme.setUIColour (juce::LookAndFeel_V4::ColourScheme::menuBackground, Theme::bgPanel);
-        scheme.setUIColour (juce::LookAndFeel_V4::ColourScheme::outline, Theme::border);
-        scheme.setUIColour (juce::LookAndFeel_V4::ColourScheme::defaultText, Theme::textMain);
-        scheme.setUIColour (juce::LookAndFeel_V4::ColourScheme::defaultFill, Theme::accent);
-        scheme.setUIColour (juce::LookAndFeel_V4::ColourScheme::highlightedFill, Theme::active);
-        setColourScheme (scheme);
-
-        setColour (juce::TextButton::buttonColourId, Theme::surface);
-        setColour (juce::TextButton::textColourOffId, Theme::textMain);
-        setColour (juce::ListBox::backgroundColourId, Theme::bgPanel);
-        setColour (juce::Label::textColourId, Theme::textMain);
-    }
-
-    // Custom button for window decorations
-    class WindowButton : public juce::Button
-    {
-    public:
-        WindowButton (const juce::String& name, juce::Colour c) : juce::Button (name), color (c) {}
-        void paintButton (juce::Graphics& g, bool isMouseOver, bool isMouseDown) override
-        {
-            // Use precise integer coordinates for maximum crispness
-            auto b = getLocalBounds().toFloat();
-            auto c = color;
-            if (isMouseDown)      c = c.darker (0.3f);
-            else if (isMouseOver) c = c.brighter (0.1f);
-            
-            // Subtle, sharp circle
-            g.setColour (c.withAlpha (isMouseOver ? 0.95f : 0.75f));
-            g.fillEllipse (b);
-
-            // Hairline outline
-            g.setColour (c.brighter (0.3f).withAlpha (0.4f));
-            g.drawEllipse (b, 1.0f);
-
-            // Modern, pixel-perfect icons
-            g.setColour (Theme::bgBase.withAlpha (0.9f));
-            auto iconArea = b.reduced (b.getWidth() * 0.32f);
-            const float thickness = 1.0f; // Hairline thickness for elegance
-
-            if (getName() == "close") {
-                g.drawLine (iconArea.getX(), iconArea.getY(), iconArea.getRight(), iconArea.getBottom(), thickness);
-                g.drawLine (iconArea.getRight(), iconArea.getY(), iconArea.getX(), iconArea.getBottom(), thickness);
-            } else if (getName() == "min") {
-                g.drawLine (iconArea.getX(), iconArea.getCentreY(), iconArea.getRight(), iconArea.getCentreY(), thickness);
-            } else { // max
-                g.drawRect (iconArea, thickness);
-            }
-        }
-    private:
-        juce::Colour color;
-    };
-
-    juce::Button* createDocumentWindowButton (int buttonType) override
-    {
-        if (buttonType == juce::DocumentWindow::closeButton)
-            return new WindowButton ("close", Theme::accent); // Arctic Blue
-        if (buttonType == juce::DocumentWindow::minimiseButton)
-            return new WindowButton ("min", Theme::textMuted); // Steel Gray
-        if (buttonType == juce::DocumentWindow::maximiseButton)
-            return new WindowButton ("max", Theme::trackColours[3]); // Silver
-        return nullptr;
-    }
-
-    void positionDocumentWindowButtons (juce::DocumentWindow&, int x, int y, int w, int h,
-                                        juce::Button* minimiseButton,
-                                        juce::Button* maximiseButton,
-                                        juce::Button* closeButton,
-                                        bool positionOnLeft) override
-    {
-        // Make buttons significantly smaller and more compact (14x14 instead of default ~24x24)
-        const int size = 14;
-        const int gap = 8;
-        int curX = positionOnLeft ? x + 8 : x + w - size - 8;
-        const int curY = y + (h - size) / 2;
-
-        juce::Button* buttons[] = { closeButton, maximiseButton, minimiseButton };
-        if (positionOnLeft) std::reverse (std::begin(buttons), std::end(buttons));
-
-        for (auto* b : buttons)
-        {
-            if (b != nullptr)
-            {
-                b->setBounds (curX, curY, size, size);
-                curX += positionOnLeft ? (size + gap) : -(size + gap);
-            }
-        }
-    }
-};
+// (Fader primitives + LookAndFeel extracted to UI/)
 
 //==============================================================================
 // Shared plugin picker — shows a manufacturer-grouped popup of every
@@ -469,7 +218,7 @@ public:
     DAWPanel(juce::String panelName) : name(panelName) {}
     void paint(juce::Graphics& g) override
     {
-        g.fillAll(Theme::bgPanel);
+        Theme::fillBackgroundGradient (g, getLocalBounds());
         g.setColour(Theme::border);
         g.drawRect(getLocalBounds(), 1);
 
@@ -584,7 +333,8 @@ public:
     void mouseDown (const juce::MouseEvent& e) override
     {
         if (onBeforeMenuOpen) onBeforeMenuOpen();
-        switch (menuIndexAt (e.x))
+        lastPopupMenuIndex = menuIndexAt (e.x);
+        switch (lastPopupMenuIndex)
         {
             case 0: showFileMenu();      break;
             case 1: showEditMenu();      break;
@@ -602,6 +352,24 @@ public:
 private:
     std::unique_ptr<juce::Drawable> logoDrawable;
     int hoveredMenu = -1;
+    int lastPopupMenuIndex = -1;
+
+    juce::Rectangle<int> menuItemBounds (int idx) const
+    {
+        if (idx < 0) return {};
+        constexpr int menuX0 = 50;
+        constexpr int menuW  = 60;
+        return { menuX0 + idx * menuW, 0, menuW, getHeight() };
+    }
+
+    juce::PopupMenu::Options anchoredMenuOptions() const
+    {
+        auto b = menuItemBounds (lastPopupMenuIndex);
+        if (b.isEmpty())
+            b = { juce::jmax (0, getMouseXYRelative().x), 0, 1, getHeight() };
+
+        return juce::PopupMenu::Options().withTargetScreenArea (localAreaToGlobal (b));
+    }
 
     int menuIndexAt (int x) const
     {
@@ -621,7 +389,7 @@ private:
         m.addItem (4, "Import Audio File...");
         m.addSeparator();
         m.addItem (5, "Audio Settings...");
-        m.showMenuAsync (juce::PopupMenu::Options(), [this] (int r) {
+        m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
             if (r == 1 && onNew)      onNew();
             if (r == 2 && onOpen)     onOpen();
             if (r == 3 && onSave)     onSave();
@@ -636,7 +404,7 @@ private:
         juce::PopupMenu m;
         m.addItem (1, "Undo\tCtrl+Z");
         m.addItem (2, "Redo\tCtrl+Shift+Z");
-        m.showMenuAsync (juce::PopupMenu::Options(), [this] (int r) {
+        m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
             if (r == 1 && onUndo) onUndo();
             if (r == 2 && onRedo) onRedo();
         });
@@ -664,7 +432,7 @@ private:
         m.addSubMenu ("Snap Interval", snapSub);
         m.addSeparator();
         m.addSubMenu ("Count-In", countInSub);
-        m.showMenuAsync (juce::PopupMenu::Options(), [this] (int r) {
+        m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
             if (r == 1  && onToggleMetronome)       onToggleMetronome();
             if (r == 2  && onShowMetronomeSettings)  onShowMetronomeSettings();
             if (r == 3  && onToggleSnap)             onToggleSnap();
@@ -688,7 +456,7 @@ private:
         m.addItem (5, "Arm",  hasSelectedTrack, trackArmed);
         m.addItem (6, "Mute", hasSelectedTrack, trackMuted);
         m.addItem (7, "Solo", hasSelectedTrack, trackSolo);
-        m.showMenuAsync (juce::PopupMenu::Options(), [this] (int r) {
+        m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
             if (r == 1 && onAddAudioTrack)   onAddAudioTrack();
             if (r == 2 && onAddMidiTrack)    onAddMidiTrack();
             if (r == 3 && onAddFolderTrack)  onAddFolderTrack();
@@ -709,7 +477,7 @@ private:
         m.addItem (4, "Trim Right",  hasSelectedClip, false);
         m.addSeparator();
         m.addItem (5, "Delete",      hasSelectedClip, false);
-        m.showMenuAsync (juce::PopupMenu::Options(), [this] (int r) {
+        m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
             if (r == 1 && onNudgeLeft)   onNudgeLeft();
             if (r == 2 && onNudgeRight)  onNudgeRight();
             if (r == 3 && onTrimLeft)    onTrimLeft();
@@ -733,7 +501,7 @@ private:
             xfadeLen.addItem (1000 + ms, juce::String (ms) + " ms", true, autoCrossfadeMaxMs == ms);
         m.addSubMenu ("Auto Crossfade Length", xfadeLen, autoCrossfadeOn);
 
-        m.showMenuAsync (juce::PopupMenu::Options(), [this] (int r) {
+        m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
             if (r == 1 && onSettings)      onSettings();
             if (r == 2 && onRescanPlugins) onRescanPlugins();
             if (r == 3 && onTogglePdc)     onTogglePdc();
@@ -759,7 +527,7 @@ private:
         m.addItem (5, "Loop",         true, loopEnabled);
         m.addItem (6, "Punch In/Out", true, punchEnabled);
         m.addSubMenu ("Count-In", countInSub);
-        m.showMenuAsync (juce::PopupMenu::Options(), [this] (int r) {
+        m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
             if (r == 1  && onPlay)           onPlay();
             if (r == 2  && onStop)           onStop();
             if (r == 3  && onRecord)         onRecord();
@@ -779,7 +547,7 @@ private:
         m.addItem (2, "Browser",   true, browserVisible);
         m.addSeparator();
         m.addItem (3, mixerDetached ? "Dock Mixer" : "Detach Mixer");
-        m.showMenuAsync (juce::PopupMenu::Options(), [this] (int r) {
+        m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
             if (r == 1 && onToggleInspector)   onToggleInspector();
             if (r == 2 && onToggleBrowser)     onToggleBrowser();
             if (r == 3 && onToggleMixerDetach) onToggleMixerDetach();
@@ -790,7 +558,7 @@ private:
     {
         juce::PopupMenu m;
         m.addItem (1, "About Aerion DAW");
-        m.showMenuAsync (juce::PopupMenu::Options(), [] (int r) {
+        m.showMenuAsync (anchoredMenuOptions(), [] (int r) {
             if (r == 1)
                 juce::AlertWindow::showMessageBoxAsync (
                     juce::MessageBoxIconType::InfoIcon,
@@ -1673,13 +1441,17 @@ public:
 
     void paint(juce::Graphics& g) override
     {
-        g.fillAll(Theme::bgPanel);
-        g.setColour(Theme::border);
-        g.drawRect(getLocalBounds(), 1);
+        Theme::fillBackgroundGradient (g, getLocalBounds());
+        g.setColour (Theme::border.withAlpha (0.7f));
+        g.drawRect (getLocalBounds(), 1);
 
         auto header = getLocalBounds().removeFromTop(32);
-        g.setColour(Theme::surface);
-        g.fillRect(header);
+        {
+            juce::ColourGradient cg (Theme::surface.brighter (0.08f), 0.0f, 0.0f,
+                                     Theme::surface.darker   (0.06f), 0.0f, (float) header.getBottom(), false);
+            g.setGradientFill (cg);
+            g.fillRect (header);
+        }
         g.setColour(Theme::border);
         g.drawLine(0.0f, 32.0f, (float)getWidth(), 32.0f);
 
@@ -1730,7 +1502,7 @@ public:
         if (tab == Tab::files)
         {
             auto pa = getLocalBounds().removeFromBottom (kPreviewH);
-            g.setColour (Theme::bgBase);
+            g.setColour (Theme::bgPanel.darker (0.08f));
             g.fillRect (pa);
             g.setColour (Theme::border);
             g.drawLine (0.0f, (float) pa.getY(), (float) getWidth(), (float) pa.getY(), 1.0f);
@@ -1738,8 +1510,22 @@ public:
             if (selectedFile.existsAsFile() && thumb.isFullyLoaded() && thumb.getTotalLength() > 0.0)
             {
                 auto wa = pa.reduced (8, 10);
-                g.setColour (Theme::active.withAlpha (0.55f));
-                thumb.drawChannels (g, wa.withTrimmedBottom (14), 0.0, thumb.getTotalLength(), 1.0f);
+                auto wf = wa.withTrimmedBottom (14);
+                g.setColour (juce::Colours::black.withAlpha (0.65f));
+                thumb.drawChannels (g, wf, 0.0, thumb.getTotalLength(), 1.0f);
+
+                g.setColour (Theme::textMain.withAlpha (1.0f));
+                thumb.drawChannels (g, wf, 0.0, thumb.getTotalLength(), 1.0f);
+                {
+                    juce::Graphics::ScopedSaveState ss (g);
+                    g.addTransform (juce::AffineTransform::translation (0.0f, -1.0f));
+                    thumb.drawChannels (g, wf, 0.0, thumb.getTotalLength(), 1.0f);
+                }
+                {
+                    juce::Graphics::ScopedSaveState ss (g);
+                    g.addTransform (juce::AffineTransform::translation (0.0f,  1.0f));
+                    thumb.drawChannels (g, wf, 0.0, thumb.getTotalLength(), 1.0f);
+                }
                 g.setColour (Theme::textMuted);
                 g.setFont (juce::Font (9.0f));
                 g.drawText (selectedFile.getFileName(), wa.withTop (wa.getBottom() - 13),
@@ -2923,7 +2709,7 @@ public:
     void paint(juce::Graphics& g) override
     {
         currentTooltip.isValid = false;
-        g.fillAll(Theme::bgBase);
+        Theme::fillBackgroundGradient (g, getLocalBounds());
 
         // Header column action bar (+ Track / + MIDI / + Folder)
         int btnW = (kHeaderWidth - 24) / 3;
@@ -2931,8 +2717,13 @@ public:
         addMidiTrackBtn = juce::Rectangle<int>(8 + btnW + 4,    4, btnW, kHeaderBarH - 8);
         addFolderBtn    = juce::Rectangle<int>(8 + (btnW + 4)*2, 4, btnW, kHeaderBarH - 8);
 
-        g.setColour(Theme::bgPanel);
-        g.fillRect(0, 0, kHeaderWidth, kHeaderBarH);
+        // Header column (slightly raised)
+        {
+            juce::ColourGradient cg (Theme::bgPanel.brighter (0.08f), 0.0f, 0.0f,
+                                     Theme::bgPanel.darker   (0.06f), 0.0f, (float) kHeaderBarH, false);
+            g.setGradientFill (cg);
+            g.fillRect (0, 0, kHeaderWidth, kHeaderBarH);
+        }
         g.setColour(Theme::border);
         g.drawLine((float)kHeaderWidth, 0.0f, (float)kHeaderWidth, (float)kHeaderBarH);
 
@@ -2941,8 +2732,12 @@ public:
         drawHeaderButton(g, addFolderBtn,    "+ Folder", Theme::active);
 
         // Ruler (right of header bar)
-        g.setColour(Theme::bgPanel);
-        g.fillRect(kHeaderWidth, 0, getWidth() - kHeaderWidth, kRulerH);
+        {
+            juce::ColourGradient cg (Theme::bgPanel.brighter (0.09f), (float) kHeaderWidth, 0.0f,
+                                     Theme::bgPanel.darker   (0.06f), (float) kHeaderWidth, (float) kRulerH, false);
+            g.setGradientFill (cg);
+            g.fillRect (kHeaderWidth, 0, getWidth() - kHeaderWidth, kRulerH);
+        }
         g.setColour(Theme::border);
         g.drawLine(0.0f, (float)kRulerH, (float)getWidth(), (float)kRulerH);
         g.drawLine((float)kHeaderWidth, 0.0f, (float)getWidth(), 0.0f);
@@ -2992,9 +2787,9 @@ public:
                     float mx = timeToX (marker->getPosition().getStart().inSeconds());
                     if (mx >= kHeaderWidth && mx < getWidth() - kVScrollW)
                     {
-                        g.setColour (juce::Colours::yellow.withAlpha (0.8f));
-                        g.fillRect (mx, 2.0f, 10.0f, 10.0f); // Flag
-                        g.fillRect (mx, 2.0f, 1.0f, 18.0f);  // Pole
+                        g.setColour (Theme::accent.withAlpha (0.85f));
+                        g.fillRoundedRectangle (mx, 2.0f, 10.0f, 10.0f, 2.0f); // Flag
+                        g.fillRect (mx + 0.5f, 2.0f, 1.0f, 18.0f);              // Pole
                         g.setColour (Theme::textMain);
                         g.setFont (9.0f);
                         g.drawText (marker->getName(), (int) mx + 12, 2, 60, 12, juce::Justification::left);
@@ -3440,12 +3235,26 @@ public:
 
                     if (cb.getRight() < kHeaderWidth || cb.getX() > getWidth()) continue;
 
-                    juce::ColourGradient grad(tColor.brighter(0.2f), 0, cb.getY(),
-                                              tColor.darker(0.2f),   0, cb.getBottom(), false);
-                    g.setGradientFill(grad);
-                    g.fillRoundedRectangle(cb, 4.0f);
-                    g.setColour(selectedClip == clip ? Theme::active : tColor.brighter(0.5f).withAlpha(0.4f));
-                    g.drawRoundedRectangle(cb, 4.0f, (selectedClip == clip ? 2.0f : 1.0f));
+                    // Studio One-ish clip styling: subtle shadow, rich gradient, crisp highlight.
+                    {
+                        auto shadow = cb.translated (0.0f, 1.0f);
+                        g.setColour (juce::Colours::black.withAlpha (0.35f));
+                        g.fillRoundedRectangle (shadow, 6.0f);
+                    }
+
+                    juce::ColourGradient grad (tColor.brighter (0.28f), cb.getX(), cb.getY(),
+                                               tColor.darker   (0.22f), cb.getX(), cb.getBottom(), false);
+                    grad.addColour (0.18, tColor.brighter (0.35f));
+                    g.setGradientFill (grad);
+                    g.fillRoundedRectangle (cb, 6.0f);
+
+                    const bool selected = (selectedClip == clip);
+                    g.setColour ((selected ? Theme::accent : Theme::border).withAlpha (selected ? 0.95f : 0.55f));
+                    g.drawRoundedRectangle (cb, 6.0f, selected ? 2.0f : 1.0f);
+
+                    // Top highlight
+                    g.setColour (juce::Colours::white.withAlpha (clip->isMuted() ? 0.06f : 0.12f));
+                    g.drawLine (cb.getX() + 2.0f, cb.getY() + 1.0f, cb.getRight() - 2.0f, cb.getY() + 1.0f, 1.0f);
 
                     if (auto* wave = dynamic_cast<tracktion::WaveAudioClip*>(clip))
                     {
@@ -3483,18 +3292,37 @@ public:
                             {
                                 entry.image = juce::Image (juce::Image::ARGB, w, h, true);
                                 juce::Graphics ig (entry.image);
-                                ig.setColour (juce::Colours::white.withAlpha (0.6f));
+                                auto drawWave = [&] ()
+                                {
+                                    if (recThumb != nullptr)
+                                    {
+                                        recThumb->thumb->drawChannels (ig, { 0, 0, w, h }, audioStart, audioStart + audioDuration, 1.0f);
+                                    }
+                                    else
+                                    {
+                                        auto& thumb = audioEngine.getThumbnailForClip (*wave, *this);
+                                        tracktion::TimeRange vRange (tracktion::TimePosition::fromSeconds (audioStart),
+                                                                     tracktion::TimeDuration::fromSeconds (audioDuration));
+                                        thumb.drawChannel (ig, { 0, 0, w, h }, vRange, 0, 1.0f);
+                                    }
+                                };
 
-                                if (recThumb != nullptr)
+                                // Dark background so the waveform is always readable
+                                // regardless of clip colour, then white waveform on top.
+                                ig.setColour (juce::Colours::black.withAlpha (0.95f));
+                                ig.fillAll();
+
+                                ig.setColour (juce::Colours::white.withAlpha (1.0f));
+                                drawWave();
                                 {
-                                    recThumb->thumb->drawChannels (ig, { 0, 0, w, h }, audioStart, audioStart + audioDuration, 1.0f);
+                                    juce::Graphics::ScopedSaveState ss (ig);
+                                    ig.addTransform (juce::AffineTransform::translation (0.0f, -1.0f));
+                                    drawWave();
                                 }
-                                else
                                 {
-                                    auto& thumb = audioEngine.getThumbnailForClip (*wave, *this);
-                                    tracktion::TimeRange vRange (tracktion::TimePosition::fromSeconds (audioStart),
-                                                                 tracktion::TimeDuration::fromSeconds (audioDuration));
-                                    thumb.drawChannel (ig, { 0, 0, w, h }, vRange, 0, 1.0f);
+                                    juce::Graphics::ScopedSaveState ss (ig);
+                                    ig.addTransform (juce::AffineTransform::translation (0.0f,  1.0f));
+                                    drawWave();
                                 }
 
                                 entry.pxPerSec      = pxPerSec;
@@ -4853,12 +4681,16 @@ public:
 
     void paint(juce::Graphics& g) override
     {
-        g.fillAll(Theme::bgBase);
+        Theme::fillBackgroundGradient (g, getLocalBounds());
 
         // Header strip.
         auto header = getLocalBounds().removeFromTop(kHeaderH);
-        g.setColour(Theme::bgPanel);
-        g.fillRect(header);
+        {
+            juce::ColourGradient cg (Theme::bgPanel.brighter (0.08f), 0.0f, 0.0f,
+                                     Theme::bgPanel.darker   (0.06f), 0.0f, (float) header.getBottom(), false);
+            g.setGradientFill (cg);
+            g.fillRect (header);
+        }
         g.setColour(Theme::border);
         g.drawLine(0.0f, (float)kHeaderH, (float)getWidth(), (float)kHeaderH);
         g.setColour(Theme::active);
@@ -5436,7 +5268,7 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        g.fillAll (Theme::bgBase);
+        Theme::fillBackgroundGradient (g, getLocalBounds());
         g.setColour (Theme::border.withAlpha (0.6f));
         g.drawLine (0.0f, 0.0f, (float)getWidth(), 0.0f);
 

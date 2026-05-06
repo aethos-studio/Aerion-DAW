@@ -133,6 +133,7 @@ private:
 
     double lastTransportPos = -1.0;
     bool lastIsPlaying = false;
+    float lastPlayheadX = -10000.0f;
 
     class MixerWindow;
     std::unique_ptr<MixerWindow> mixerWindow;

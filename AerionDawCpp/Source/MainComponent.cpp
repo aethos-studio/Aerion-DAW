@@ -410,7 +410,8 @@ MainComponent::MainComponent()
     };
 
     setSize (1400, 860);
-    startTimerHz (60);
+    // 30Hz keeps meters smooth while reducing UI CPU.
+    startTimerHz (30);
 }
 
 MainComponent::~MainComponent()
@@ -696,8 +697,35 @@ void MainComponent::timerCallback()
         lastIsPlaying = playing;
     }
 
-    if (playing || audioEngine.isRecording())
+    // While playing, avoid full repaints: only move the playhead + update meters.
+    // Full timeline repaints are reserved for recording or explicit edits.
+    if (playing && ! audioEngine.isRecording())
     {
+        // Mixer meters (still a full repaint for now; optimized later).
+        mixer.repaint();
+
+        // Inspector already repaints its fader area internally.
+        inspector.repaint();
+
+        // Timeline: repaint only the old/new playhead strips.
+        // Needs to be wide enough to fully clear anti-aliased strokes + waveform pixels.
+        const float newX = timeline.timeToX (pos);
+        const int laneH = timeline.getHeight(); // safe fallback
+        const int w = 16;
+        const int oldXi = (int) std::round (lastPlayheadX);
+        const int newXi = (int) std::round (newX);
+        if (oldXi != newXi)
+        {
+            timeline.repaint (oldXi - w / 2, 0, w, laneH);
+            timeline.repaint (newXi - w / 2, 0, w, laneH);
+            lastPlayheadX = newX;
+        }
+        return;
+    }
+
+    if (audioEngine.isRecording())
+    {
+        // Recording can change waveforms and clip lengths; repaint fully.
         mixer.repaint();
         inspector.repaint();
         timeline.repaint();
@@ -754,7 +782,7 @@ class MainComponent::MixerWindow : public juce::DocumentWindow
 {
 public:
     MixerWindow (MainComponent& mc)
-        : DocumentWindow ("Mixer — Aerion DAW", Theme::bgPanel,
+        : DocumentWindow ("Mixer - Aerion DAW", Theme::bgPanel,
                           juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton),
           owner (mc)
     {

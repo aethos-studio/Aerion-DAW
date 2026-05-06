@@ -181,15 +181,58 @@ public:
     bool  getTrackMono (tracktion::Track* track);
     void  setTrackMono (tracktion::Track* track, bool mono);
 
-    // Linear dB fader: position 0..1 maps uniformly to kMinVolumeDb..kMaxVolumeDb.
+    // DAW-style dB fader mapping:
+    // - long throw for -60..0 dB (fine control where it matters)
+    // - medium throw for 0..+6 dB (so +6 isn't glued to 0)
+    // - short throw for +6..+30 dB (quick access above that)
     static float getFaderPosFromDb (float db)
     {
-        return juce::jlimit (0.0f, 1.0f, (db - kMinVolumeDb) / kFaderRangeDb);
+        constexpr float splitDb0   = 0.0f;
+        constexpr float splitDb6   = 6.0f;
+        constexpr float splitPos0  = 0.85f; // where 0 dB lands on the fader travel
+        constexpr float splitPos6  = 0.95f; // where +6 dB lands on the fader travel
+
+        db = juce::jlimit (kMinVolumeDb, kMaxVolumeDb, db);
+
+        if (db <= splitDb0)
+        {
+            const float t = (db - kMinVolumeDb) / (splitDb0 - kMinVolumeDb); // -60..0 -> 0..1
+            return juce::jlimit (0.0f, splitPos0, t * splitPos0);
+        }
+
+        if (db <= splitDb6)
+        {
+            const float t = (db - splitDb0) / (splitDb6 - splitDb0); // 0..+6 -> 0..1
+            return juce::jlimit (splitPos0, splitPos6, splitPos0 + t * (splitPos6 - splitPos0));
+        }
+
+        const float t = (db - splitDb6) / (kMaxVolumeDb - splitDb6); // +6..+30 -> 0..1
+        return juce::jlimit (splitPos6, 1.0f, splitPos6 + t * (1.0f - splitPos6));
     }
 
     static float getDbFromFaderPos (float pos)
     {
-        return kMinVolumeDb + juce::jlimit (0.0f, 1.0f, pos) * kFaderRangeDb;
+        constexpr float splitDb0   = 0.0f;
+        constexpr float splitDb6   = 6.0f;
+        constexpr float splitPos0  = 0.85f;
+        constexpr float splitPos6  = 0.95f;
+
+        pos = juce::jlimit (0.0f, 1.0f, pos);
+
+        if (pos <= splitPos0)
+        {
+            const float t = (splitPos0 > 0.0f) ? (pos / splitPos0) : 0.0f; // 0..splitPos0 -> 0..1
+            return kMinVolumeDb + t * (splitDb0 - kMinVolumeDb);           // -60..0
+        }
+
+        if (pos <= splitPos6)
+        {
+            const float t = (splitPos6 > splitPos0) ? ((pos - splitPos0) / (splitPos6 - splitPos0)) : 0.0f; // splitPos0..splitPos6 -> 0..1
+            return splitDb0 + t * (splitDb6 - splitDb0);                                                       // 0..+6
+        }
+
+        const float t = (1.0f > splitPos6) ? ((pos - splitPos6) / (1.0f - splitPos6)) : 0.0f; // splitPos6..1 -> 0..1
+        return splitDb6 + t * (kMaxVolumeDb - splitDb6);                                       // +6..+30
     }
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;

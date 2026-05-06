@@ -51,7 +51,8 @@ public:
     ProjectData();
     ~ProjectData() = default;
 
-    juce::ValueTree getProjectTree() const { return projectTree; }
+    juce::ValueTree&       getProjectTree()       { return projectTree; }
+    const juce::ValueTree& getProjectTree() const { return projectTree; }
     
     juce::ValueTree getTrackTree (int id) const;
     juce::ValueTree getTrackTree (const juce::String& id) const;
