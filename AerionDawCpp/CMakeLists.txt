@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(AerionDaw VERSION 0.1.0)
+project(AerionDaw VERSION 0.2.0)
 
 # Fetch Tracktion Engine (includes JUCE)
 include(FetchContent)
@@ -31,7 +31,7 @@ FetchContent_MakeAvailable(tracktion_engine)
 # Setup executable
 juce_add_gui_app(AerionDaw
     PRODUCT_NAME "Aerion DAW"
-    VERSION 0.1.0
+    VERSION 0.2.0
     COMPANY_NAME "Aethos Studio Ltd."
     BUNDLE_ID "com.aethos.aeriondaw"
     ICON_BIG "Resources/aerion_logo.svg"
@@ -114,7 +114,7 @@ if (WIN32)
     
     set(CPACK_PACKAGE_NAME "Aerion DAW")
     set(CPACK_PACKAGE_VENDOR "Aethos Studio Ltd.")
-    set(CPACK_PACKAGE_VERSION "0.0.1")
+    set(CPACK_PACKAGE_VERSION "0.2.0")
     set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Aerion DAW Pre-Alpha")
     set(CPACK_PACKAGE_INSTALL_DIRECTORY "Aerion DAW")
     set(CPACK_GENERATOR "NSIS")
