@@ -21,6 +21,10 @@ public:
         scheme.setUIColour (juce::LookAndFeel_V4::ColourScheme::highlightedFill, Theme::active);
         setColourScheme (scheme);
 
+        // Body UI uses the OS sans (Segoe UI / etc.). Cinzel is far too thin at small sizes.
+        if (auto face = Theme::defaultSansSerifFaceName(); face.isNotEmpty())
+            setDefaultSansSerifTypefaceName (face);
+
         setColour (juce::TextButton::buttonColourId, Theme::surface);
         setColour (juce::TextButton::textColourOffId, Theme::textMain);
         setColour (juce::ListBox::backgroundColourId, Theme::bgPanel);
@@ -100,6 +104,36 @@ public:
                 curX += positionOnLeft ? (size + gap) : -(size + gap);
             }
         }
+    }
+
+    juce::Font getTextButtonFont (juce::TextButton& b, int buttonHeight) override
+    {
+        auto f = juce::LookAndFeel_V4::getTextButtonFont (b, buttonHeight);
+        return f.withHeight (juce::jlimit (11.0f, 24.0f, f.getHeight() * Theme::kUiFontScale));
+    }
+
+    juce::Font getComboBoxFont (juce::ComboBox& c) override
+    {
+        auto f = juce::LookAndFeel_V4::getComboBoxFont (c);
+        return f.withHeight (juce::jlimit (11.0f, 20.0f, f.getHeight() * Theme::kUiFontScale));
+    }
+
+    juce::Font getAlertWindowTitleFont() override
+    {
+        auto f = juce::LookAndFeel_V4::getAlertWindowTitleFont();
+        return f.withHeight (f.getHeight() * Theme::kUiFontScale);
+    }
+
+    juce::Font getAlertWindowMessageFont() override
+    {
+        auto f = juce::LookAndFeel_V4::getAlertWindowMessageFont();
+        return f.withHeight (f.getHeight() * Theme::kUiFontScale);
+    }
+
+    juce::Font getAlertWindowFont() override
+    {
+        auto f = juce::LookAndFeel_V4::getAlertWindowFont();
+        return f.withHeight (f.getHeight() * Theme::kUiFontScale);
     }
 };
 

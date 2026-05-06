@@ -40,8 +40,45 @@ namespace Theme
     inline constexpr float radiusL = 6.0f;
 
     // ---- Typography tokens --------------------------------------------------
-    inline juce::Font fontLabel (float h)      { return juce::Font (h); }
-    inline juce::Font fontLabelBold (float h)  { return juce::Font (h).withStyle (juce::Font::bold); }
+    /** Fallback system UI face for body copy (Cinzel is reserved for splash/branding only). */
+    inline juce::String defaultSansSerifFaceName()
+    {
+       #if JUCE_WINDOWS
+        return "Segoe UI";
+       #elif JUCE_MAC
+        return "Helvetica Neue";
+       #elif JUCE_LINUX || JUCE_BSD
+        return "DejaVu Sans";
+       #else
+        return {};
+       #endif
+    }
+
+    /** Multiply logical point sizes so body copy stays readable (HiDPI + thin themes). */
+    inline constexpr float kUiFontScale = 1.14f;
+
+    /** Readable UI body font: system sans at a logical size (scaled). Prefer this over raw
+        juce::Font (pt) so menu bars, panels, and timeline stay consistent. */
+    inline juce::Font uiSize (float logicalPt)
+    {
+        const float h = logicalPt * kUiFontScale;
+        juce::FontOptions opt = juce::FontOptions().withHeight (h);
+        if (auto name = defaultSansSerifFaceName(); name.isNotEmpty())
+            opt = opt.withName (name);
+        return juce::Font (opt);
+    }
+
+    inline juce::Font fontLabel (float h)
+    {
+        return uiSize (h);
+    }
+
+    inline juce::Font fontLabelBold (float h)
+    {
+        auto f = uiSize (h);
+        f.setBold (true);
+        return f;
+    }
 
     // ---- Drawing primitives -------------------------------------------------
     inline void drawRoundedPanel (juce::Graphics& g,

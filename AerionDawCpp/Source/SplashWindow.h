@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include "UI/ThemeTypefaces.h"
 
 // Splash screen: logo emerges from a misty fog like a spectre from darkness.
 // Phase 1 (0-90f  / 1.5s): fog materialises from black
@@ -17,15 +18,6 @@ public:
                 BinaryData::aerion_logo_vertical_svg,
                 BinaryData::aerion_logo_vertical_svgSize)))
             logoDrawable = juce::Drawable::createFromSVG (*xml);
-
-        // Load the Regular weight for "AERION" and Subtitle
-        cinzelTypeface = juce::Typeface::createSystemTypefaceFor (
-            BinaryData::CinzelRegular_ttf, (size_t) BinaryData::CinzelRegular_ttfSize);
-
-        // Load the Bold/SemiBold weight for "DAW"
-        // IMPORTANT: Change "CinzelBold_ttf" to match your actual BinaryData variable name
-        cinzelBoldTypeface = juce::Typeface::createSystemTypefaceFor (
-            BinaryData::CinzelBold_ttf, (size_t) BinaryData::CinzelBold_ttfSize);
 
         setOpaque (true);
         setInterceptsMouseClicks (false, false);
@@ -53,7 +45,7 @@ public:
         // Void background
         g.fillAll (juce::Colour (0xff080a0e));
 
-        // ── Fog ─────────────────────────────────────────────────────────────
+        // -- Fog -------------------------------------------------------------
         // Rises over first 90 frames, then breathes slowly
         const float fogRise = juce::jmin (1.0f, elapsedFrames / 90.0f);
 
@@ -75,13 +67,13 @@ public:
                 const float r = fl.radius * (0.18f + t * 0.82f) * pulse;
                 const float a = fogRise * fl.baseAlpha * std::pow (1.0f - t, 1.6f);
                 g.setColour (fl.col.withAlpha (a));
-                // Slightly wider than tall — fog hugs the ground
+                // Slightly wider than tall  -  fog hugs the ground
                 g.fillEllipse (logoCenter.x - r, logoCenter.y - r * 0.50f,
                                r * 2.0f, r * 1.00f);
             }
         }
 
-        // ── Logo ─────────────────────────────────────────────────────────────
+        // -- Logo -------------------------------------------------------------
         // Emerges from frame 40, fully present by frame 120
         const float logoAlpha = juce::jlimit (0.0f, 1.0f, (elapsedFrames - 40.0f) / 80.0f);
         if (logoDrawable != nullptr && logoAlpha > 0.0f)
@@ -94,24 +86,26 @@ public:
                                       juce::RectanglePlacement::centred, logoAlpha);
         }
 
-        // ── Text ─────────────────────────────────────────────────────────────
+        // -- Text -------------------------------------------------------------
         // "AERION" starts frame 110, "BY AETHOS STUDIO" 20 frames later
         const float titleAlpha    = juce::jlimit (0.0f, 1.0f, (elapsedFrames - 110.0f) / 55.0f);
         const float subtitleAlpha = juce::jlimit (0.0f, 1.0f, (elapsedFrames - 130.0f) / 50.0f);
         const float textBaseY = logoCenter.y + 126.0f;
+        const auto regTF = ThemeTypefaces::cinzelRegular();
 
         if (titleAlpha > 0.0f)
         {
             // 1. Setup Cinzel Regular Font for "AERION" - Increased to 38.0f
-            juce::Font aerionFont (cinzelTypeface != nullptr
-                ? juce::FontOptions (cinzelTypeface).withHeight (38.0f)
+            juce::Font aerionFont (regTF != nullptr
+                ? juce::FontOptions (regTF).withHeight (38.0f)
                 : juce::FontOptions().withHeight (38.0f));
             aerionFont.setExtraKerningFactor (0.12f);
             
             // 2. Setup Cinzel Bold Font for "DAW" - Increased to 38.0f
-            juce::Font dawFont (cinzelBoldTypeface != nullptr
-                ? juce::FontOptions (cinzelBoldTypeface).withHeight (38.0f)
-                : juce::FontOptions().withHeight (38.0f).withStyle("Bold")); // Fallback to system bold if missing
+            auto boldTF = ThemeTypefaces::cinzelBold();
+            juce::Font dawFont (boldTF != nullptr
+                ? juce::FontOptions (boldTF).withHeight (38.0f)
+                : juce::FontOptions().withHeight (38.0f).withStyle ("Bold"));
             dawFont.setExtraKerningFactor (0.12f);
 
             juce::AttributedString titleText;
@@ -128,8 +122,8 @@ public:
         if (subtitleAlpha > 0.0f)
         {
             // Set up subtitle font using the Regular Cinzel
-            juce::Font subtitleFont (cinzelTypeface != nullptr
-                ? juce::FontOptions (cinzelTypeface).withHeight (22.0f)
+            juce::Font subtitleFont (regTF != nullptr
+                ? juce::FontOptions (regTF).withHeight (22.0f)
                 : juce::FontOptions().withHeight (22.0f));
             
             subtitleFont.setExtraKerningFactor (0.22f);
@@ -151,8 +145,9 @@ private:
         elapsedFrames++;
         repaint();
 
-        const int minFrames   = 240; // 4 s
-        const int fadeDuration = 45; // 0.75 s fade to black
+        // Keep a short branding beat, but do not block the UI for seconds (old: 240 frames ~= 4 s at 60 Hz).
+        const int minFrames    = 24;  // ~0.4 s at 60 Hz
+        const int fadeDuration = 18; // ~0.3 s fade to black
 
         if (isReady && elapsedFrames >= minFrames)
         {
@@ -173,8 +168,6 @@ private:
     }
 
     std::unique_ptr<juce::Drawable> logoDrawable;
-    juce::Typeface::Ptr cinzelTypeface;
-    juce::Typeface::Ptr cinzelBoldTypeface; // Added to hold the Bold/SemiBold variant
     std::function<void()> onFinished;
     int elapsedFrames  = 0;
     int fadeBeginFrame = 0;

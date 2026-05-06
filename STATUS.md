@@ -1,7 +1,7 @@
-# Aerion DAW Project Status - May 3, 2026
+# Aerion DAW Project Status — May 6, 2026
 
 ## Overview
-Aerion DAW has completed Milestone 1 in full and made significant progress on Milestone 2. Recent sessions focused on the Studio One-style drag & drop workflow, UI polish (collapsible panels, branded plugin windows, animated splash), and project file management.
+Aerion DAW has completed Milestone 1 in full and made significant progress on Milestone 2. Recent sessions focused on **startup time**, **UI responsiveness**, **readability of on-screen text**, drag-and-drop import workflow, UI polish (collapsible panels, branded plugin windows, animated splash), and project file management.
 
 ## Milestone Progress
 
@@ -50,20 +50,19 @@ Aerion DAW has completed Milestone 1 in full and made significant progress on Mi
 - Clicking a file calls `GoogleDriveClient::downloadFile` — fetches to a temp path, delivers to `onFileDownloaded` on the message thread, which calls `audioEngine.importAudioFile`.
 - Login state and file list changes trigger automatic repaints via `onLoginStateChanged` / `onFilesListed` callbacks.
 
-#### Studio One-Style Drag & Drop
-- **Position-aware file drop**: Audio files dropped onto the Timeline land at the exact grid-snapped time position on the target track (or a new track if dropped below all existing tracks).
-- **Ghost preview**: While hovering, a translucent clip rectangle snaps to the beat grid showing the exact drop landing zone. Row highlight shows which track will receive the file.
-- **Consecutive multi-file drop**: Multiple files dropped at once are placed back-to-back without gaps, using each file's actual duration to advance the cursor.
-- **Plugin drag — Track Headers**: Drag a plugin from the Browser's Plugins tab and drop it onto a track header in the Timeline. Plugin window opens immediately.
-- **Plugin drag — Mixer Strips**: Same drag can be dropped onto any strip in the Mixer. Drop highlight animates on hover.
+#### Timeline drag-and-drop (audio & plugins)
+- **Position-aware file drop**: Audio files dropped onto the Timeline land at the grid-snapped time on the target track (or a new track if dropped below existing tracks).
+- **Ghost preview**: While hovering, a translucent clip rectangle snaps to the beat grid; row highlight shows the target track.
+- **Consecutive multi-file drop**: Multiple files dropped at once are placed back-to-back without gaps, using each file's duration to advance the cursor.
+- **Plugin drag — Track Headers**: Drag a plugin from the Browser's Plugins tab onto a track header. Plugin window opens immediately.
+- **Plugin drag — Mixer Strips**: Same drag can be dropped onto any strip in the Mixer with hover highlight.
 
 ### UI & Branding
 
 #### Animated Splash Screen
-- "Spectre from the fog" entrance: four layered fog halos materialize from darkness (frames 0–90), logo rises through the fog (frames 40–120), title fades in staggered (frames 110/130+).
-- Two-color title: "AERION" in off-white (#ebf8ff) + "DAW" in ice blue (#3182ce), using `juce::AttributedString`.
-- Subtitle "BY AETHOS STUDIO" rendered in embedded **Cinzel** typeface (Google Fonts, TTF compiled into BinaryData).
-- Minimum 4-second display, 0.75-second fade-out to black.
+- Layered fog halos, logo rise, staggered title fade (Cinzel for splash title only).
+- Short minimum hold plus quick fade so the app does not block on a long artificial delay.
+- Subtitle "BY AETHOS STUDIO" uses embedded **Cinzel** (Google Fonts TTF in BinaryData).
 
 #### Collapsible Side Panels
 - Inspector (left) and Browser (right) panels each have a 14 px toggle strip with a directional chevron arrow.
@@ -75,20 +74,36 @@ Aerion DAW has completed Milestone 1 in full and made significant progress on Mi
 - Falls back to `Aerion DAW` for unsaved new projects.
 
 #### Plugin Window Branding
-- Plugin windows now use JUCE-rendered (MetalLookAndFeel) title bars — no more white OS bar.
+- Plugin windows use JUCE-rendered (`MetalLookAndFeel`) title bars — no white OS bar.
 - Mixer detach window and plugin manager window use dark `bgPanel` background with branded text color.
+
+### Startup & responsiveness (May 2026)
+
+- **Splash / main window order**: The main window is constructed first; the splash is dismissed only after that completes, avoiding a blank gap during heavy initialization.
+- **Deferred audio device open**: After `ProjectData`/edit setup, `AudioDeviceManager` initialisation runs on the next message-loop cycle (`MessageManager::callAsync`), so the UI can appear and pump events while the OS loads the selected audio backend (e.g. WASAPI/ASIO on Windows). `broadcastChange()` runs when hardware is ready for status refresh.
+- **Tooltips**: Faster hover feedback and more reliable show logic (`AerionTooltipWindow`).
+- **Toolbar / transport**: Fewer redundant repaints; toolbar repaints on hover **zone** change only; transport/CPU strip refresh throttled when idle.
+- **Inspector / mixer**: Meter/timer cadence tuned to reduce unnecessary full repaints while keeping meters useful.
+
+### Typography & readability (May 2026)
+
+- **Body UI** uses the **system sans** (e.g. Segoe UI on Windows) at a consistent scale — **Cinzel is no longer the default for general UI** (it remains appropriate for splash branding only).
+- **`Theme::uiSize()`** and **`Theme::kUiFontScale`** centralise logical point sizes so panels, timeline, transport, and browser text are slightly larger and easier to read.
+- **`MetalLookAndFeel`** scales default fonts for text buttons, combo boxes, and alert dialogs.
 
 ---
 
 ## Current Build State
 - **Platform**: Windows 11 (MSVC 2022 Build Tools / VS 2026)
 - **Engine**: Tracktion Engine v3.2 / JUCE 8
-- **Build**: Clean Debug build, no errors or warnings in project sources.
+- **Build**: Clean Debug build of the **AerionDaw** target; full solution builds may still hit unrelated demo targets (e.g. LV2 helper in third-party examples).
 
 ## Next Steps (priority order)
 1. **Quantization** (M2) — grid-snap and MIDI quantize in Piano Roll
-2. **Project Syncing** (M2) — background Drive sync of `.aerion` project files
-3. **ONNX Runtime** (M3) — link runtime, wire to `AIManager`
-4. **Real Audio-to-MIDI** (M3) — replace mock with Basic Pitch model
-5. **Stem Separation** (M3) — Demucs/Spleeter integration
-6. **Keyboard Shortcuts** (M4) — customisable key mapping
+2. **Project Syncing** (M2) — background cloud sync of `.aerion` project files
+3. **Optional UX** — brief “audio starting” or disabled transport until `AudioDeviceManager` finishes opening (if any edge cases appear after deferred init)
+4. **Timeline / paint profiling** — narrow invalidation, reduce full repaints in heavy views if anything still feels sluggish
+5. **ONNX Runtime** (M3) — link runtime, wire to `AIManager`
+6. **Real Audio-to-MIDI** (M3) — replace mock with a transcription model
+7. **Stem Separation** (M3) — separate-stems pipeline integration
+8. **Keyboard Shortcuts** (M4) — customisable key mapping

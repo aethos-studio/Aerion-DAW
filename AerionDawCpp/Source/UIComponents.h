@@ -13,7 +13,7 @@ enum class EditTool { select, razor, comp };
 // (Fader primitives + LookAndFeel extracted to UI/)
 
 //==============================================================================
-// Shared plugin picker — shows a manufacturer-grouped popup of every
+// Shared plugin picker  -  shows a manufacturer-grouped popup of every
 // scanned plugin. Used by track FX buttons in Timeline + Mixer.
 namespace PluginPicker
 {
@@ -69,7 +69,7 @@ class PluginManagerWindow : public juce::DocumentWindow
 {
 public:
     PluginManagerWindow (tracktion::Track* t, AudioEngineManager& ae)
-        : DocumentWindow (t->getName() + " — Plugins", Theme::bgPanel,
+        : DocumentWindow (t->getName() + "  -  Plugins", Theme::bgPanel,
                           DocumentWindow::closeButton | DocumentWindow::minimiseButton),
           track (t), audioEngine (ae)
     {
@@ -105,7 +105,7 @@ private:
             auto header = b.removeFromTop (30);
             
             g.setColour (Theme::textMuted);
-            g.setFont (juce::Font (12.0f).withStyle (juce::Font::bold));
+            g.setFont (Theme::uiSize (12.0f).withStyle (juce::Font::bold));
             g.drawText ("ASSIGNED PLUGINS", header, juce::Justification::centredLeft);
             
             // Add button
@@ -114,7 +114,7 @@ private:
             g.fillRoundedRectangle (addBtnBounds.toFloat(), 4.0f);
             g.setColour (Theme::active);
             g.drawRoundedRectangle (addBtnBounds.toFloat(), 4.0f, 1.0f);
-            g.setFont (juce::Font (10.0f).withStyle (juce::Font::bold));
+            g.setFont (Theme::uiSize (10.0f).withStyle (juce::Font::bold));
             g.drawText ("+ ADD", addBtnBounds, juce::Justification::centred);
 
             int y = header.getBottom() + 10;
@@ -132,11 +132,11 @@ private:
                 Theme::drawRoundedPanel (g, r.toFloat(), Theme::surface);
 
                 g.setColour (Theme::textMain);
-                g.setFont (13.0f);
+                g.setFont (Theme::uiSize (13.0f));
                 g.drawText (p->getName(), r.reduced (12, 0).withTrimmedRight (60), juce::Justification::centredLeft);
 
                 g.setColour (Theme::textMuted);
-                g.setFont (10.0f);
+                g.setFont (Theme::uiSize (10.0f));
                 g.drawText ("dbl-click", r.withTrimmedRight (40), juce::Justification::centredRight);
 
                 // Per-row remove button.
@@ -145,7 +145,7 @@ private:
                 g.fillRoundedRectangle (rm.toFloat(), 3.0f);
                 g.setColour (Theme::recordRed);
                 g.drawRoundedRectangle (rm.toFloat(), 3.0f, 1.0f);
-                g.setFont (juce::Font (12.0f).withStyle (juce::Font::bold));
+                g.setFont (Theme::uiSize (12.0f).withStyle (juce::Font::bold));
                 g.drawText ("X", rm, juce::Justification::centred);
 
                 rowBounds.add (r);    // r has had the X area trimmed off
@@ -229,7 +229,7 @@ public:
         g.drawLine(0.0f, 28.0f, (float)getWidth(), 28.0f);
 
         g.setColour(Theme::textMuted);
-        g.setFont(juce::Font(10.0f).withStyle(juce::Font::bold));
+        g.setFont (Theme::uiSize (10.0f).withStyle (juce::Font::bold));
         g.drawText(name.toUpperCase(), header.reduced(12, 0), juce::Justification::centredLeft, false);
     }
 protected:
@@ -240,7 +240,7 @@ protected:
 class DAWMenuBar : public juce::Component
 {
 public:
-    // === Sync state — populated by onBeforeMenuOpen ===
+    // === Sync state  -  populated by onBeforeMenuOpen ===
     bool   snapEnabled      = false;
     double snapInterval     = 0.25;
     bool   autoCrossfadeOn  = true;
@@ -299,7 +299,7 @@ public:
         }
 
         static const juce::StringArray kItems { "File", "Edit", "Song", "Track", "Event", "Audio", "Transport", "View", "Help" };
-        g.setFont (12.0f);
+        g.setFont (Theme::uiSize (12.0f));
         int x = 50;
         for (int i = 0; i < kItems.size(); ++i)
         {
@@ -315,7 +315,7 @@ public:
         }
 
         g.setColour (Theme::textMuted.withAlpha (0.5f));
-        g.setFont (11.0f);
+        g.setFont (Theme::uiSize (11.0f));
         g.drawText (projectTitle + " - Aerion DAW", 0, 0, getWidth(), getHeight(), juce::Justification::centred);
     }
 
@@ -569,7 +569,7 @@ private:
 };
 
 //==============================================================================
-// Top toolbar — tools on the left, view modes + snap on the right.
+// Top toolbar  -  tools on the left, view modes + snap on the right.
 class DAWToolbar : public juce::Component
 {
 public:
@@ -625,7 +625,7 @@ public:
 
         const int btnY = 6, btnS = 28, h = getHeight();
 
-        // ── Left side ─────────────────────────────────────────────────────────
+        // -- Left side ---------------------------------------------------------
         // Group 1: Inspector toggle
         inspectorBtn = { 8, btnY, btnS, btnS };
         drawIconBtn (g, inspectorBtn, iconInspector.get(), inspectorVisible);
@@ -648,7 +648,7 @@ public:
         drawIconBtn (g, punchBtn, iconPunch.get(), punchEnabled, Theme::recordRed);
         drawIconBtn (g, pdcBtn,   iconPdc.get(),   pdcEnabled);
 
-        // ── Right side ────────────────────────────────────────────────────────
+        // -- Right side --------------------------------------------------------
         const int W = getWidth();
 
         // Group 6: Browser toggle (far right)
@@ -667,7 +667,7 @@ public:
         {
             const char* countLabels[] = { "OFF", "1", "2" };
             g.setColour (countInBars > 0 ? Theme::active : Theme::textMuted.withAlpha (0.6f));
-            g.setFont (juce::Font (7.0f).withStyle (juce::Font::bold));
+            g.setFont (Theme::uiSize (7.0f).withStyle (juce::Font::bold));
             g.drawText (countLabels[countInBars], countInBtn.getX(), countInBtn.getBottom() - 9,
                         countInBtn.getWidth(), 9, juce::Justification::centred);
         }
@@ -693,7 +693,7 @@ public:
 
             // Tiny interval sub-label
             g.setColour (snapEnabled ? Theme::active : Theme::textMuted);
-            g.setFont (juce::Font (6.5f).withStyle (juce::Font::bold));
+            g.setFont (Theme::uiSize (6.5f).withStyle (juce::Font::bold));
             g.drawText (getSnapIntervalText (snapInterval),
                         snapBounds.getX(), snapBounds.getBottom() - 8,
                         snapBounds.getWidth(), 8, juce::Justification::centred);
@@ -711,7 +711,7 @@ public:
                                               : hov ? Theme::border.brighter (0.3f) : Theme::border);
             g.drawRoundedRectangle (bf, 3.0f, 1.0f);
             g.setColour (autoCrossfadeEnabled ? Theme::active : Theme::textMuted);
-            g.setFont (juce::Font (8.0f).withStyle (juce::Font::bold));
+            g.setFont (Theme::uiSize (8.0f).withStyle (juce::Font::bold));
             g.drawText ("XF", xfadeBounds, juce::Justification::centred);
         }
     }
@@ -727,8 +727,19 @@ public:
         return "1/64";
     }
 
-    void mouseMove (const juce::MouseEvent& e) override { hoverPos = e.getPosition(); repaint(); }
-    void mouseExit (const juce::MouseEvent& e) override { juce::ignoreUnused (e); hoverPos = { -1, -1 }; repaint(); }
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        hoverPos = e.getPosition();
+        const int z = computeToolbarHoverZone (hoverPos);
+        if (z != hoverZoneId) { hoverZoneId = z; repaint(); }
+    }
+
+    void mouseExit (const juce::MouseEvent& e) override
+    {
+        juce::ignoreUnused (e);
+        hoverPos = { -1, -1 };
+        if (hoverZoneId != -1) { hoverZoneId = -1; repaint(); }
+    }
 
     void mouseDown (const juce::MouseEvent& e) override
     {
@@ -844,8 +855,30 @@ private:
     juce::Rectangle<int> inspectorBtn, browserBtn, clickBtn, punchBtn, pdcBtn, countInBtn;
     juce::Rectangle<int> xfadeBounds;
 
-    // Hover tracking
+    // Hover tracking (repaint only when the hovered control changes)
     juce::Point<int> hoverPos { -1, -1 };
+    int hoverZoneId = -1;
+
+    /** Which toolbar control is under p (same geometry as paint). 0 = none. */
+    int computeToolbarHoverZone (juce::Point<int> p) const
+    {
+        const int btnY = 6, btnS = 28;
+        const int W = getWidth();
+        if (W < 200) return 0;
+
+        if (juce::Rectangle<int> (8,   btnY, btnS, btnS).contains (p)) return 1;
+        if (juce::Rectangle<int> (52,  btnY, btnS, btnS).contains (p)) return 2;
+        if (juce::Rectangle<int> (84,  btnY, btnS, btnS).contains (p)) return 3;
+        if (juce::Rectangle<int> (116, btnY, btnS, btnS).contains (p)) return 4;
+        if (juce::Rectangle<int> (160, btnY, btnS, btnS).contains (p)) return 5;
+        if (juce::Rectangle<int> (192, btnY, btnS, btnS).contains (p)) return 6;
+        if (juce::Rectangle<int> (W - 36,  btnY, btnS, btnS).contains (p)) return 7;
+        if (juce::Rectangle<int> (W - 86,  btnY, btnS, btnS).contains (p)) return 8;
+        if (juce::Rectangle<int> (W - 118, btnY, btnS, btnS).contains (p)) return 9;
+        if (juce::Rectangle<int> (W - 162, btnY + 2, 24, 24).contains (p)) return 10;
+        if (juce::Rectangle<int> (W - 194, btnY + 2, 28, 24).contains (p)) return 11;
+        return 0;
+    }
 
     void drawIconBtn (juce::Graphics& g, juce::Rectangle<int> b,
                       juce::Drawable* icon, bool active,
@@ -880,7 +913,7 @@ public:
         : DAWPanel ("Inspector"), audioEngine (ae), projectData (pd)
     {
         projectData.getProjectTree().addListener (this);
-        startTimerHz (30); // drives meter animation
+        startTimerHz (20); // fader/meter animation (avoid stacking multiple 30 Hz surfaces)
 
         auto loadIcon = [] (const char* data, int size) -> std::unique_ptr<juce::Drawable>
         {
@@ -943,15 +976,15 @@ public:
         g.setColour (trackIndex >= 0 ? Theme::colourForTrack (trackIndex) : Theme::textMuted);
         g.fillEllipse ((float) headerB.getX(), (float) headerB.getY() + 4.0f, 12.0f, 12.0f);
         g.setColour (Theme::textMain);
-        g.setFont (juce::Font (15.0f).withStyle (juce::Font::bold));
+        g.setFont (Theme::uiSize (15.0f).withStyle (juce::Font::bold));
         g.drawText (trackName, headerB.withTrimmedLeft (20).removeFromTop (22), juce::Justification::topLeft);
 
         g.setColour (Theme::textMuted);
-        g.setFont (11.0f);
+        g.setFont (Theme::uiSize (11.0f));
         g.drawText ("In",  headerB.getX(), headerB.getY() + 32, 40, 18, juce::Justification::left);
         g.drawText ("Out", headerB.getX(), headerB.getY() + 50, 40, 18, juce::Justification::left);
 
-        // Input routing — clickable panel showing current device name
+        // Input routing  -  clickable panel showing current device name
         {
             juce::String inputName = "Input L+R";
             if (selectedTrack != nullptr)
@@ -964,14 +997,14 @@ public:
             inputRoutingBounds = juce::Rectangle<int> (headerB.getRight() - 100, headerB.getY() + 28, 100, 20);
             Theme::drawRoundedPanel (g, inputRoutingBounds.toFloat(), Theme::surface);
             g.setColour (Theme::textMain);
-            g.setFont (10.5f);
+            g.setFont (Theme::uiSize (10.5f));
             g.drawText (inputName, inputRoutingBounds.reduced (4, 0), juce::Justification::centredRight);
         }
         g.setColour (Theme::textMain);
-        g.setFont (11.0f);
+        g.setFont (Theme::uiSize (11.0f));
         g.drawText ("Main", headerB.getRight() - 100, headerB.getY() + 50, 100, 18, juce::Justification::right);
 
-        // State buttons — compact single-letter controls
+        // State buttons  -  compact single-letter controls
         b.removeFromTop (8);
         auto pills = b.removeFromTop (24);
         armBounds  = pills.removeFromLeft (24); drawPill (g, armBounds,  "A", armed, Theme::recordRed);
@@ -980,13 +1013,13 @@ public:
         pills.removeFromLeft (4);
         soloBounds = pills.removeFromLeft (24); drawPill (g, soloBounds, "S", solo,  Theme::meterGreen);
 
-        // Phase and Mono — keep text pills (no icons for these)
+        // Phase and Mono  -  keep text pills (no icons for these)
         if (selectedTrack != nullptr)
         {
             pills.removeFromLeft (8);
             phaseBounds = pills.removeFromLeft (24);
             bool phaseOn = audioEngine.getTrackPhase (selectedTrack);
-            drawPill (g, phaseBounds, "Ø", phaseOn, Theme::active);
+            drawPill (g, phaseBounds, "*", phaseOn, Theme::active);
 
             pills.removeFromLeft (4);
             monoBounds = pills.removeFromLeft (24);
@@ -1009,7 +1042,7 @@ public:
                 filterSection.removeFromTop (4);
                 auto hpfRow = filterSection.removeFromTop (24);
                 g.setColour (Theme::textMuted);
-                g.setFont (10.0f);
+                g.setFont (Theme::uiSize (10.0f));
                 g.drawText ("HPF", hpfRow.removeFromLeft (30), juce::Justification::centredLeft);
                 hpfBounds = hpfRow.reduced (0, 4);
                 drawFilterSlider (g, hpfBounds, audioEngine.getTrackHPF (selectedTrack), 20.0f, 20000.0f);
@@ -1017,7 +1050,7 @@ public:
                 filterSection.removeFromTop (4);
                 auto lpfRow = filterSection.removeFromTop (24);
                 g.setColour (Theme::textMuted);
-                g.setFont (10.0f);
+                g.setFont (Theme::uiSize (10.0f));
                 g.drawText ("LPF", lpfRow.removeFromLeft (30), juce::Justification::centredLeft);
                 lpfBounds = lpfRow.reduced (0, 4);
                 drawFilterSlider (g, lpfBounds, audioEngine.getTrackLPF (selectedTrack), 20.0f, 20000.0f);
@@ -1047,15 +1080,15 @@ public:
         drawSendSection (g, b.removeFromTop (sendsH), sends, 0.4f);
         b.removeFromTop (20);
 
-        // AI DSP Workflow at bottom (still scaffolded — buttons are visual only).
+        // AI DSP Workflow at bottom (still scaffolded  -  buttons are visual only).
         g.setColour (Theme::recordRed.withAlpha (0.3f));
-        g.setFont (juce::Font (10.0f).withStyle (juce::Font::bold));
+        g.setFont (Theme::uiSize (10.0f).withStyle (juce::Font::bold));
         g.drawText ("AI DSP WORKFLOW", b.getX(), b.getY(), b.getWidth(), 20, juce::Justification::left);
         b.removeFromTop (22);
 
         Theme::drawRoundedPanel (g, b.removeFromTop (36).toFloat(), Theme::surface.withAlpha (0.3f));
         g.setColour (Theme::textMain.withAlpha (0.3f));
-        g.setFont (11.0f);
+        g.setFont (Theme::uiSize (11.0f));
         g.drawText ("Separate Stems", b.getX(), b.getY() - 36, b.getWidth(), 36, juce::Justification::centred);
         b.removeFromTop (8);
         Theme::drawRoundedPanel (g, b.removeFromTop (36).toFloat(), Theme::surface.withAlpha (0.3f));
@@ -1228,7 +1261,7 @@ public:
         g.setColour (on ? activeColour : Theme::border);
         g.drawRoundedRectangle (r.toFloat(), 3.0f, 1.0f);
         g.setColour (on ? juce::Colours::black : Theme::textMuted);
-        g.setFont (juce::Font (9.0f).withStyle (juce::Font::bold));
+        g.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
         g.drawText (label, r, juce::Justification::centred);
     }
 
@@ -1274,7 +1307,7 @@ private:
         g.fillRoundedRectangle (r.getX(), r.getY(), fillW, r.getHeight(), 2.0f);
         
         g.setColour (Theme::textMain);
-        g.setFont (10.0f);
+        g.setFont (Theme::uiSize (10.0f));
         juce::String txt = (value >= 1000.0f) ? juce::String (value / 1000.0f, 1) + "k" : juce::String ((int) value);
         g.drawText (txt + " Hz", r.reduced (4, 0), juce::Justification::centredRight);
     }
@@ -1292,7 +1325,7 @@ private:
                             float alpha = 1.0f)
     {
         g.setColour (Theme::textMuted.withMultipliedAlpha (alpha));
-        g.setFont (juce::Font (10.0f).withStyle (juce::Font::bold));
+        g.setFont (Theme::uiSize (10.0f).withStyle (juce::Font::bold));
         g.drawText (title, headerArea.getX(), headerArea.getY(), headerArea.getWidth() - 20, 18, juce::Justification::left);
 
         addBtnOut = juce::Rectangle<int> (headerArea.getRight() - 18, headerArea.getY(), 16, 18);
@@ -1300,7 +1333,7 @@ private:
         g.fillRoundedRectangle (addBtnOut.toFloat(), 3.0f);
         g.setColour (Theme::active.withMultipliedAlpha (alpha));
         g.drawRoundedRectangle (addBtnOut.toFloat(), 3.0f, 1.0f);
-        g.setFont (juce::Font (12.0f).withStyle (juce::Font::bold));
+        g.setFont (Theme::uiSize (12.0f).withStyle (juce::Font::bold));
         g.setColour (Theme::textMain.withMultipliedAlpha (alpha));
         g.drawText ("+", addBtnOut, juce::Justification::centred);
     }
@@ -1314,7 +1347,7 @@ private:
         if (plugins.isEmpty())
         {
             g.setColour (Theme::textMuted);
-            g.setFont (10.5f);
+            g.setFont (Theme::uiSize (10.5f));
             g.drawText (selectedTrack == nullptr ? "Select a track."
                                                  : "No plugins. Click + to add.",
                         b.getX(), y, b.getWidth(), 24, juce::Justification::centredLeft);
@@ -1328,7 +1361,7 @@ private:
             g.setColour (Theme::active);
             g.fillEllipse ((float) row.getX() + 8.0f, (float) y + 11.0f, 6.0f, 6.0f);
             g.setColour (Theme::textMain);
-            g.setFont (11.0f);
+            g.setFont (Theme::uiSize (11.0f));
             g.drawText (plug->getName(), row.getX() + 20, y, row.getWidth() - 30, 30, juce::Justification::centredLeft);
 
             insertRows.add (row);
@@ -1348,7 +1381,7 @@ private:
         if (sends.isEmpty())
         {
             g.setColour (Theme::textMuted.withMultipliedAlpha (alpha));
-            g.setFont (10.5f);
+            g.setFont (Theme::uiSize (10.5f));
             g.drawText ("No sends.",
                         b.getX(), y, b.getWidth(), 24, juce::Justification::centredLeft);
             return;
@@ -1361,7 +1394,7 @@ private:
             g.setColour (Theme::active.withMultipliedAlpha (alpha));
             g.fillEllipse ((float) row.getX() + 8.0f, (float) y + 11.0f, 6.0f, 6.0f);
             g.setColour (Theme::textMain.withMultipliedAlpha (alpha));
-            g.setFont (11.0f);
+            g.setFont (Theme::uiSize (11.0f));
             g.drawText (s->getBusName(), row.getX() + 20, y, row.getWidth() - 70, 30, juce::Justification::centredLeft);
 
             float gainDb = s->getGainDb();
@@ -1376,7 +1409,7 @@ private:
             g.fillRoundedRectangle (gainR.getX(), gainR.getY(), (int)(norm * gainR.getWidth()), gainR.getHeight(), 2.0f);
 
             g.setColour (Theme::textMain.withMultipliedAlpha (alpha));
-            g.setFont (9.0f);
+            g.setFont (Theme::uiSize (9.0f));
             g.drawText (juce::String::formatted ("%.1f", gainDb), gainR, juce::Justification::centred);
 
             sendRows.add (row);
@@ -1465,7 +1498,7 @@ public:
             g.setColour (scanning ? Theme::active : Theme::border);
             g.drawRoundedRectangle (rescanBtn.toFloat(), 3.0f, 1.0f);
             g.setColour (scanning ? Theme::active : Theme::textMuted);
-            g.setFont (juce::Font (10.0f).withStyle (juce::Font::bold));
+            g.setFont (Theme::uiSize (10.0f).withStyle (juce::Font::bold));
             g.drawText (scanning ? "SCANNING" : "RESCAN", rescanBtn, juce::Justification::centred);
         }
         else
@@ -1478,7 +1511,7 @@ public:
         filesTabBounds   = header.removeFromLeft (third);
         cloudTabBounds   = header;
 
-        g.setFont (juce::Font (11.0f).withStyle (juce::Font::bold));
+        g.setFont (Theme::uiSize (11.0f).withStyle (juce::Font::bold));
         for (auto [b, label, t] : { std::tuple { pluginsTabBounds, "Plugins", Tab::plugins },
                                     std::tuple { filesTabBounds,   "Files",   Tab::files   },
                                     std::tuple { cloudTabBounds,   "Cloud",   Tab::cloud   } })
@@ -1527,20 +1560,20 @@ public:
                     thumb.drawChannels (g, wf, 0.0, thumb.getTotalLength(), 1.0f);
                 }
                 g.setColour (Theme::textMuted);
-                g.setFont (juce::Font (9.0f));
+                g.setFont (Theme::uiSize (9.0f));
                 g.drawText (selectedFile.getFileName(), wa.withTop (wa.getBottom() - 13),
                             juce::Justification::centred);
             }
             else if (selectedFile.existsAsFile())
             {
                 g.setColour (Theme::textMuted);
-                g.setFont (11.0f);
+                g.setFont (Theme::uiSize (11.0f));
                 g.drawText ("Loading preview...", pa, juce::Justification::centred);
             }
             else
             {
                 g.setColour (Theme::textMuted.withAlpha (0.5f));
-                g.setFont (11.0f);
+                g.setFont (Theme::uiSize (11.0f));
                 g.drawText ("Click an audio file to preview", pa, juce::Justification::centred);
             }
         }
@@ -1553,7 +1586,7 @@ public:
         auto types  = known.getTypes();
 
         int y = 40;
-        g.setFont (juce::Font (11.0f));
+        g.setFont (Theme::uiSize (11.0f));
 
         if (types.isEmpty())
         {
@@ -1561,7 +1594,7 @@ public:
             g.drawText (audioEngine.isScanningPlugins() ? "Scanning plugins..." : "No plugins found.",
                         12, y, getWidth() - 16, 22, juce::Justification::centredLeft);
             y += 22;
-            g.setFont (juce::Font (9.0f));
+            g.setFont (Theme::uiSize (9.0f));
             g.drawText (juce::String::formatted ("Formats registered: %d", fm.getNumFormats()),
                         12, y, getWidth() - 16, 18, juce::Justification::centredLeft);
             y += 18;
@@ -1581,7 +1614,7 @@ public:
             {
                 seenManufacturers.add (d.manufacturerName);
                 g.setColour (Theme::textMuted);
-                g.setFont (juce::Font (10.0f).withStyle (juce::Font::bold));
+                g.setFont (Theme::uiSize (10.0f).withStyle (juce::Font::bold));
                 g.drawText (d.manufacturerName.toUpperCase(), 12, y, getWidth() - 16, 18,
                             juce::Justification::centredLeft);
                 y += 18;
@@ -1592,10 +1625,10 @@ public:
             rowDescs.add (d);
 
             g.setColour (Theme::textMain);
-            g.setFont (juce::Font (11.0f));
+            g.setFont (Theme::uiSize (11.0f));
             g.drawText (d.name, r.withTrimmedLeft (12), juce::Justification::centredLeft);
             g.setColour (Theme::textMuted);
-            g.setFont (juce::Font (9.0f));
+            g.setFont (Theme::uiSize (9.0f));
             g.drawText (d.pluginFormatName, r.withTrimmedRight (8), juce::Justification::centredRight);
 
             y += 22;
@@ -1608,11 +1641,11 @@ public:
         // Path strip.
         juce::Rectangle<int> path (8, 38, getWidth() - 16, 20);
         g.setColour (Theme::textMuted);
-        g.setFont (juce::Font (10.0f));
+        g.setFont (Theme::uiSize (10.0f));
         g.drawText (currentDir.getFullPathName(), path, juce::Justification::centredLeft);
 
         int y = 64;
-        g.setFont (juce::Font (11.0f));
+        g.setFont (Theme::uiSize (11.0f));
 
         // Up directory entry.
         if (currentDir.getParentDirectory() != currentDir)
@@ -1761,15 +1794,15 @@ public:
         int W = getWidth();
 
         g.setColour (Theme::textMuted);
-        g.setFont (juce::Font (14.0f).withStyle (juce::Font::bold));
+        g.setFont (Theme::uiSize (14.0f).withStyle (juce::Font::bold));
         g.drawText ("CLOUD SYNC", 0, y, W, 22, juce::Justification::centred);
         y += 30;
         
-        g.setFont (12.0f);
+        g.setFont (Theme::uiSize (12.0f));
         g.drawText ("Coming Soon", 0, y, W, 20, juce::Justification::centred);
         
         y += 40;
-        g.setFont (10.0f);
+        g.setFont (Theme::uiSize (10.0f));
         g.drawText ("Google Drive integration", 0, y, W, 18, juce::Justification::centred);
         y += 14;
         g.drawText ("is currently inactive for", 0, y, W, 18, juce::Justification::centred);
@@ -1803,7 +1836,7 @@ private:
 };
 
 //==============================================================================
-// Piano Roll editor — opens when the user double-clicks an existing MIDI clip.
+// Piano Roll editor  -  opens when the user double-clicks an existing MIDI clip.
 class PianoRollEditor : public juce::Component,
                         public juce::Timer,
                         public juce::ScrollBar::Listener,
@@ -2161,7 +2194,7 @@ private:
             if (isBeat)
             {
                 g.setColour (isBar ? Theme::textMain : Theme::textMuted);
-                g.setFont (isBar ? juce::Font (10.0f).boldened() : juce::Font (9.0f));
+                g.setFont (isBar ? Theme::uiSize (10.0f).boldened() : Theme::uiSize (9.0f));
                 g.drawText (juce::String ((int) std::round (b) + 1), (int) x + 3, 5, 30, 14, juce::Justification::left);
             }
         }
@@ -2203,7 +2236,7 @@ private:
             if (r.getWidth() > 18.0f)
             {
                 g.setColour (juce::Colours::black.withAlpha (0.75f));
-                g.setFont (juce::Font (8.5f));
+                g.setFont (Theme::uiSize (8.5f));
                 g.drawText (noteName (n->getNoteNumber()), r.getX() + 3, r.getY(), (int) r.getWidth(), kRowH, juce::Justification::centredLeft);
             }
         }
@@ -2228,7 +2261,7 @@ private:
                 if (note % 12 == 0)
                 {
                     g.setColour (lastClickedNote == note ? juce::Colours::black : Theme::bgBase.withAlpha (0.75f));
-                    g.setFont (juce::Font (7.5f));
+                    g.setFont (Theme::uiSize (7.5f));
                     g.drawText ("C" + juce::String (note / 12 - 1), 3, y + 2, kKeyW - 8, kRowH - 4, juce::Justification::left);
                 }
             }
@@ -2261,7 +2294,7 @@ class PianoRollWindow : public juce::DocumentWindow
 {
 public:
     PianoRollWindow (tracktion::MidiClip& clip, tracktion::Edit& edit, ProjectData& pd)
-        : DocumentWindow (clip.getName() + "  —  Piano Roll",
+        : DocumentWindow (clip.getName() + "   -   Piano Roll",
                           Theme::bgBase, DocumentWindow::allButtons, true)
     {
         editor = std::make_unique<PianoRollEditor> (clip, edit, pd);
@@ -2524,7 +2557,7 @@ public:
         }
     }
 
-    // ── FileDragAndDropTarget ────────────────────────────────────────────────
+    // -- FileDragAndDropTarget ------------------------------------------------
     bool isInterestedInFileDrag (const juce::StringArray&) override { return true; }
 
     void fileDragEnter (const juce::StringArray& files, int x, int y) override
@@ -2576,7 +2609,7 @@ public:
         repaint();
     }
 
-    // ── DragAndDropTarget (plugin drag from Browser) ─────────────────────────
+    // -- DragAndDropTarget (plugin drag from Browser) -------------------------
     bool isInterestedInDragSource (const juce::DragAndDropTarget::SourceDetails& d) override
     {
         return d.description.toString().startsWith ("PLUGIN:");
@@ -2791,14 +2824,14 @@ public:
                         g.fillRoundedRectangle (mx, 2.0f, 10.0f, 10.0f, 2.0f); // Flag
                         g.fillRect (mx + 0.5f, 2.0f, 1.0f, 18.0f);              // Pole
                         g.setColour (Theme::textMain);
-                        g.setFont (9.0f);
+                        g.setFont (Theme::uiSize (9.0f));
                         g.drawText (marker->getName(), (int) mx + 12, 2, 60, 12, juce::Justification::left);
                     }
                 }
             }
         }
 
-        g.setFont(10.0f);
+        g.setFont (Theme::uiSize (10.0f));
 
         auto& ts = audioEngine.getEdit().tempoSequence;
         double startBeat = ts.toBeats (tracktion::TimePosition::fromSeconds (startTime)).inBeats();
@@ -2884,7 +2917,7 @@ public:
 
             if (top.isEmpty()) {
                 g.setColour (Theme::textMuted);
-                g.setFont (juce::Font (13.0f));
+                g.setFont (Theme::uiSize (13.0f));
                 g.drawText ("No tracks yet. Click  + Track  to begin.",
                             0, kRulerH, getWidth(), 60, juce::Justification::centred);
             }
@@ -2913,7 +2946,7 @@ public:
                 }
             }
 
-            // ── File-drag ghost preview ───────────────────────────────────
+            // -- File-drag ghost preview -----------------------------------
             if (fileDragActive)
             {
                 auto rows = getVisibleRows();
@@ -2938,7 +2971,7 @@ public:
                     g.setColour (Theme::active.withAlpha (0.85f));
                     g.drawRoundedRectangle (gc, 4.0f, 1.5f);
                     g.setColour (Theme::textMain.withAlpha (0.85f));
-                    g.setFont (10.0f);
+                    g.setFont (Theme::uiSize (10.0f));
                     g.drawText (juce::String (fileDragSnappedTime, 2) + "s",
                                 (int) gx + 5, (int) gc.getY() + 3, 60, 12,
                                 juce::Justification::left);
@@ -2960,7 +2993,7 @@ public:
                 }
             }
 
-            // ── Plugin-drag highlight on track header ─────────────────────
+            // -- Plugin-drag highlight on track header ---------------------
             if (pluginDragActive && pluginDragTargetRow >= 0)
             {
                 auto rows = getVisibleRows();
@@ -2973,7 +3006,7 @@ public:
                     g.setColour (Theme::accent.withAlpha (0.90f));
                     g.drawRect (0, ry, kHeaderWidth, row.height, 2);
                     g.setColour (Theme::textMain);
-                    g.setFont (juce::Font (juce::FontOptions().withHeight (10.0f).withStyle ("Bold")));
+                    g.setFont (Theme::uiSize (10.0f).withStyle (juce::Font::bold));
                     g.drawText ("DROP PLUGIN", 0, ry + row.height / 2 - 7,
                                 kHeaderWidth, 14, juce::Justification::centred);
                 }
@@ -2986,7 +3019,7 @@ public:
         g.setColour (Theme::border);
         g.drawLine (0.0f, (float)(getHeight() - kFooterH), (float) getWidth(), (float)(getHeight() - kFooterH));
 
-        // Playhead — drawn over lanes but not over the footer.
+        // Playhead  -  drawn over lanes but not over the footer.
         float phX = timeToX(audioEngine.getTransportPosition());
         if (phX > kHeaderWidth && phX < getWidth() - kVScrollW) {
             g.setColour (Theme::playhead);
@@ -3036,7 +3069,7 @@ public:
         g.fillRoundedRectangle(b.toFloat(), 4.0f);
         g.setColour(col);
         g.drawRoundedRectangle(b.toFloat(), 4.0f, 1.0f);
-        g.setFont(juce::Font(11.0f).withStyle(juce::Font::bold));
+        g.setFont (Theme::uiSize (11.0f).withStyle (juce::Font::bold));
         g.drawText(label, b, juce::Justification::centred);
     }
 
@@ -3107,7 +3140,7 @@ public:
 
         const int textX = 14 + indent;
         g.setColour(Theme::textMain);
-        g.setFont(juce::Font(13.0f).withStyle(juce::Font::bold));
+        g.setFont (Theme::uiSize (13.0f).withStyle (juce::Font::bold));
         
         if (folder != nullptr)
         {
@@ -3194,7 +3227,7 @@ public:
                     g.drawRoundedRectangle (cb, 2.0f, 1.0f);
                     
                     g.setColour (Theme::textMain.withAlpha (clip->isMuted() ? 0.4f : 0.9f));
-                    g.setFont (8.0f);
+                    g.setFont (Theme::uiSize (8.0f));
                     g.drawText (clip->getName(), cb.reduced (4, 1).toNearestInt(), juce::Justification::centredLeft);
                 }
             }
@@ -3261,7 +3294,7 @@ public:
                         double offset  = wave->getPosition().getOffset().inSeconds();
                         double clipLen = (double) len;
 
-                        // Crop to visible viewport — avoids rendering enormous rects
+                        // Crop to visible viewport  -  avoids rendering enormous rects
                         // for long clips at high zoom (e.g. a 30s clip at 2000px/s = 60000px wide)
                         auto innerCb    = cb.reduced (2);
                         auto viewportCb = innerCb.getIntersection (
@@ -3362,7 +3395,7 @@ public:
                     }
 
                     g.setColour(Theme::textMain);
-                    g.setFont(10.0f);
+                    g.setFont (Theme::uiSize (10.0f));
                     g.drawText(clip->getName(), cb.reduced(6, 2).toNearestInt(), juce::Justification::topLeft);
                 }
             }
@@ -3385,7 +3418,7 @@ public:
         g.setColour(on ? activeColour : Theme::border);
         g.drawRoundedRectangle(b.toFloat(), 2.0f, 1.0f);
         g.setColour(on ? juce::Colours::black : Theme::textMuted);
-        g.setFont(juce::Font(10.0f).withStyle(juce::Font::bold));
+        g.setFont (Theme::uiSize (10.0f).withStyle (juce::Font::bold));
         g.drawText(letter, b, juce::Justification::centred);
     }
 
@@ -3399,7 +3432,7 @@ public:
         g.setColour (Theme::active.withAlpha (on ? 1.0f : 0.6f));
         g.drawRoundedRectangle (b.toFloat(), 3.0f, 1.0f);
         g.setColour (on ? Theme::active : Theme::textMuted);
-        g.setFont (juce::Font (10.0f).withStyle (juce::Font::bold));
+        g.setFont (Theme::uiSize (10.0f).withStyle (juce::Font::bold));
         g.drawText ("FX", b, juce::Justification::centred);
     }
 
@@ -3436,7 +3469,7 @@ public:
             return (float) area.getCentreY() - (norm * (float) area.getHeight() * 0.45f);
         }
 
-        // Volume: native param value → dB via Tracktion formula, then linear fader position → Y
+        // Volume: native param value -> dB via Tracktion formula, then linear fader position -> Y
         float db = (value > 0.0f) ? (20.0f * std::log (value)) + 6.0f : -100.0f;
         float sPos = AudioEngineManager::getFaderPosFromDb (db);
         return (float) area.getBottom() - (sPos * (float) area.getHeight());
@@ -3452,7 +3485,7 @@ public:
             return juce::jlimit (-1.0f, 1.0f, norm);
         }
 
-        // Volume: Y → linear fader position → dB → native param value via Tracktion formula
+        // Volume: Y -> linear fader position -> dB -> native param value via Tracktion formula
         float sPos = juce::jlimit (0.0f, 1.0f, (float) (area.getBottom() - y) / (float) area.getHeight());
         float db = AudioEngineManager::getDbFromFaderPos (sPos);
         return (db > -100.0f) ? std::exp ((db - 6.0f) / 20.0f) : 0.0f;
@@ -3488,21 +3521,21 @@ public:
         g.fillRoundedRectangle (volR.toFloat(), 3.0f);
         g.setColour (isPan ? Theme::active.withAlpha (0.85f) : juce::Colours::transparentBlack);
         g.fillRoundedRectangle (panR.toFloat(), 3.0f);
-        g.setFont (juce::Font (9.5f).withStyle (juce::Font::bold));
+        g.setFont (Theme::uiSize (9.5f).withStyle (juce::Font::bold));
         g.setColour (! isPan ? juce::Colours::black : Theme::textMuted);
         g.drawText ("VOL", volR, juce::Justification::centred);
         g.setColour (isPan ? juce::Colours::black : Theme::textMuted);
         g.drawText ("PAN", panR, juce::Justification::centred);
 
         g.setColour (Theme::textMuted);
-        g.setFont (juce::Font (10.0f).withStyle (juce::Font::bold));
+        g.setFont (Theme::uiSize (10.0f).withStyle (juce::Font::bold));
         g.drawText ("AUTOMATION", 14, laneTopY + 6, kHeaderWidth - 28, 14, juce::Justification::left);
 
         auto* param = audioEngine.getAutomationParam (track, kind);
         if (param == nullptr)
         {
             g.setColour (Theme::textMuted);
-            g.setFont (11.0f);
+            g.setFont (Theme::uiSize (11.0f));
             g.drawText ("(no parameter for this track)", curveArea, juce::Justification::centred);
             return;
         }
@@ -3688,7 +3721,7 @@ public:
     {
         snapEnabled  = (bool)   projectData.getProjectTree().getProperty (IDs::snapEnabled,  true);
         snapInterval = (double) projectData.getProjectTree().getProperty (IDs::snapInterval, 1.0);
-        // Footer / vertical scrollbar — don't interfere.
+        // Footer / vertical scrollbar  -  don't interfere.
         if (e.y >= laneBottom() || e.x >= getWidth() - kVScrollW) return;
 
         if (activeTool == EditTool::comp)
@@ -3849,7 +3882,7 @@ public:
                         }
                     }
 
-                    // Right-click — context menu.
+                    // Right-click  -  context menu.
                     if (e.mods.isPopupMenu())
                     {
                         showTrackContextMenu (clickedTrack, e.getScreenPosition());
@@ -3958,7 +3991,7 @@ public:
         {
             dragOffset = selectedClip->getPosition().getStart().inSeconds() - xToTime((float)e.x);
 
-            // Use the same decision as hover so the UI feels “smart tool” consistent.
+            // Use the same decision as hover so the UI feels "smart tool" consistent.
             dragMode = getSmartToolDragModeFor (*selectedClip, e.getPosition());
 
             if (auto* wave = dynamic_cast<tracktion::WaveAudioClip*> (selectedClip))
@@ -4112,7 +4145,7 @@ public:
                 auto& row = rows.getReference (i);
                 if (virtualY < row.y + row.height)
                 {
-                    // Hovering over the middle third of a folder → drop inside it
+                    // Hovering over the middle third of a folder -> drop inside it
                     if (auto* f = dynamic_cast<tracktion::FolderTrack*>(row.track))
                     {
                         int midTop = row.y + row.height / 4;
@@ -4124,7 +4157,7 @@ public:
                             break;
                         }
                     }
-                    // Top half → insert before; bottom half → insert after
+                    // Top half -> insert before; bottom half -> insert after
                     dropInsertBeforeRowIdx = (virtualY < row.y + row.height / 2) ? i : i + 1;
                     break;
                 }
@@ -4423,7 +4456,7 @@ public:
                         return;
                     }
                 }
-                // Empty space — insert a new 2-bar MIDI clip.
+                // Empty space  -  insert a new 2-bar MIDI clip.
                 const double t0 = xToTime ((float) e.x);
                 tracktion::TimeRange range (tracktion::TimePosition::fromSeconds (juce::jmax (0.0, t0)),
                                             tracktion::TimeDuration::fromSeconds (2.0));
@@ -4508,14 +4541,14 @@ private:
         return nullptr;
     }
 
-    // ── File-drag ghost state ────────────────────────────────────────────────
+    // -- File-drag ghost state ------------------------------------------------
     bool              fileDragActive        = false;
     juce::StringArray fileDragFiles;
     double            fileDragSnappedTime   = 0.0;
     int               fileDragTargetRowIdx  = -1;   // -1 = drop creates new track
     double            fileDragPreviewLength = 0.0;  // sum of dragged file durations (seconds)
 
-    // ── Plugin-drag state (DragAndDropTarget from Browser) ──────────────────
+    // -- Plugin-drag state (DragAndDropTarget from Browser) ------------------
     bool pluginDragActive    = false;
     int  pluginDragTargetRow = -1;
 
@@ -4554,7 +4587,7 @@ private:
     };
     TooltipInfo currentTooltip;
 
-    // Per-clip waveform image cache — keyed by Tracktion EditItemID raw value.
+    // Per-clip waveform image cache  -  keyed by Tracktion EditItemID raw value.
     // Each entry stores the last rendered image together with the parameters that
     // produced it. A cache miss (zoom change, scroll, clip edit) triggers one
     // SmartThumbnail render into a viewport-sized Image; subsequent identical
@@ -4570,7 +4603,7 @@ private:
     };
     std::map<uint64_t, WaveformCacheEntry> waveformCache;
 
-    // ── Private helpers ──────────────────────────────────────────────────────
+    // -- Private helpers ------------------------------------------------------
 
     void updateFileDragState (int x, int y)
     {
@@ -4593,7 +4626,7 @@ private:
         {
             if (virtualY >= rows[i].y && virtualY < rows[i].y + rows[i].height)
             {
-                // Only land on audio tracks; folders and others → create new track
+                // Only land on audio tracks; folders and others -> create new track
                 if (dynamic_cast<tracktion::AudioTrack*> (rows[i].track) != nullptr)
                     fileDragTargetRowIdx = i;
                 break;
@@ -4638,12 +4671,9 @@ private:
 // window via the header pop-out button.
 class Mixer : public juce::Component,
               public juce::DragAndDropTarget,
-              public juce::ValueTree::Listener,
-              private juce::Timer
+              public juce::ValueTree::Listener
 {
 public:
-    void timerCallback() override { repaint(); }
-
     static constexpr int kStripW        = 110;
     static constexpr int kHeaderH       = 28;
     static constexpr int kColorBandH    = 4;
@@ -4666,13 +4696,21 @@ public:
     Mixer(AudioEngineManager& ae, ProjectData& pd) : audioEngine(ae), projectData(pd)
     {
         projectData.getProjectTree().addListener (this);
-        startTimerHz (30); // drives meter animation
+        // Meter animation while playing: MainComponent timer calls repaintStripMetersArea().
 
         if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::aerion_fader_svg, BinaryData::aerion_fader_svgSize)))
             faderKnobDrawable = juce::Drawable::createFromSVG (*svgXml);
     }
 
     ~Mixer() override { projectData.getProjectTree().removeListener (this); }
+
+    /** While playing, refresh meters/faders only (skips repainting the CONSOLE header strip). */
+    void repaintStripMetersArea()
+    {
+        const int bodyTop = kHeaderH + 8;
+        const int h = juce::jmax (0, getHeight() - bodyTop);
+        repaint (0, bodyTop, getWidth(), h);
+    }
 
     void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override { repaint(); }
     void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { repaint(); }
@@ -4694,7 +4732,7 @@ public:
         g.setColour(Theme::border);
         g.drawLine(0.0f, (float)kHeaderH, (float)getWidth(), (float)kHeaderH);
         g.setColour(Theme::active);
-        g.setFont(juce::Font(10.0f).withStyle(juce::Font::bold));
+        g.setFont (Theme::uiSize (10.0f).withStyle (juce::Font::bold));
         g.drawText("CONSOLE", 16, 0, 100, kHeaderH, juce::Justification::centredLeft);
 
         // Detach / dock button.
@@ -4704,14 +4742,14 @@ public:
         g.setColour(Theme::active);
         g.drawRoundedRectangle(detachBtn.toFloat(), 3.0f, 1.0f);
         g.setColour(Theme::active);
-        g.setFont(juce::Font(9.0f).withStyle(juce::Font::bold));
+        g.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
         g.drawText(detached ? juce::String("DOCK") : juce::String("POP OUT"), detachBtn, juce::Justification::centred);
 
         auto tracks = audioEngine.getMixerTracks();
         if (tracks.isEmpty())
         {
             g.setColour(Theme::textMuted);
-            g.setFont(12.0f);
+            g.setFont (Theme::uiSize (12.0f));
             g.drawText("Add a track to see the console.",
                        0, kHeaderH, getWidth(), getHeight() - kHeaderH, juce::Justification::centred);
             stripHits.clearQuick();
@@ -4763,7 +4801,7 @@ public:
         // Track name
         auto nameArea = inner.removeFromTop (kNameH);
         g.setColour (Theme::textMain);
-        g.setFont (juce::Font (11.0f).withStyle (juce::Font::bold));
+        g.setFont (Theme::uiSize (11.0f).withStyle (juce::Font::bold));
         juce::String name = isMaster ? juce::String ("MASTER") : track->getName();
         if (folder != nullptr)
         {
@@ -4789,7 +4827,7 @@ public:
             float db = audioEngine.getTrackVolumeDb (track);
             int lx = panArea.getX() + kPanKnobSize + 5;
             g.setColour (Theme::textMuted.withAlpha (0.8f));
-            g.setFont (juce::Font (8.0f));
+            g.setFont (Theme::uiSize (8.0f));
             g.drawText (juce::String::formatted ("%.2fdB", db),
                         juce::Rectangle<int> (lx, panArea.getBottom() - 12,
                                               panArea.getRight() - lx, 12),
@@ -4889,7 +4927,7 @@ public:
                                            (int) std::round (std::abs (p) * 100.0f));
             int lx = kx + kd + 3;
             g.setColour (Theme::textMuted);
-            g.setFont (juce::Font (8.5f).withStyle (juce::Font::bold));
+            g.setFont (Theme::uiSize (8.5f).withStyle (juce::Font::bold));
             g.drawText (label, juce::Rectangle<int> (lx, ky, b.getRight() - lx, kd),
                         juce::Justification::centredLeft, false);
         }
@@ -5150,7 +5188,7 @@ void showInsertContextMenu(tracktion::Plugin* plugin, tracktion::Track* track, j
     // Plugin drag hover state
     tracktion::Track* pluginDragHoverTrack = nullptr;
 
-    // ── DragAndDropTarget (plugin drag from Browser) ─────────────────────────
+    // -- DragAndDropTarget (plugin drag from Browser) -------------------------
     bool isInterestedInDragSource (const juce::DragAndDropTarget::SourceDetails& d) override
     {
         return d.description.toString().startsWith ("PLUGIN:");
@@ -5209,7 +5247,7 @@ void showInsertContextMenu(tracktion::Plugin* plugin, tracktion::Track* track, j
 };
 
 //==============================================================================
-// Bottom transport bar — buttons + bars/beats counter + tempo + time signature.
+// Bottom transport bar  -  buttons + bars/beats counter + tempo + time signature.
 class Transport : public juce::Component,
                   public juce::ValueTree::Listener
 {
@@ -5220,7 +5258,7 @@ public:
 
         auto setupLabel = [this] (juce::Label& l)
         {
-            l.setFont (juce::Font (13.0f).withStyle (juce::Font::bold));
+            l.setFont (Theme::uiSize (13.0f).withStyle (juce::Font::bold));
             l.setJustificationType (juce::Justification::centred);
             l.setColour (juce::Label::textColourId, Theme::accent);
             l.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
@@ -5278,7 +5316,7 @@ public:
         const int panelH = 36;
         const int panelY = (H - panelH) / 2;
 
-        // ── Left: SR / Buffer / CPU ────────────────────────────────────────────
+        // -- Left: SR / Buffer / CPU --------------------------------------------
         {
             auto bi = audioEngine.getBufferInfo();
             juce::String srStr  = juce::String (bi.sampleRate / 1000.0, 1) + " kHz";
@@ -5289,11 +5327,11 @@ public:
                                               : Theme::accent;
 
             g.setColour (Theme::textMuted.withAlpha (0.45f));
-            g.setFont (juce::Font (7.5f).withStyle (juce::Font::bold));
+            g.setFont (Theme::uiSize (7.5f).withStyle (juce::Font::bold));
             g.drawText ("SR",  10, panelY + 2,  26, 12, juce::Justification::right);
             g.drawText ("BUF", 10, panelY + 18, 26, 12, juce::Justification::right);
             g.setColour (Theme::accent.withAlpha (0.9f));
-            g.setFont (juce::Font (11.0f).withStyle (juce::Font::bold));
+            g.setFont (Theme::uiSize (11.0f).withStyle (juce::Font::bold));
             g.drawText (srStr,  40, panelY,      88, 17, juce::Justification::centredLeft);
             g.drawText (bufStr, 40, panelY + 17, 88, 17, juce::Justification::centredLeft);
             g.setColour (Theme::surface.withAlpha (0.7f));
@@ -5301,13 +5339,13 @@ public:
             g.setColour (cpuCol.withAlpha (0.85f));
             g.fillRoundedRectangle (130.0f, (float)(panelY + 5), 50.0f * cpu, 5.0f, 2.0f);
             g.setColour (Theme::textMuted.withAlpha (0.35f));
-            g.setFont (juce::Font (7.0f).withStyle (juce::Font::bold));
+            g.setFont (Theme::uiSize (7.0f).withStyle (juce::Font::bold));
             g.drawText ("CPU", 130, panelY + 14, 50, 10, juce::Justification::centred);
         }
 
         drawSectionDivider (g, 190, panelY - 4, panelH + 8);
 
-        // ── Center: Transport buttons ──────────────────────────────────────────
+        // -- Center: Transport buttons ------------------------------------------
         const int btnS = 34, btnGap = 8;
         const int totalBtnW = 6 * btnS + 5 * btnGap;   // 6 buttons
         int cx = W / 2 - totalBtnW / 2;
@@ -5329,25 +5367,25 @@ public:
 
         drawSectionDivider (g, W - 186, panelY - 4, panelH + 8);
 
-        // ── Tempo display ──────────────────────────────────────────────────────
+        // -- Tempo display ------------------------------------------------------
         drawDisplayPanel (g, tempoBounds);
         if (! tempoLabel.isBeingEdited())
             tempoLabel.setText (juce::String::formatted ("%.2f", audioEngine.getTempoAtPosition (pos)),
                                 juce::dontSendNotification);
         g.setColour (Theme::textMuted.withAlpha (0.45f));
-        g.setFont (juce::Font (7.0f).withStyle (juce::Font::bold));
+        g.setFont (Theme::uiSize (7.0f).withStyle (juce::Font::bold));
         g.drawText ("TEMPO",
                     tempoBounds.getX(), tempoBounds.getBottom() - 11, tempoBounds.getWidth(), 11,
                     juce::Justification::centred);
 
         drawSectionDivider (g, W - 84, panelY - 4, panelH + 8);
 
-        // ── Time Sig display ───────────────────────────────────────────────────
+        // -- Time Sig display ---------------------------------------------------
         drawDisplayPanel (g, timeSigBounds);
         if (! timeSigLabel.isBeingEdited())
             timeSigLabel.setText (audioEngine.getTimeSigAtPosition (pos), juce::dontSendNotification);
         g.setColour (Theme::textMuted.withAlpha (0.45f));
-        g.setFont (juce::Font (7.0f).withStyle (juce::Font::bold));
+        g.setFont (Theme::uiSize (7.0f).withStyle (juce::Font::bold));
         g.drawText ("TIME SIG",
                     timeSigBounds.getX(), timeSigBounds.getBottom() - 11, timeSigBounds.getWidth(), 11,
                     juce::Justification::centred);
@@ -5472,7 +5510,7 @@ public:
 
         addAndMakeVisible (label);
         label.setText ("CLICK LEVEL", juce::dontSendNotification);
-        label.setFont (juce::Font (10.0f).withStyle (juce::Font::bold));
+        label.setFont (Theme::uiSize (10.0f).withStyle (juce::Font::bold));
         label.setColour (juce::Label::textColourId, Theme::textMuted);
 
         addAndMakeVisible (accentToggle);

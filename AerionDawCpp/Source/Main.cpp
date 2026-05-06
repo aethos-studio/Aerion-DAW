@@ -16,9 +16,11 @@ public:
     {
         juce::ignoreUnused (commandLine);
         
+        // Build the main window first so the splash stays up for the whole heavy
+        // MainComponent + audio engine init; then dismiss splash (avoids a blank gap).
         splashWindow.reset (new SplashWindow ([this] {
-            splashWindow = nullptr;
             mainWindow.reset (new MainWindow (getApplicationName()));
+            splashWindow = nullptr;
         }));
 
         juce::MessageManager::callAsync ([this] {

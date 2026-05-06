@@ -19,7 +19,7 @@ public:
     bool isLoggedIn() const noexcept { return ! accessToken.isEmpty(); }
 
     // Refreshes the access token using the stored refresh token.
-    // Returns true on success. Network call — invoke off the message thread.
+    // Returns true on success. Network call  -  invoke off the message thread.
     bool refreshAccessToken();
 
     // Uploads a file to the user's Drive (folder of their choice). Runs async.
@@ -43,7 +43,7 @@ public:
     juce::String clientId     = "YOUR_CLIENT_ID";
     juce::String clientSecret = "YOUR_CLIENT_SECRET";
 
-    // From juce::Thread — runs the local OAuth redirect listener.
+    // From juce::Thread  -  runs the local OAuth redirect listener.
     void run() override;
 
 private:

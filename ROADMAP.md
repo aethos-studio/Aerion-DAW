@@ -6,7 +6,7 @@ This document outlines the development path for Aerion DAW. The strategy is simp
 
 ## Current State (v0.1.0 — May 2026)
 
-All items below are fully implemented and working in the current build.
+All items below are fully implemented and working in the current build (unless marked as partial).
 
 ### Audio Engine & Transport
 - Tracktion Engine v3.2 / JUCE 8 integration
@@ -14,6 +14,7 @@ All items below are fully implemented and working in the current build.
 - Tempo, time signature, and bars/beats/ticks readout bound to engine state
 - Record-arm per track; wave input device routing wired correctly
 - Undo / Redo via Tracktion Engine `UndoManager`
+- **Startup:** Session/edit initialisation runs first; opening the audio device is deferred to the next message-loop tick so the main window can appear while drivers initialise.
 
 ### Mixer
 - Real-time level meters (`LevelMeterPlugin` / `LevelMeasurer`)
@@ -30,13 +31,13 @@ All items below are fully implemented and working in the current build.
 
 ### Plugin Hosting
 - VST3 (Windows/Linux) and AU (macOS) scanning and hosting
-- Plugin windows with branded JUCE-rendered (MetalLookAndFeel) title bars
+- Plugin windows with branded JUCE-rendered (`MetalLookAndFeel`) title bars
 - Drag plugin from Browser → Timeline track header or Mixer strip
 
 ### Browser & File Management
 - Local file-system navigator with `AudioThumbnail` waveform preview (80 px strip)
 - Plugin browser tab with category listing
-- Studio One-style position-aware audio file drop onto Timeline (ghost preview + grid snap)
+- Position-aware audio file drop onto Timeline (ghost preview + grid snap)
 - Consecutive multi-file drop — files placed back-to-back using actual duration
 - Click-drag on Browser file row → OS-level drag-and-drop import
 
@@ -60,10 +61,11 @@ All items below are fully implemented and working in the current build.
 
 ### UI & Branding
 - Celtic Metal dark theme (`MetalLookAndFeel`)
-- Animated fog splash screen — logo rises from darkness, Cinzel typeface, 4 s minimum hold
+- Animated fog splash screen — short minimum hold; Cinzel for splash title/subtitle only; body UI uses **system sans** at scaled sizes (`Theme::uiSize` / `kUiFontScale`)
 - Collapsible Inspector (left) and Browser (right) panels with directional chevron toggles
 - Project title bar updates to `<ProjectName> — Aerion DAW` after save/load
 - Reactive UI state — all components bound to `ProjectData` ValueTree
+- Recent passes: tooltip timing, toolbar hover invalidation, throttled idle transport readout, tuned inspector/meter refresh
 
 ### Architecture
 - MVC pattern: `AudioEngineManager` (model), `ProjectData` (ValueTree), UI components (view)
@@ -128,7 +130,7 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
 - [ ] **Export — Stems:** Export each track (or bus) individually as a rendered audio file.
 - [ ] **Tempo Map:** Draw a tempo curve / step tempo changes on the Timeline ruler; clips follow the map.
 - [ ] **Time Signature Changes:** Insert per-bar time signature changes from the Transport.
-- [ ] **Keyboard Shortcut System:** Fully customisable key bindings panel; ship sensible defaults (matching Pro Tools / Logic conventions where possible).
+- [ ] **Keyboard Shortcut System:** Fully customisable key bindings panel; ship sensible defaults aligned with common professional DAW conventions.
 - [ ] **Recent Projects List:** Menu → Open Recent with up to 10 entries.
 - [ ] **Crash Recovery:** Auto-save every N minutes to a recovery folder; prompt to restore on next launch.
 
@@ -137,8 +139,8 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
 ## Milestone 5 — DAW Essentials: Polish & Stability (v0.9.0)
 *Ship-ready quality.*
 
-- [ ] **Performance Optimization:** Multi-threaded audio graph; minimize UI thread blocking; profile and eliminate hot-path allocations.
-- [ ] **High-DPI / Retina Support:** All custom-drawn components scale correctly at 150 % / 200 % display scaling.
+- [ ] **Performance Optimization:** Multi-threaded audio graph; minimize UI thread blocking; profile and eliminate hot-path allocations. *In progress: splash/deferred device init, repaint scoping, tooltip/toolbar cadence — continue with timeline/piano-roll paint profiling.*
+- [ ] **High-DPI / Retina Support:** All custom-drawn components scale correctly at 150 % / 200 % display scaling. *Typography tokens (`Theme::uiSize`) are a base layer; audit fixed pixel layouts next.*
 - [ ] **Workspace Layouts:** Save and switch between named window layouts (Editing, Mixing, Recording).
 - [ ] **Accessibility:** Screen-reader labels on all interactive controls; keyboard-navigable mixer.
 - [ ] **Error Reporting:** Structured in-app crash reporter; DBG logs surfaced to a `Console` panel in dev builds.
@@ -172,3 +174,12 @@ Adding support for Linux Systems (Flatpak)
 - **Video Support:** Video playback track with frame-accurate sync for film scoring
 - **Generative MIDI Tools:** AI-driven melodic and rhythmic generation inside the Piano Roll
 - **AI-Driven Synthesis:** Prompt-to-patch synthesis for built-in virtual instruments
+
+---
+
+## Suggested near-term focus (post–May 2026 session)
+
+1. **Milestone 2 wrap:** MIDI quantization + velocity/CC lanes (Editing), then Drive **project** sync (not just file download).
+2. **Stability around deferred audio:** If any race appears (user hits Play before devices open), add an explicit “engine ready” gate or status in the transport strip.
+3. **Profiling:** Sample `Timeline` / `PianoRollEditor` paint paths on a large session; prefer invalidation over full `repaint()` where ValueTree listeners fire.
+4. **M3 groundwork:** Count-in, metronome polish, and PDC toggles already partially surfaced — wire remaining engine behaviour and verify with real plugins.

@@ -5,6 +5,7 @@ namespace te = tracktion;
 MainComponent::MainComponent()
 {
     juce::LookAndFeel::setDefaultLookAndFeel (&metalLookAndFeel);
+    tooltipWindow = std::make_unique<AerionTooltipWindow> (this, 500);
 
     // Ensure default project directory exists
     juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Aerion Projects").createDirectory();
@@ -48,7 +49,8 @@ MainComponent::MainComponent()
     addKeyListener (this);
     setWantsKeyboardFocus (true);
 
-    audioEngine.scanPlugins();
+    // Defer plugin scan so the main window can appear before the cache load + disk scan starts.
+    juce::MessageManager::callAsync ([this] { audioEngine.scanPlugins(); });
 
     browser.onPluginPicked = [this] (const juce::PluginDescription& desc)
     {
@@ -410,8 +412,8 @@ MainComponent::MainComponent()
     };
 
     setSize (1400, 860);
-    // 30Hz keeps meters smooth while reducing UI CPU.
-    startTimerHz (30);
+    // 25 Hz: playhead + meters; avoids piling on top of other ~30 Hz component timers.
+    startTimerHz (25);
 }
 
 MainComponent::~MainComponent()
@@ -701,24 +703,32 @@ void MainComponent::timerCallback()
     // Full timeline repaints are reserved for recording or explicit edits.
     if (playing && ! audioEngine.isRecording())
     {
-        // Mixer meters (still a full repaint for now; optimized later).
-        mixer.repaint();
+        // Mixer: strips only (CONSOLE header is static). Mixer no longer runs its own 30 Hz timer.
+        mixer.repaintStripMetersArea();
 
-        // Inspector already repaints its fader area internally.
-        inspector.repaint();
+        // Inspector: fader/meters refresh on Inspector's own timer (partial repaint).
 
         // Timeline: repaint only the old/new playhead strips.
         // Needs to be wide enough to fully clear anti-aliased strokes + waveform pixels.
         const float newX = timeline.timeToX (pos);
-        const int laneH = timeline.getHeight(); // safe fallback
+        const int laneH = timeline.getHeight();
         const int w = 16;
-        const int oldXi = (int) std::round (lastPlayheadX);
         const int newXi = (int) std::round (newX);
-        if (oldXi != newXi)
+
+        if (lastPlayheadX < -9000.0f)
         {
-            timeline.repaint (oldXi - w / 2, 0, w, laneH);
             timeline.repaint (newXi - w / 2, 0, w, laneH);
             lastPlayheadX = newX;
+        }
+        else
+        {
+            const int oldXi = (int) std::round (lastPlayheadX);
+            if (oldXi != newXi)
+            {
+                timeline.repaint (oldXi - w / 2, 0, w, laneH);
+                timeline.repaint (newXi - w / 2, 0, w, laneH);
+                lastPlayheadX = newX;
+            }
         }
         return;
     }
@@ -729,6 +739,14 @@ void MainComponent::timerCallback()
         mixer.repaint();
         inspector.repaint();
         timeline.repaint();
+        return;
+    }
+
+    // Stopped: refresh transport CPU / buffer line occasionally (otherwise it looks "frozen").
+    if (! playing && ++idleCpuRefreshTick >= 5) // ~5 Hz at 25 Hz main timer
+    {
+        idleCpuRefreshTick = 0;
+        transport.repaint();
     }
 }
 
@@ -745,7 +763,7 @@ void MainComponent::resized()
     toolbar.setBounds  (bounds.removeFromTop (40));
     transport.setBounds(bounds.removeFromBottom (60));
 
-    // Inspector (left panel) — collapses to zero width, toggle strip stays visible
+    // Inspector (left panel)  -  collapses to zero width, toggle strip stays visible
     {
         const int panelW = inspectorToggle.collapsed ? 0 : kInspectorW;
         auto strip = bounds.removeFromLeft (panelW + kToggleW);

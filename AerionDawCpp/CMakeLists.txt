@@ -67,6 +67,9 @@ target_sources(AerionDaw PRIVATE
     Source/Main.cpp
     Source/MainComponent.h
     Source/MainComponent.cpp
+    Source/UI/ThemeTypefaces.cpp
+    Source/AerionTooltipWindow.h
+    Source/AerionTooltipWindow.cpp
     Source/ProjectData.h
     Source/ProjectData.cpp
     Source/AudioEngine.h

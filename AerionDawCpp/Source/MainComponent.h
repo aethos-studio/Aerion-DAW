@@ -4,6 +4,7 @@
 #include "AudioEngine.h"
 #include "GoogleDriveClient.h"
 #include "AIManager.h"
+#include "AerionTooltipWindow.h"
 #include "UIComponents.h"
 
 class MainComponent  : public juce::Component,
@@ -130,10 +131,12 @@ private:
     static constexpr int kToggleW    = 14;
 
     MetalLookAndFeel metalLookAndFeel;
+    std::unique_ptr<AerionTooltipWindow> tooltipWindow;
 
     double lastTransportPos = -1.0;
     bool lastIsPlaying = false;
     float lastPlayheadX = -10000.0f;
+    uint32_t idleCpuRefreshTick = 0;
 
     class MixerWindow;
     std::unique_ptr<MixerWindow> mixerWindow;

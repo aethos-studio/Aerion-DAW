@@ -129,27 +129,47 @@ AudioEngineManager::AudioEngineManager()
     options.folderName          = "AerionDAW";
     appProperties.setStorageParameters (options);
 
-    std::unique_ptr<juce::XmlElement> savedAudioState (appProperties.getUserSettings()->getXmlValue ("audioDeviceState"));
-    if (savedAudioState != nullptr)
-        engine.getDeviceManager().deviceManager.initialise (2, 2, savedAudioState.get(), true);
-    else
-        engine.getDeviceManager().initialise (2, 2);
-    
-    engine.getDeviceManager().enableOutputClipping (true);
-    engine.getDeviceManager().deviceManager.addChangeListener (this);
-    
+    // Session/edit first (cheap vs driver init). Opening devices is deferred to the next
+    // message so the main window can show and pump events while the OS loads ASIO/WASAPI.
     setupInitialEdit();
     startTimerHz (30);
+
+    juce::MessageManager::callAsync ([this]
+    {
+        if (closing.load()) return;
+
+        std::unique_ptr<juce::XmlElement> savedAudioState (appProperties.getUserSettings()->getXmlValue ("audioDeviceState"));
+        if (savedAudioState != nullptr)
+            engine.getDeviceManager().deviceManager.initialise (2, 2, savedAudioState.get(), true);
+        else
+            engine.getDeviceManager().initialise (2, 2);
+
+        if (closing.load())
+        {
+            engine.getDeviceManager().closeDevices();
+            return;
+        }
+
+        engine.getDeviceManager().enableOutputClipping (true);
+        engine.getDeviceManager().deviceManager.addChangeListener (this);
+        audioDevicesConnected = true;
+        broadcastChange();
+    });
 }
 
 AudioEngineManager::~AudioEngineManager()
 {
+    closing.store (true);
     stopTimer();
-    engine.getDeviceManager().removeChangeListener (this);
-    if (auto state = engine.getDeviceManager().deviceManager.createStateXml())
+
+    if (audioDevicesConnected)
     {
-        appProperties.getUserSettings()->setValue ("audioDeviceState", state.get());
-        appProperties.getUserSettings()->saveIfNeeded();
+        engine.getDeviceManager().removeChangeListener (this);
+        if (auto state = engine.getDeviceManager().deviceManager.createStateXml())
+        {
+            appProperties.getUserSettings()->setValue ("audioDeviceState", state.get());
+            appProperties.getUserSettings()->saveIfNeeded();
+        }
     }
 
     engine.getDeviceManager().closeDevices();
@@ -387,7 +407,7 @@ void AudioEngineManager::setupInitialEdit()
                                                        te::TimeDuration::fromSeconds (4.0)));
     edit->getTransport().looping = false;
 
-    // Start with an empty session — remove the track that createSingleTrackEdit added.
+    // Start with an empty session  -  remove the track that createSingleTrackEdit added.
     for (auto* t : te::getAudioTracks (*edit))
         edit->deleteTrack (t);
 
@@ -463,7 +483,7 @@ float AudioEngineManager::getTrackPeak (te::Track* track)
     if (track == nullptr) return -100.0f;
 
     // Find this track's LevelMeterPlugin, lazily creating one if absent.
-    // The plugin's getLevelCache() is unused — Tracktion never writes to it.
+    // The plugin's getLevelCache() is unused  -  Tracktion never writes to it.
     // Live levels arrive via measurer.processBuffer() into registered clients.
     te::LevelMeterPlugin* meterPlugin = nullptr;
     for (auto* p : track->pluginList)
@@ -510,7 +530,7 @@ float AudioEngineManager::getTrackPeak (te::Track* track)
     // Track absolute maximum for peak hold readout
     tm.maxPeakDb = juce::jmax (tm.maxPeakDb, latest);
 
-    // Decay the displayed peak at 48 dB/s with a 50 ms hold — same shape
+    // Decay the displayed peak at 48 dB/s with a 50 ms hold  -  same shape
     // FourOscPlugin uses for its built-in meter, so the visual feels right.
     auto now = juce::Time::getApproximateMillisecondCounter();
     int  elapsedMs = (int) (now - tm.lastUpdateMs);
@@ -591,7 +611,7 @@ void AudioEngineManager::setTrackArmed (te::Track* t, bool enabled)
             if (auto* wip = dm.getWaveInDevice (i))
                 wip->setEnabled (true);
 
-        // Ensure the playback context exists — this creates InputDeviceInstances.
+        // Ensure the playback context exists  -  this creates InputDeviceInstances.
         edit->getTransport().ensureContextAllocated();
 
         // Target each wave input to this track and enable recording.
@@ -823,7 +843,7 @@ void AudioEngineManager::toggleMetronome()
 float AudioEngineManager::getMetronomeVolumeDb() const
 {
     if (edit == nullptr) return 0.0f;
-    // Read clickTrackGain directly — getClickTrackVolume() clamps to 1.0 (0 dB).
+    // Read clickTrackGain directly  -  getClickTrackVolume() clamps to 1.0 (0 dB).
     float gain = edit->clickTrackGain.get();
     return (gain > 0.0f) ? 20.0f * std::log10 (gain) : -60.0f;
 }
@@ -831,7 +851,7 @@ float AudioEngineManager::getMetronomeVolumeDb() const
 void AudioEngineManager::setMetronomeVolumeDb (float db)
 {
     if (edit == nullptr) return;
-    // Write clickTrackGain directly — setClickTrackVolume() clamps to 1.0 (0 dB).
+    // Write clickTrackGain directly  -  setClickTrackVolume() clamps to 1.0 (0 dB).
     static constexpr float kMaxGain = 31.623f; // +30 dB
     float gain = juce::jlimit (0.0f, kMaxGain, std::pow (10.0f, db / 20.0f));
     edit->clickTrackGain = gain;
@@ -1049,7 +1069,7 @@ tracktion::Plugin::Ptr AudioEngineManager::addPluginToTrack (te::Track* track, c
 }
 
 //==============================================================================
-// Milestone 3 — Recording & Monitoring
+// Milestone 3  -  Recording & Monitoring
 //==============================================================================
 
 void AudioEngineManager::timerCallback()

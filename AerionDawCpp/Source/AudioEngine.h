@@ -270,7 +270,7 @@ private:
 
     // Per-track meter subscription. Holds a Plugin::Ptr to keep the
     // LevelMeterPlugin (and its measurer) alive for the lifetime of the
-    // Client we registered with it — so removeClient in the destructor is
+    // Client we registered with it  -  so removeClient in the destructor is
     // always safe, even if the plugin has been removed from the track or
     // the Edit has been torn down.
     struct TrackMeter
@@ -288,6 +288,9 @@ private:
         }
     };
     std::map<juce::String, std::unique_ptr<TrackMeter>> trackMeters;
+
+    std::atomic<bool> closing { false };
+    bool audioDevicesConnected = false;
 
     void setupInitialEdit();
 };

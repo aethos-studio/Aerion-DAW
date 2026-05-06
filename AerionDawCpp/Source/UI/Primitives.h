@@ -87,7 +87,7 @@ inline void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
         g.drawHorizontalLine (zeroY, (float) (track_x - 2), (float) (track_x + track_w + 2));
     }
 
-    // Dual meters (same peak for L and R — no separate L/R API)
+    // Dual meters (same peak for L and R  -  no separate L/R API)
     float peak = audioEngine.getTrackPeak (track);
     float pPos = meterPosFromDb (peak);
     bool  clip = peak > 0.0f;
