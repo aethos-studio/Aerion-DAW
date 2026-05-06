@@ -494,6 +494,8 @@ public:
     // === Sync state — populated by onBeforeMenuOpen ===
     bool   snapEnabled      = false;
     double snapInterval     = 0.25;
+    bool   autoCrossfadeOn  = true;
+    int    autoCrossfadeMaxMs = 120;
     bool   metronomeOn      = false;
     int    countInBars      = 0;
     bool   punchEnabled     = false;
@@ -521,6 +523,8 @@ public:
     std::function<void()> onToggleTrackArm, onToggleTrackMute, onToggleTrackSolo;
     std::function<void()> onNudgeLeft, onNudgeRight, onTrimLeft, onTrimRight, onDeleteEvent;
     std::function<void()> onRescanPlugins, onTogglePdc;
+    std::function<void()> onToggleAutoCrossfade;
+    std::function<void(int)> onAutoCrossfadeMaxChanged;
     std::function<void()> onPlay, onStop, onRecord, onGoToStart;
     std::function<void()> onToggleLoop, onTogglePunch;
     std::function<void()> onToggleInspector, onToggleBrowser, onToggleMixerDetach;
@@ -722,10 +726,19 @@ private:
         m.addItem (2, "Rescan Plugins");
         m.addSeparator();
         m.addItem (3, "Plugin Delay Compensation", true, pdcEnabled);
+        m.addItem (4, "Auto Crossfade",            true, autoCrossfadeOn);
+
+        juce::PopupMenu xfadeLen;
+        for (auto ms : { 10, 25, 50, 80, 120, 200, 500 })
+            xfadeLen.addItem (1000 + ms, juce::String (ms) + " ms", true, autoCrossfadeMaxMs == ms);
+        m.addSubMenu ("Auto Crossfade Length", xfadeLen, autoCrossfadeOn);
+
         m.showMenuAsync (juce::PopupMenu::Options(), [this] (int r) {
             if (r == 1 && onSettings)      onSettings();
             if (r == 2 && onRescanPlugins) onRescanPlugins();
             if (r == 3 && onTogglePdc)     onTogglePdc();
+            if (r == 4 && onToggleAutoCrossfade) onToggleAutoCrossfade();
+            if (r >= 1000 && onAutoCrossfadeMaxChanged) onAutoCrossfadeMaxChanged (r - 1000);
         });
     }
 
@@ -802,6 +815,7 @@ public:
     std::function<void(bool)> onPunchChanged;
     std::function<void(bool)> onPdcChanged;
     std::function<void(int)>  onCountInChanged;
+    std::function<void()> onToggleAutoCrossfade;
 
     bool snapEnabled = true;
     double snapInterval = 1.0;
@@ -812,6 +826,7 @@ public:
     bool pdcEnabled    = true;
     int  countInBars   = 0;
     EditTool activeTool = EditTool::select;
+    bool autoCrossfadeEnabled = true;
 
     DAWToolbar()
     {
@@ -915,6 +930,22 @@ public:
                         snapBounds.getX(), snapBounds.getBottom() - 8,
                         snapBounds.getWidth(), 8, juce::Justification::centred);
         }
+
+        // Group 4b: Auto-crossfade (tiny pill left of Snap)
+        xfadeBounds = { W - 194, btnY + 2, 28, 24 };
+        {
+            bool hov = xfadeBounds.contains (hoverPos);
+            auto bf = xfadeBounds.toFloat();
+            g.setColour (autoCrossfadeEnabled ? Theme::active.withAlpha (0.2f)
+                                              : hov ? Theme::surface.brighter (0.08f) : Theme::surface);
+            g.fillRoundedRectangle (bf, 3.0f);
+            g.setColour (autoCrossfadeEnabled ? Theme::active
+                                              : hov ? Theme::border.brighter (0.3f) : Theme::border);
+            g.drawRoundedRectangle (bf, 3.0f, 1.0f);
+            g.setColour (autoCrossfadeEnabled ? Theme::active : Theme::textMuted);
+            g.setFont (juce::Font (8.0f).withStyle (juce::Font::bold));
+            g.drawText ("XF", xfadeBounds, juce::Justification::centred);
+        }
     }
 
     static juce::String getSnapIntervalText (double interval)
@@ -933,6 +964,14 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override
     {
+        if (xfadeBounds.contains (e.getPosition()))
+        {
+            autoCrossfadeEnabled = ! autoCrossfadeEnabled;
+            repaint();
+            if (onToggleAutoCrossfade) onToggleAutoCrossfade();
+            return;
+        }
+
         if (inspectorBtn.contains (e.getPosition())) {
             inspectorVisible = !inspectorVisible;
             repaint();
@@ -1035,6 +1074,7 @@ private:
     // Hit-test rectangles (computed each paint, read in mouseDown)
     juce::Rectangle<int> snapBounds, selectBounds, razorBounds, compBounds;
     juce::Rectangle<int> inspectorBtn, browserBtn, clickBtn, punchBtn, pdcBtn, countInBtn;
+    juce::Rectangle<int> xfadeBounds;
 
     // Hover tracking
     juce::Point<int> hoverPos { -1, -1 };
@@ -2461,6 +2501,8 @@ class Timeline : public juce::Component,
                  public juce::ValueTree::Listener
 {
 public:
+    enum class DragMode : int;
+
     static constexpr int kHeaderWidth = 250;
     static constexpr int kRulerH      = 32;
     static constexpr int kHeaderBarH  = 32;
@@ -2519,6 +2561,13 @@ public:
     {
         if (activeTool == EditTool::razor)
             return juce::MouseCursor::CrosshairCursor;
+        if (hoverDragMode == DragMode::trimLeft || hoverDragMode == DragMode::trimRight)
+            return juce::MouseCursor::LeftRightResizeCursor;
+        if (hoverDragMode == DragMode::fadeLeft || hoverDragMode == DragMode::fadeRight)
+            return juce::MouseCursor::LeftRightResizeCursor;
+        if (hoverDragMode == DragMode::move)
+            return juce::MouseCursor::DraggingHandCursor;
+
         return juce::MouseCursor::NormalCursor;
     }
 
@@ -2532,10 +2581,31 @@ public:
             repaint (juce::jmax (kHeaderWidth, oldX - 1), 0, 3, getHeight());
             repaint (juce::jmax (kHeaderWidth, e.x  - 1), 0, 3, getHeight());
         }
+        else if (activeTool == EditTool::select)
+        {
+            lastMouseX = e.x;
+
+            auto newHover = DragMode::none;
+            if (e.x >= kHeaderWidth && e.y >= kRulerH && e.y < laneBottom() && e.x < getWidth() - kVScrollW)
+            {
+                if (auto* clip = getClipAt (e.getPosition()))
+                    newHover = getSmartToolDragModeFor (*clip, e.getPosition());
+            }
+
+            if (newHover != hoverDragMode)
+            {
+                hoverDragMode = newHover;
+                setMouseCursor (getMouseCursor());
+            }
+        }
         else
         {
             lastMouseX = e.x;
-            // No per-pixel hover state to update for other tools
+            if (hoverDragMode != DragMode::none)
+            {
+                hoverDragMode = DragMode::none;
+                setMouseCursor (getMouseCursor());
+            }
         }
     }
 
@@ -2551,11 +2621,122 @@ public:
         repaint();
     }
 
-    enum class DragMode { none, move, trimLeft, trimRight, fadeLeft, fadeRight, loopStart, loopEnd, marker };
+    enum class DragMode : int { none, move, trimLeft, trimRight, fadeLeft, fadeRight, loopStart, loopEnd, marker };
     DragMode dragMode = DragMode::none;
+    DragMode hoverDragMode = DragMode::none;
     tracktion::MarkerClip* draggingMarker = nullptr;
     double dragOffset = 0;
     double dragStartVal = 0;
+
+    DragMode getSmartToolDragModeFor (tracktion::Clip& clip, juce::Point<int> pos) const
+    {
+        const float edgeThreshold = 8.0f;
+        const float hSize = 6.0f;
+
+        const float clipX = timeToX ((float) clip.getPosition().getStart().inSeconds());
+        const float clipW = (float) clip.getPosition().getLength().inSeconds() * pxPerSec;
+
+        int rowTopInComp = 0;
+        for (auto& row : const_cast<Timeline*> (this)->getVisibleRows())
+            if (row.track == clip.getTrack())
+                { rowTopInComp = kRulerH + row.y - scrollY; break; }
+
+        const float clipTopY = (float) rowTopInComp + 2.0f;
+        const bool onFadeInDot  = (pos.x >= clipX                && pos.x <= clipX + hSize
+                                   && pos.y >= clipTopY          && pos.y <= clipTopY + hSize);
+        const bool onFadeOutDot = (pos.x >= clipX + clipW - hSize && pos.x <= clipX + clipW
+                                   && pos.y >= clipTopY          && pos.y <= clipTopY + hSize);
+
+        if (dynamic_cast<tracktion::WaveAudioClip*> (&clip) != nullptr)
+        {
+            if (onFadeInDot)  return DragMode::fadeLeft;
+            if (onFadeOutDot) return DragMode::fadeRight;
+        }
+
+        if (pos.x >= clipX && pos.x <= clipX + edgeThreshold)
+            return DragMode::trimLeft;
+        if (pos.x >= clipX + clipW - edgeThreshold && pos.x <= clipX + clipW)
+            return DragMode::trimRight;
+        return DragMode::move;
+    }
+
+    // Studio One-style: when two wave events overlap, auto-create a crossfade by setting
+    // the left event's fade-out and right event's fade-in to the overlap duration.
+    static bool shouldOverwriteFadeIn (tracktion::WaveAudioClip& clip)
+    {
+        // Never clobber a user fade. Only overwrite if this fade was auto-set.
+        return (bool) clip.state.getProperty ("aerionAutoFadeIn", false);
+    }
+
+    static bool shouldOverwriteFadeOut (tracktion::WaveAudioClip& clip)
+    {
+        return (bool) clip.state.getProperty ("aerionAutoFadeOut", false);
+    }
+
+    void applyAutoCrossfadesForTrack (tracktion::Track& track)
+    {
+        auto* audio = dynamic_cast<tracktion::AudioTrack*> (&track);
+        if (audio == nullptr)
+            return;
+
+        juce::Array<tracktion::WaveAudioClip*> waves;
+        for (auto* c : audio->getClips())
+            if (auto* w = dynamic_cast<tracktion::WaveAudioClip*> (c))
+                waves.add (w);
+
+        if (waves.size() < 2)
+            return;
+
+        std::sort (waves.begin(), waves.end(),
+                   [] (auto* a, auto* b)
+                   {
+                       return a->getPosition().getStart().inSeconds() < b->getPosition().getStart().inSeconds();
+                   });
+
+        const int maxMs = (int) projectData.getProjectTree().getProperty (IDs::autoCrossfadeMaxMs, 120);
+        const double maxFadeSecs = juce::jlimit (0.0, 5.0, (double) maxMs / 1000.0);
+
+        for (int i = 0; i < waves.size() - 1; ++i)
+        {
+            auto* left  = waves[i];
+            auto* right = waves[i + 1];
+            if (left == nullptr || right == nullptr)
+                continue;
+
+            const double leftStart  = left->getPosition().getStart().inSeconds();
+            const double leftEnd    = left->getPosition().getEnd().inSeconds();
+            const double rightStart = right->getPosition().getStart().inSeconds();
+            const double rightEnd   = right->getPosition().getEnd().inSeconds();
+
+            const double overlap = leftEnd - rightStart;
+            if (overlap <= 0.0)
+                continue;
+
+            // Clamp overlap to both clip lengths so fades never exceed content.
+            const double leftLen  = juce::jmax (0.01, leftEnd - leftStart);
+            const double rightLen = juce::jmax (0.01, rightEnd - rightStart);
+            const double fadeSecs = juce::jmin (overlap, juce::jmin (leftLen, rightLen));
+            const double clamped  = juce::jmin (fadeSecs, maxFadeSecs);
+            if (clamped <= 0.0)
+                continue;
+
+            // Fade-out on left
+            const double leftExisting = left->getFadeOut().inSeconds();
+            if (leftExisting <= 0.0 || shouldOverwriteFadeOut (*left))
+            {
+                left->setFadeOut (tracktion::TimeDuration::fromSeconds (clamped));
+                left->state.setProperty ("aerionAutoFadeOut", true, nullptr);
+            }
+
+            // Fade-in on right
+            const double rightExisting = right->getFadeIn().inSeconds();
+            if (rightExisting <= 0.0 || shouldOverwriteFadeIn (*right))
+            {
+                right->setFadeIn (tracktion::TimeDuration::fromSeconds (clamped));
+                right->state.setProperty ("aerionAutoFadeIn", true, nullptr);
+            }
+        }
+    }
 
     // ── FileDragAndDropTarget ────────────────────────────────────────────────
     bool isInterestedInFileDrag (const juce::StringArray&) override { return true; }
@@ -3948,48 +4129,16 @@ public:
         if (selectedClip)
         {
             dragOffset = selectedClip->getPosition().getStart().inSeconds() - xToTime((float)e.x);
-            
-            float clipX = timeToX ((float) selectedClip->getPosition().getStart().inSeconds());
-            float clipW = (float) selectedClip->getPosition().getLength().inSeconds() * pxPerSec;
-            float edgeThreshold = 8.0f;
 
-            // Determine the clip's top-Y in component space so we can hit-test the fade dot handles.
-            int rowTopInComp = 0;
-            for (auto& row : getVisibleRows())
-                if (row.track == selectedClip->getTrack())
-                    { rowTopInComp = kRulerH + row.y - scrollY; break; }
-            float clipTopY = (float) rowTopInComp + 2.0f;
-            float hSize    = 6.0f;
-            bool onFadeInDot  = (e.x >= clipX            && e.x <= clipX + hSize
-                                  && e.y >= clipTopY && e.y <= clipTopY + hSize);
-            bool onFadeOutDot = (e.x >= clipX + clipW - hSize && e.x <= clipX + clipW
-                                  && e.y >= clipTopY && e.y <= clipTopY + hSize);
+            // Use the same decision as hover so the UI feels “smart tool” consistent.
+            dragMode = getSmartToolDragModeFor (*selectedClip, e.getPosition());
 
             if (auto* wave = dynamic_cast<tracktion::WaveAudioClip*> (selectedClip))
             {
-                if (onFadeInDot) {
-                    dragMode     = DragMode::fadeLeft;
+                if (dragMode == DragMode::fadeLeft)
                     dragStartVal = wave->getFadeIn().inSeconds();
-                }
-                else if (onFadeOutDot) {
-                    dragMode     = DragMode::fadeRight;
+                else if (dragMode == DragMode::fadeRight)
                     dragStartVal = wave->getFadeOut().inSeconds();
-                }
-                else if (e.x >= clipX && e.x <= clipX + edgeThreshold)
-                    dragMode = DragMode::trimLeft;
-                else if (e.x >= clipX + clipW - edgeThreshold && e.x <= clipX + clipW)
-                    dragMode = DragMode::trimRight;
-                else
-                    dragMode = DragMode::move;
-            }
-            else
-            {
-                if (e.x >= clipX && e.x <= clipX + edgeThreshold)
-                    dragMode = DragMode::trimLeft;
-                else if (e.x >= clipX + clipW - edgeThreshold && e.x <= clipX + clipW)
-                    dragMode = DragMode::trimRight;
-                else
-                    dragMode = DragMode::move;
             }
         }
         else
@@ -4234,6 +4383,7 @@ public:
                     }
                     newFade = juce::jmin (newFade, wave->getPosition().getLength().inSeconds());
                     wave->setFadeIn (tracktion::TimeDuration::fromSeconds (newFade));
+                    wave->state.setProperty ("aerionAutoFadeIn", false, nullptr);
                     
                     currentTooltip.text = juce::String (newFade, 2) + "s";
                     currentTooltip.bounds = juce::Rectangle<int> (e.x - 30, e.y - 30, 60, 20);
@@ -4253,6 +4403,7 @@ public:
                     }
                     newFade = juce::jmin (newFade, wave->getPosition().getLength().inSeconds());
                     wave->setFadeOut (tracktion::TimeDuration::fromSeconds (newFade));
+                    wave->state.setProperty ("aerionAutoFadeOut", false, nullptr);
 
                     currentTooltip.text = juce::String (newFade, 2) + "s";
                     currentTooltip.bounds = juce::Rectangle<int> (e.x - 30, e.y - 30, 60, 20);
@@ -4378,6 +4529,18 @@ public:
                         break;
                     }
                 }
+            }
+        }
+
+        // Auto-crossfade any overlaps created by move/trim operations.
+        // Keep this simple and conservative: only wave clips on their current track.
+        if ((bool) projectData.getProjectTree().getProperty (IDs::autoCrossfadeEnabled, true))
+        {
+            if (selectedClip != nullptr
+                && (dragMode == DragMode::move || dragMode == DragMode::trimLeft || dragMode == DragMode::trimRight))
+            {
+                if (auto* t = selectedClip->getTrack())
+                    applyAutoCrossfadesForTrack (*t);
             }
         }
 

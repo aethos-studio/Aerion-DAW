@@ -1,8 +1,8 @@
-<div align="center">
-  <img src="AerionDawCpp/Resources/aerion_logo_horizontal.svg" alt="Aerion DAW" width="650" />
+
 
   **A modern Digital Audio Workstation built with C++20, JUCE 8, and the Tracktion Engine.**
-</div>
+
+
 
 ---
 
@@ -18,23 +18,25 @@ The application is stable on Windows 11 and features a high-performance audio en
 
 Aerion is designed to bridge the gap between high-end professional production and modern, cloud-connected workflows.
 
-*   **⚡ Native Performance:** Built in C++20 with JUCE 8 and the Tracktion Engine for rock-solid, low-latency audio processing.
-*   **🎨 High-Polish UI:** Features a unique dark theme, animated splash screens, and Studio One-style position-aware drag-and-drop.
-*   **🤖 AI-Ready:** Foundation laid for future AI-enhanced workflows including audio-to-MIDI transcription and stem separation.
+- **⚡ Native Performance:** Built in C++20 with JUCE 8 and the Tracktion Engine for rock-solid, low-latency audio processing.
+- **🎨 High-Polish UI:** Features a unique dark theme, animated splash screens, and Studio One-style position-aware drag-and-drop.
+- **🤖 AI-Ready:** Foundation laid for future AI-enhanced workflows including audio-to-MIDI transcription and stem separation.
 
 ---
 
 ## Key Features
 
-| Area | Features |
-| :--- | :--- |
+
+| Area             | Features                                                                                                               |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | **Audio Engine** | Multi-track audio/folder support, automation lanes (vol/pan), 24-bit/32-bit float support, and VST3/AU plugin hosting. |
-| **Timeline** | Studio One-style drag & drop with ghost previews, multi-file consecutive placement, and grid-snapping clip editing. |
-| **Piano Roll** | Comprehensive MIDI editor with note quantization, snap-to-grid, and high-performance scrolling. |
-| **Cloud Sync** | Integrated Google Drive client for OAuth2/PKCE login and background file synchronization. |
-| **Mixer** | Real-time level meters, detachable mixer window, and per-track fader/pan control with branded JUCE-rendered windowing. |
-| **Browser** | Waveform previews for local files, plugin category browsing, and a dedicated "Cloud" tab for remote projects. |
-| **Branding** | Custom "Spectre from the fog" animated splash screen. |
+| **Timeline**     | Studio One-style drag & drop with ghost previews, multi-file consecutive placement, and grid-snapping clip editing.    |
+| **Piano Roll**   | Comprehensive MIDI editor with note quantization, snap-to-grid, and high-performance scrolling.                        |
+| **Cloud Sync**   | Integrated Google Drive client for OAuth2/PKCE login and background file synchronization.                              |
+| **Mixer**        | Real-time level meters, detachable mixer window, and per-track fader/pan control with branded JUCE-rendered windowing. |
+| **Browser**      | Waveform previews for local files, plugin category browsing, and a dedicated "Cloud" tab for remote projects.          |
+| **Branding**     | Custom "Spectre from the fog" animated splash screen.                                                                  |
+
 
 ---
 
@@ -58,19 +60,22 @@ AerionDawCpp/
 
 ## System Requirements
 
-| Requirement | Minimum | Recommended |
-| :--- | :--- | :--- |
-| **OS** | Windows 10 (64-bit) | Windows 11 (64-bit) |
-| **CPU** | Intel Core i5 / AMD Ryzen 5 | Intel Core i7 / AMD Ryzen 7 |
-| **RAM** | 4 GB | 16 GB |
-| **Graphics** | OpenGL 3.2 compatible | Dedicated GPU |
-| **Audio** | Windows Audio / ASIO4ALL | Dedicated ASIO Audio Interface |
+
+| Requirement  | Minimum                     | Recommended                    |
+| ------------ | --------------------------- | ------------------------------ |
+| **OS**       | Windows 10 (64-bit)         | Windows 11 (64-bit)            |
+| **CPU**      | Intel Core i5 / AMD Ryzen 5 | Intel Core i7 / AMD Ryzen 7    |
+| **RAM**      | 4 GB                        | 16 GB                          |
+| **Graphics** | OpenGL 3.2 compatible       | Dedicated GPU                  |
+| **Audio**    | Windows Audio / ASIO4ALL    | Dedicated ASIO Audio Interface |
+
 
 ---
 
 ## Getting Started
 
 ### Prerequisites
+
 - **CMake** 3.20+
 - **Visual Studio 2022** (MSVC)
 - **PowerShell 7** (for build scripts)
@@ -78,6 +83,13 @@ AerionDawCpp/
 ### Building (Windows/PowerShell)
 
 ```powershell
+# Configure (recommended: presets)
+cmake --preset win-msvc-debug
+
+# Build (recommended: presets)
+cmake --build --preset win-msvc-debug
+
+# ---- Manual alternative ----
 # Configure
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 
@@ -94,9 +106,11 @@ The executable will be located at:
 
 Aerion DAW follows a strict **Model-View-Controller (MVC)** separation:
 
-*   **Model:** `ProjectData` owns the project `juce::ValueTree`, which acts as the single source of truth for the project state.
-*   **Controller:** `AudioEngineManager` wraps the Tracktion `Edit` and manages the real-time audio graph and transport.
-*   **View:** Native JUCE components in `UIComponents.h` observe the `ValueTree` and repaint only when the underlying state changes.
+- **Model:** `ProjectData` owns the project `juce::ValueTree`, which acts as the single source of truth for the project state.
+- **Controller:** `AudioEngineManager` wraps the Tracktion `Edit` and manages the real-time audio graph and transport.
+- **View:** Native JUCE components in `UIComponents.h` observe the `ValueTree` and repaint only when the underlying state changes.
+
+See `ARCHITECTURE.md` for codebase guardrails and module map, and `CONTRIBUTING.md` for the development workflow.
 
 ---
 

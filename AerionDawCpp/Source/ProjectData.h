@@ -35,6 +35,8 @@ namespace IDs
 
     DECLARE_ID (snapEnabled);
     DECLARE_ID (snapInterval);
+    DECLARE_ID (autoCrossfadeEnabled);
+    DECLARE_ID (autoCrossfadeMaxMs);
 
     DECLARE_ID (countInMode);
     DECLARE_ID (metronomeAccent);

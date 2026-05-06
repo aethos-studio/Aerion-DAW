@@ -101,6 +101,14 @@ MainComponent::MainComponent()
         projectData.getProjectTree().setProperty (IDs::snapInterval, interval, nullptr);
     };
 
+    toolbar.onToggleAutoCrossfade = [this]
+    {
+        auto& tree = projectData.getProjectTree();
+        tree.setProperty (IDs::autoCrossfadeEnabled,
+                          ! (bool) tree.getProperty (IDs::autoCrossfadeEnabled, true),
+                          nullptr);
+    };
+
     toolbar.onToggleMetronome = [this] {
         audioEngine.toggleMetronome();
     };
@@ -244,6 +252,20 @@ MainComponent::MainComponent()
     menuBar.onTogglePdc     = [this] {
         audioEngine.setLatencyCompensationEnabled (! audioEngine.isLatencyCompensationEnabled());
         syncToolbarFromEngine();
+    };
+
+    menuBar.onToggleAutoCrossfade = [this]
+    {
+        auto& tree = projectData.getProjectTree();
+        tree.setProperty (IDs::autoCrossfadeEnabled,
+                          ! (bool) tree.getProperty (IDs::autoCrossfadeEnabled, true),
+                          nullptr);
+    };
+
+    menuBar.onAutoCrossfadeMaxChanged = [this] (int ms)
+    {
+        auto& tree = projectData.getProjectTree();
+        tree.setProperty (IDs::autoCrossfadeMaxMs, ms, nullptr);
     };
 
     menuBar.onPlay      = [this] { if (audioEngine.isPlaying()) audioEngine.stop(); else audioEngine.play(); transport.repaint(); };
@@ -427,6 +449,21 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component*)
         return true;
     }
 
+    // Force a crossfade on the selected clip with any overlapping neighbor (Studio One-style quick action).
+    if (key.getTextCharacter() == 'x' || key.getTextCharacter() == 'X')
+    {
+        if ((bool) projectData.getProjectTree().getProperty (IDs::autoCrossfadeEnabled, true))
+        {
+            if (auto* clip = timeline.selectedClip)
+            {
+                if (auto* t = clip->getTrack())
+                    timeline.applyAutoCrossfadesForTrack (*t);
+            }
+            timeline.repaint();
+            return true;
+        }
+    }
+
     if (key.getKeyCode() == juce::KeyPress::leftKey || key.getKeyCode() == juce::KeyPress::rightKey)
     {
         if (auto* clip = timeline.selectedClip)
@@ -540,6 +577,8 @@ void MainComponent::syncMenuBarState()
 {
     menuBar.snapEnabled      = (bool)   projectData.getProjectTree().getProperty (IDs::snapEnabled);
     menuBar.snapInterval     = (double) projectData.getProjectTree().getProperty (IDs::snapInterval, 0.25);
+    menuBar.autoCrossfadeOn  = (bool)   projectData.getProjectTree().getProperty (IDs::autoCrossfadeEnabled, true);
+    menuBar.autoCrossfadeMaxMs = (int)  projectData.getProjectTree().getProperty (IDs::autoCrossfadeMaxMs, 120);
     menuBar.metronomeOn      = audioEngine.isMetronomeEnabled();
     menuBar.countInBars      = audioEngine.getCountInBars();
     menuBar.punchEnabled     = audioEngine.isPunchEnabled();
@@ -770,6 +809,11 @@ void MainComponent::valueTreePropertyChanged (juce::ValueTree& v, const juce::Id
     else if (i == IDs::snapInterval)
     {
         toolbar.snapInterval = v.getProperty (i);
+        toolbar.repaint();
+    }
+    else if (i == IDs::autoCrossfadeEnabled)
+    {
+        toolbar.autoCrossfadeEnabled = (bool) v.getProperty (i);
         toolbar.repaint();
     }
 

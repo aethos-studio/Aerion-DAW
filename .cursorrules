@@ -1,0 +1,21 @@
+Always use juce::AudioProcessorValueTreeState (APVTS) for parameter management. Never use raw floats for parameters.
+
+UI components must inherit from juce::Component. Bind UI sliders to the APVTS using juce::AudioProcessorValueTreeState::SliderAttachment.
+
+CRITICAL: Never allocate memory, lock mutexes, or print to the console inside processBlock().
+
+Favor the juce::dsp module classes (like juce::dsp::Oscillator or juce::dsp::Gain) instead of writing raw math from scratch unless instructed otherwise.
+
+---
+# Aerion DAW lead-dev guardrails (project-specific)
+
+- Treat `AudioEngineManager` + Tracktion Engine callbacks as **real-time sensitive**. Don’t allocate, lock, log, or do file/network I/O in any audio callback path (including anything that can run on Tracktion’s audio thread).
+- Keep UI responsive: any plugin scanning, cloud requests, file analysis, AI inference, or thumbnail generation must run off the message thread and report back via `juce::MessageManager::callAsync`.
+- Prefer **small modules** over monoliths:
+  - Avoid adding more “god logic” to `UIComponents.h`. New substantial UI should go in its own `.h/.cpp` unless explicitly asked otherwise.
+  - Engine-facing operations belong in `AudioEngineManager` (or a new engine service), not directly in UI components.
+- Maintain the “Studio One feel”:
+  - Prioritize drag-and-drop workflows, hover-zone hit-testing, and modifier-driven “smart tool” behaviors over mode-heavy tool switching.
+  - Every edit gesture should have a clear undo/redo story (use Tracktion edit operations/UndoManager; don’t hand-roll state).
+- No secrets in-repo: never commit OAuth client secrets/tokens. Keep `GoogleDriveClient` credentials external (env/user settings) and treat `%AppData%` token files as user data.
+

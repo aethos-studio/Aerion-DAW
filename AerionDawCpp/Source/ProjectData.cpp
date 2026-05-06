@@ -119,6 +119,8 @@ void ProjectData::createMockData()
 
     projectTree.setProperty (IDs::snapEnabled, true, nullptr);
     projectTree.setProperty (IDs::snapInterval, 1.0, nullptr);
+    projectTree.setProperty (IDs::autoCrossfadeEnabled, true, nullptr);
+    projectTree.setProperty (IDs::autoCrossfadeMaxMs, 120, nullptr); // Studio One-ish default
 
     // Helper lambda to create a track
     auto createTrack = [&](int id, const juce::String& name, const juce::String& color, const juce::String& type, float level, const juce::String& pan)
