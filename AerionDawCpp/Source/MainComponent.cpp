@@ -126,6 +126,160 @@ MainComponent::MainComponent()
     menuBar.onImport   = [this] { importAudioFile(); };
     menuBar.onSettings = [this] { showAudioSettings(); };
 
+    menuBar.onUndo = [this] { audioEngine.undo(); };
+    menuBar.onRedo = [this] { audioEngine.redo(); };
+
+    menuBar.onToggleMetronome       = [this] { audioEngine.toggleMetronome(); transport.repaint(); };
+    menuBar.onShowMetronomeSettings = [this] {
+        auto popup = std::make_unique<MetronomeSettingsPopup> (audioEngine);
+        juce::CallOutBox::launchAsynchronously (std::move (popup), menuBar.getScreenBounds(), this);
+    };
+    menuBar.onToggleSnap = [this] {
+        projectData.getProjectTree().setProperty (IDs::snapEnabled,
+            ! (bool) projectData.getProjectTree().getProperty (IDs::snapEnabled), nullptr);
+    };
+    menuBar.onSnapIntervalChanged = [this] (double v) {
+        projectData.getProjectTree().setProperty (IDs::snapInterval, v, nullptr);
+    };
+    menuBar.onCountInChanged = [this] (int bars) {
+        audioEngine.setCountInMode (bars);
+        syncToolbarFromEngine();
+    };
+
+    menuBar.onAddAudioTrack  = [this] { audioEngine.addAudioTrack();   timeline.repaint(); mixer.repaint(); };
+    menuBar.onAddMidiTrack   = [this] {
+        auto* track = audioEngine.addAudioTrack();
+        if (track != nullptr)
+        {
+            double pos = audioEngine.getTransportPosition();
+            tracktion::TimeRange range (tracktion::TimePosition::fromSeconds (pos),
+                                        tracktion::TimeDuration::fromSeconds (2.0));
+            track->insertMIDIClip (range, nullptr);
+        }
+        timeline.repaint(); mixer.repaint();
+    };
+    menuBar.onAddFolderTrack = [this] { audioEngine.addFolderTrack(); timeline.repaint(); mixer.repaint(); };
+    menuBar.onDeleteTrack    = [this] {
+        for (auto* t : timeline.getSelectedTracks()) audioEngine.deleteTrack (t);
+        timeline.onTrackSelected (-1);
+        timeline.repaint(); mixer.repaint();
+    };
+    menuBar.onToggleTrackArm  = [this] {
+        auto sel = timeline.getSelectedTracks();
+        if (sel.isEmpty()) return;
+        auto* t = sel[0];
+        audioEngine.setTrackArmed (t, ! audioEngine.isTrackArmed (t));
+        timeline.onTrackSelected (timeline.getSelectedIndex());
+        timeline.repaint();
+    };
+    menuBar.onToggleTrackMute = [this] {
+        auto sel = timeline.getSelectedTracks();
+        if (! sel.isEmpty()) { audioEngine.toggleTrackMute (sel[0]); timeline.repaint(); }
+    };
+    menuBar.onToggleTrackSolo = [this] {
+        auto sel = timeline.getSelectedTracks();
+        if (! sel.isEmpty()) { audioEngine.toggleTrackSolo (sel[0]); timeline.repaint(); }
+    };
+
+    menuBar.onNudgeLeft  = [this] {
+        if (auto* clip = timeline.selectedClip)
+        {
+            double iv = (bool) projectData.getProjectTree().getProperty (IDs::snapEnabled)
+                        ? (double) projectData.getProjectTree().getProperty (IDs::snapInterval) : 0.1;
+            auto& ts = audioEngine.getEdit().tempoSequence;
+            auto b = ts.toBeats (clip->getPosition().getStart());
+            clip->setStart (ts.toTime (tracktion::BeatPosition::fromBeats (juce::jmax (0.0, b.inBeats() - iv))), false, true);
+            timeline.repaint();
+        }
+    };
+    menuBar.onNudgeRight = [this] {
+        if (auto* clip = timeline.selectedClip)
+        {
+            double iv = (bool) projectData.getProjectTree().getProperty (IDs::snapEnabled)
+                        ? (double) projectData.getProjectTree().getProperty (IDs::snapInterval) : 0.1;
+            auto& ts = audioEngine.getEdit().tempoSequence;
+            auto b = ts.toBeats (clip->getPosition().getStart());
+            clip->setStart (ts.toTime (tracktion::BeatPosition::fromBeats (b.inBeats() + iv)), false, true);
+            timeline.repaint();
+        }
+    };
+    menuBar.onTrimLeft   = [this] {
+        if (auto* clip = timeline.selectedClip)
+        {
+            double iv = (bool) projectData.getProjectTree().getProperty (IDs::snapEnabled)
+                        ? (double) projectData.getProjectTree().getProperty (IDs::snapInterval) : 0.1;
+            auto& ts  = audioEngine.getEdit().tempoSequence;
+            auto start = clip->getPosition().getStart();
+            auto bStart = ts.toBeats (start);
+            auto bEnd   = ts.toBeats (clip->getPosition().getEnd());
+            auto newEnd = tracktion::BeatPosition::fromBeats (juce::jmax (bStart.inBeats() + 0.01, bEnd.inBeats() - iv));
+            clip->setLength (ts.toTime (newEnd) - start, true);
+            timeline.repaint();
+        }
+    };
+    menuBar.onTrimRight  = [this] {
+        if (auto* clip = timeline.selectedClip)
+        {
+            double iv = (bool) projectData.getProjectTree().getProperty (IDs::snapEnabled)
+                        ? (double) projectData.getProjectTree().getProperty (IDs::snapInterval) : 0.1;
+            auto& ts  = audioEngine.getEdit().tempoSequence;
+            auto start = clip->getPosition().getStart();
+            auto bStart = ts.toBeats (start);
+            auto bEnd   = ts.toBeats (clip->getPosition().getEnd());
+            auto newEnd = tracktion::BeatPosition::fromBeats (juce::jmax (bStart.inBeats() + 0.01, bEnd.inBeats() + iv));
+            clip->setLength (ts.toTime (newEnd) - start, true);
+            timeline.repaint();
+        }
+    };
+    menuBar.onDeleteEvent = [this] {
+        if (timeline.selectedClip != nullptr)
+        {
+            timeline.selectedClip->removeFromParent();
+            timeline.selectedClip = nullptr;
+            timeline.repaint();
+        }
+    };
+
+    menuBar.onRescanPlugins = [this] { audioEngine.scanPlugins(); browser.repaint(); };
+    menuBar.onTogglePdc     = [this] {
+        audioEngine.setLatencyCompensationEnabled (! audioEngine.isLatencyCompensationEnabled());
+        syncToolbarFromEngine();
+    };
+
+    menuBar.onPlay      = [this] { if (audioEngine.isPlaying()) audioEngine.stop(); else audioEngine.play(); transport.repaint(); };
+    menuBar.onStop      = [this] { audioEngine.stop(); transport.repaint(); };
+    menuBar.onRecord    = [this] { audioEngine.record(); transport.repaint(); };
+    menuBar.onGoToStart = [this] {
+        bool wasPlaying = audioEngine.isPlaying();
+        audioEngine.setTransportPosition (0.0);
+        if (wasPlaying) audioEngine.play();
+        timeline.repaint(); transport.repaint();
+    };
+    menuBar.onToggleLoop  = [this] { audioEngine.toggleLoop(); transport.repaint(); };
+    menuBar.onTogglePunch = [this] {
+        audioEngine.setPunchEnabled (! audioEngine.isPunchEnabled());
+        syncToolbarFromEngine();
+    };
+
+    menuBar.onToggleInspector = [this] {
+        inspectorToggle.collapsed = ! inspectorToggle.collapsed;
+        toolbar.inspectorVisible  = ! inspectorToggle.collapsed;
+        toolbar.repaint();
+        resized();
+    };
+    menuBar.onToggleBrowser = [this] {
+        browserToggle.collapsed = ! browserToggle.collapsed;
+        toolbar.browserVisible  = ! browserToggle.collapsed;
+        toolbar.repaint();
+        resized();
+    };
+    menuBar.onToggleMixerDetach = [this] {
+        if (mixer.detached) reattachMixer();
+        else                detachMixer();
+    };
+
+    menuBar.onBeforeMenuOpen = [this] { syncMenuBarState(); };
+
     timeline.onAddTrack = [this]
     {
         audioEngine.addAudioTrack();
@@ -364,11 +518,14 @@ void MainComponent::createNewProject()
 
 void MainComponent::updateTitleBar()
 {
-    juce::String title = currentProjectFile.existsAsFile()
-                             ? currentProjectFile.getFileNameWithoutExtension() + " — Aerion DAW"
-                             : "Aerion DAW";
+    juce::String name = currentProjectFile.existsAsFile()
+                        ? currentProjectFile.getFileNameWithoutExtension()
+                        : "My Song";
+    menuBar.projectTitle = name;
+    menuBar.repaint();
+
     if (auto* dw = findParentComponentOfClass<juce::DocumentWindow>())
-        dw->setName (title);
+        dw->setName (name + " - Aerion DAW");
 }
 
 void MainComponent::syncToolbarFromEngine()
@@ -377,6 +534,35 @@ void MainComponent::syncToolbarFromEngine()
     toolbar.pdcEnabled   = audioEngine.isLatencyCompensationEnabled();
     toolbar.countInBars  = audioEngine.getCountInBars();
     toolbar.repaint();
+}
+
+void MainComponent::syncMenuBarState()
+{
+    menuBar.snapEnabled      = (bool)   projectData.getProjectTree().getProperty (IDs::snapEnabled);
+    menuBar.snapInterval     = (double) projectData.getProjectTree().getProperty (IDs::snapInterval, 0.25);
+    menuBar.metronomeOn      = audioEngine.isMetronomeEnabled();
+    menuBar.countInBars      = audioEngine.getCountInBars();
+    menuBar.punchEnabled     = audioEngine.isPunchEnabled();
+    menuBar.pdcEnabled       = audioEngine.isLatencyCompensationEnabled();
+    menuBar.loopEnabled      = audioEngine.isLooping();
+    menuBar.inspectorVisible = ! inspectorToggle.collapsed;
+    menuBar.browserVisible   = ! browserToggle.collapsed;
+    menuBar.mixerDetached    = (mixerWindow != nullptr);
+
+    auto sel = timeline.getSelectedTracks();
+    menuBar.hasSelectedTrack = ! sel.isEmpty();
+    menuBar.hasSelectedClip  = (timeline.selectedClip != nullptr);
+    if (! sel.isEmpty())
+    {
+        auto* t = sel[0];
+        menuBar.trackArmed = audioEngine.isTrackArmed (t);
+        menuBar.trackMuted = t->isMuted (false);
+        menuBar.trackSolo  = t->isSolo  (false);
+    }
+    else
+    {
+        menuBar.trackArmed = menuBar.trackMuted = menuBar.trackSolo = false;
+    }
 }
 
 void MainComponent::openProject()

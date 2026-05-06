@@ -131,6 +131,10 @@ public:
     void setCountInMode (int bars);   // 0=off, 1=1bar, 2=2bars
     int  getCountInBars() const;
 
+    // Loop
+    bool isLooping() const  { return (bool) edit->getTransport().looping; }
+    void toggleLoop()       { auto& tp = edit->getTransport(); tp.looping.setValue (! (bool) tp.looping, nullptr); }
+
     // Punch in/out (uses loop range as punch region)
     void setPunchEnabled (bool on);
     bool isPunchEnabled() const { return punchEnabled; }

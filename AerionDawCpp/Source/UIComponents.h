@@ -456,68 +456,300 @@ protected:
 class DAWMenuBar : public juce::Component
 {
 public:
+    // === Sync state — populated by onBeforeMenuOpen ===
+    bool   snapEnabled      = false;
+    double snapInterval     = 0.25;
+    bool   metronomeOn      = false;
+    int    countInBars      = 0;
+    bool   punchEnabled     = false;
+    bool   pdcEnabled       = false;
+    bool   loopEnabled      = false;
+    bool   inspectorVisible = true;
+    bool   browserVisible   = true;
+    bool   mixerDetached    = false;
+    bool   hasSelectedTrack = false;
+    bool   hasSelectedClip  = false;
+    bool   trackArmed       = false;
+    bool   trackMuted       = false;
+    bool   trackSolo        = false;
+    juce::String projectTitle = "My Song";
+
+    // === Callbacks ===
+    std::function<void()> onNew, onOpen, onSave, onSaveAs, onImport, onSettings;
+    std::function<void()> onUndo, onRedo;
+    std::function<void()> onToggleMetronome, onShowMetronomeSettings;
+    std::function<void()> onToggleSnap;
+    std::function<void(double)> onSnapIntervalChanged;
+    std::function<void(int)>    onCountInChanged;
+    std::function<void()> onAddAudioTrack, onAddMidiTrack, onAddFolderTrack;
+    std::function<void()> onDeleteTrack;
+    std::function<void()> onToggleTrackArm, onToggleTrackMute, onToggleTrackSolo;
+    std::function<void()> onNudgeLeft, onNudgeRight, onTrimLeft, onTrimRight, onDeleteEvent;
+    std::function<void()> onRescanPlugins, onTogglePdc;
+    std::function<void()> onPlay, onStop, onRecord, onGoToStart;
+    std::function<void()> onToggleLoop, onTogglePunch;
+    std::function<void()> onToggleInspector, onToggleBrowser, onToggleMixerDetach;
+    std::function<void()> onBeforeMenuOpen;
+
     DAWMenuBar()
     {
-        if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::aerion_logo_svg, BinaryData::aerion_logo_svgSize)))
-            logoDrawable = juce::Drawable::createFromSVG (*svgXml);
+        if (auto x = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::aerion_logo_svg, BinaryData::aerion_logo_svgSize)))
+            logoDrawable = juce::Drawable::createFromSVG (*x);
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
     }
 
-    std::function<void()> onNew, onOpen, onSave, onSaveAs, onImport, onSettings;
-
-    void paint(juce::Graphics& g) override
+    void paint (juce::Graphics& g) override
     {
-        g.fillAll(Theme::bgBase);
+        g.fillAll (Theme::bgBase);
 
         auto b = getLocalBounds();
-        
-        // Draw Logo
-        if (logoDrawable != nullptr)
+        if (logoDrawable)
         {
             auto logoArea = b.removeFromLeft (40).reduced (8);
-            logoDrawable->drawWithin (g, logoArea.toFloat(), 
-                                    juce::RectanglePlacement (juce::RectanglePlacement::xLeft | juce::RectanglePlacement::yMid), 1.0f);
+            logoDrawable->drawWithin (g, logoArea.toFloat(),
+                juce::RectanglePlacement (juce::RectanglePlacement::xLeft | juce::RectanglePlacement::yMid), 1.0f);
         }
 
-        g.setColour(Theme::textMuted);
-        g.setFont(12.0f);
-
-        juce::StringArray items = { "File", "Edit", "Song", "Track", "Event", "Audio", "Transport", "View", "Help" };
+        static const juce::StringArray kItems { "File", "Edit", "Song", "Track", "Event", "Audio", "Transport", "View", "Help" };
+        g.setFont (12.0f);
         int x = 50;
-        for (auto& s : items) {
-            g.drawText(s, x, 0, 60, getHeight(), juce::Justification::centredLeft);
+        for (int i = 0; i < kItems.size(); ++i)
+        {
+            bool hov = (i == hoveredMenu);
+            if (hov)
+            {
+                g.setColour (Theme::surface.brighter (0.1f));
+                g.fillRoundedRectangle (juce::Rectangle<float> ((float)(x - 2), 4.f, 58.f, (float)(getHeight() - 8)), 3.0f);
+            }
+            g.setColour (hov ? Theme::accent : Theme::textMuted);
+            g.drawText (kItems[i], x, 0, 60, getHeight(), juce::Justification::centred);
             x += 60;
         }
 
-        g.drawText("My Song - Aerion DAW", 0, 0, getWidth(), getHeight(), juce::Justification::centred);
+        g.setColour (Theme::textMuted.withAlpha (0.5f));
+        g.setFont (11.0f);
+        g.drawText (projectTitle + " - Aerion DAW", 0, 0, getWidth(), getHeight(), juce::Justification::centred);
     }
 
-    void mouseDown(const juce::MouseEvent& e) override
+    void mouseMove (const juce::MouseEvent& e) override
     {
-        if (e.x >= 50 && e.x < 110) // "File" area adjusted for logo
+        int idx = menuIndexAt (e.x);
+        if (idx != hoveredMenu) { hoveredMenu = idx; repaint(); }
+    }
+
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        if (hoveredMenu != -1) { hoveredMenu = -1; repaint(); }
+    }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (onBeforeMenuOpen) onBeforeMenuOpen();
+        switch (menuIndexAt (e.x))
         {
-            juce::PopupMenu m;
-            m.addItem (1, "New Project");
-            m.addItem (2, "Open Project...");
-            m.addItem (3, "Save Project");
-            m.addItem (6, "Save Project As...");
-            m.addSeparator();
-            m.addItem (4, "Import Audio File...");
-            m.addSeparator();
-            m.addItem (5, "Audio Settings...");
-            
-            m.showMenuAsync (juce::PopupMenu::Options(), [this] (int result) {
-                if (result == 1 && onNew) onNew();
-                if (result == 2 && onOpen) onOpen();
-                if (result == 3 && onSave) onSave();
-                if (result == 6 && onSaveAs) onSaveAs();
-                if (result == 4 && onImport) onImport();
-                if (result == 5 && onSettings) onSettings();
-            });
+            case 0: showFileMenu();      break;
+            case 1: showEditMenu();      break;
+            case 2: showSongMenu();      break;
+            case 3: showTrackMenu();     break;
+            case 4: showEventMenu();     break;
+            case 5: showAudioMenu();     break;
+            case 6: showTransportMenu(); break;
+            case 7: showViewMenu();      break;
+            case 8: showHelpMenu();      break;
+            default: break;
         }
     }
 
 private:
     std::unique_ptr<juce::Drawable> logoDrawable;
+    int hoveredMenu = -1;
+
+    int menuIndexAt (int x) const
+    {
+        if (x < 50) return -1;
+        int i = (x - 50) / 60;
+        return (i >= 0 && i < 9) ? i : -1;
+    }
+
+    void showFileMenu()
+    {
+        juce::PopupMenu m;
+        m.addItem (1, "New Project");
+        m.addItem (2, "Open Project...");
+        m.addItem (3, "Save Project");
+        m.addItem (6, "Save Project As...");
+        m.addSeparator();
+        m.addItem (4, "Import Audio File...");
+        m.addSeparator();
+        m.addItem (5, "Audio Settings...");
+        m.showMenuAsync (juce::PopupMenu::Options(), [this] (int r) {
+            if (r == 1 && onNew)      onNew();
+            if (r == 2 && onOpen)     onOpen();
+            if (r == 3 && onSave)     onSave();
+            if (r == 6 && onSaveAs)   onSaveAs();
+            if (r == 4 && onImport)   onImport();
+            if (r == 5 && onSettings) onSettings();
+        });
+    }
+
+    void showEditMenu()
+    {
+        juce::PopupMenu m;
+        m.addItem (1, "Undo\tCtrl+Z");
+        m.addItem (2, "Redo\tCtrl+Shift+Z");
+        m.showMenuAsync (juce::PopupMenu::Options(), [this] (int r) {
+            if (r == 1 && onUndo) onUndo();
+            if (r == 2 && onRedo) onRedo();
+        });
+    }
+
+    void showSongMenu()
+    {
+        juce::PopupMenu snapSub;
+        const std::pair<const char*, double> snaps[] = {
+            {"1 Bar", 1.0}, {"1/2", 0.5}, {"1/4", 0.25}, {"1/8", 0.125}, {"1/16", 0.0625}
+        };
+        for (int i = 0; i < 5; ++i)
+            snapSub.addItem (10 + i, snaps[i].first, true, std::abs (snapInterval - snaps[i].second) < 0.001);
+
+        juce::PopupMenu countInSub;
+        countInSub.addItem (20, "Off",    true, countInBars == 0);
+        countInSub.addItem (21, "1 Bar",  true, countInBars == 1);
+        countInSub.addItem (22, "2 Bars", true, countInBars == 2);
+
+        juce::PopupMenu m;
+        m.addItem (1, "Metronome",             true, metronomeOn);
+        m.addItem (2, "Metronome Settings...");
+        m.addSeparator();
+        m.addItem (3, "Snap to Grid",          true, snapEnabled);
+        m.addSubMenu ("Snap Interval", snapSub);
+        m.addSeparator();
+        m.addSubMenu ("Count-In", countInSub);
+        m.showMenuAsync (juce::PopupMenu::Options(), [this] (int r) {
+            if (r == 1  && onToggleMetronome)       onToggleMetronome();
+            if (r == 2  && onShowMetronomeSettings)  onShowMetronomeSettings();
+            if (r == 3  && onToggleSnap)             onToggleSnap();
+            const double snapVals[] = { 1.0, 0.5, 0.25, 0.125, 0.0625 };
+            if (r >= 10 && r <= 14 && onSnapIntervalChanged) onSnapIntervalChanged (snapVals[r - 10]);
+            if (r == 20 && onCountInChanged) onCountInChanged (0);
+            if (r == 21 && onCountInChanged) onCountInChanged (1);
+            if (r == 22 && onCountInChanged) onCountInChanged (2);
+        });
+    }
+
+    void showTrackMenu()
+    {
+        juce::PopupMenu m;
+        m.addItem (1, "Add Audio Track");
+        m.addItem (2, "Add MIDI Track");
+        m.addItem (3, "Add Folder Track");
+        m.addSeparator();
+        m.addItem (4, "Delete Track", hasSelectedTrack, false);
+        m.addSeparator();
+        m.addItem (5, "Arm",  hasSelectedTrack, trackArmed);
+        m.addItem (6, "Mute", hasSelectedTrack, trackMuted);
+        m.addItem (7, "Solo", hasSelectedTrack, trackSolo);
+        m.showMenuAsync (juce::PopupMenu::Options(), [this] (int r) {
+            if (r == 1 && onAddAudioTrack)   onAddAudioTrack();
+            if (r == 2 && onAddMidiTrack)    onAddMidiTrack();
+            if (r == 3 && onAddFolderTrack)  onAddFolderTrack();
+            if (r == 4 && onDeleteTrack)     onDeleteTrack();
+            if (r == 5 && onToggleTrackArm)  onToggleTrackArm();
+            if (r == 6 && onToggleTrackMute) onToggleTrackMute();
+            if (r == 7 && onToggleTrackSolo) onToggleTrackSolo();
+        });
+    }
+
+    void showEventMenu()
+    {
+        juce::PopupMenu m;
+        m.addItem (1, "Nudge Left",  hasSelectedClip, false);
+        m.addItem (2, "Nudge Right", hasSelectedClip, false);
+        m.addSeparator();
+        m.addItem (3, "Trim Left",   hasSelectedClip, false);
+        m.addItem (4, "Trim Right",  hasSelectedClip, false);
+        m.addSeparator();
+        m.addItem (5, "Delete",      hasSelectedClip, false);
+        m.showMenuAsync (juce::PopupMenu::Options(), [this] (int r) {
+            if (r == 1 && onNudgeLeft)   onNudgeLeft();
+            if (r == 2 && onNudgeRight)  onNudgeRight();
+            if (r == 3 && onTrimLeft)    onTrimLeft();
+            if (r == 4 && onTrimRight)   onTrimRight();
+            if (r == 5 && onDeleteEvent) onDeleteEvent();
+        });
+    }
+
+    void showAudioMenu()
+    {
+        juce::PopupMenu m;
+        m.addItem (1, "Audio Settings...");
+        m.addSeparator();
+        m.addItem (2, "Rescan Plugins");
+        m.addSeparator();
+        m.addItem (3, "Plugin Delay Compensation", true, pdcEnabled);
+        m.showMenuAsync (juce::PopupMenu::Options(), [this] (int r) {
+            if (r == 1 && onSettings)      onSettings();
+            if (r == 2 && onRescanPlugins) onRescanPlugins();
+            if (r == 3 && onTogglePdc)     onTogglePdc();
+        });
+    }
+
+    void showTransportMenu()
+    {
+        juce::PopupMenu countInSub;
+        countInSub.addItem (10, "Off",    true, countInBars == 0);
+        countInSub.addItem (11, "1 Bar",  true, countInBars == 1);
+        countInSub.addItem (12, "2 Bars", true, countInBars == 2);
+
+        juce::PopupMenu m;
+        m.addItem (1, "Play / Pause\tSpace");
+        m.addItem (2, "Stop");
+        m.addItem (3, "Record");
+        m.addSeparator();
+        m.addItem (4, "Go to Start\tHome");
+        m.addSeparator();
+        m.addItem (5, "Loop",         true, loopEnabled);
+        m.addItem (6, "Punch In/Out", true, punchEnabled);
+        m.addSubMenu ("Count-In", countInSub);
+        m.showMenuAsync (juce::PopupMenu::Options(), [this] (int r) {
+            if (r == 1  && onPlay)           onPlay();
+            if (r == 2  && onStop)           onStop();
+            if (r == 3  && onRecord)         onRecord();
+            if (r == 4  && onGoToStart)      onGoToStart();
+            if (r == 5  && onToggleLoop)     onToggleLoop();
+            if (r == 6  && onTogglePunch)    onTogglePunch();
+            if (r == 10 && onCountInChanged) onCountInChanged (0);
+            if (r == 11 && onCountInChanged) onCountInChanged (1);
+            if (r == 12 && onCountInChanged) onCountInChanged (2);
+        });
+    }
+
+    void showViewMenu()
+    {
+        juce::PopupMenu m;
+        m.addItem (1, "Inspector", true, inspectorVisible);
+        m.addItem (2, "Browser",   true, browserVisible);
+        m.addSeparator();
+        m.addItem (3, mixerDetached ? "Dock Mixer" : "Detach Mixer");
+        m.showMenuAsync (juce::PopupMenu::Options(), [this] (int r) {
+            if (r == 1 && onToggleInspector)   onToggleInspector();
+            if (r == 2 && onToggleBrowser)     onToggleBrowser();
+            if (r == 3 && onToggleMixerDetach) onToggleMixerDetach();
+        });
+    }
+
+    void showHelpMenu()
+    {
+        juce::PopupMenu m;
+        m.addItem (1, "About Aerion DAW");
+        m.showMenuAsync (juce::PopupMenu::Options(), [] (int r) {
+            if (r == 1)
+                juce::AlertWindow::showMessageBoxAsync (
+                    juce::MessageBoxIconType::InfoIcon,
+                    "Aerion DAW",
+                    "Aerion DAW v0.1\nDeveloped by Aethos Studio Ltd.\n\nBuilt with JUCE & Tracktion Engine.");
+        });
+    }
 };
 
 //==============================================================================
@@ -546,167 +778,157 @@ public:
     int  countInBars   = 0;
     EditTool activeTool = EditTool::select;
 
-    void paint(juce::Graphics& g) override
+    DAWToolbar()
     {
-        g.fillAll(Theme::bgPanel);
-        g.setColour(Theme::border);
-        g.drawLine(0.0f, (float)(getHeight()-1), (float)getWidth(), (float)(getHeight()-1));
-
-        // Info / Info tool (leftmost)
-        int x = 12;
-        inspectorBtn = juce::Rectangle<int>(x, 6, 80, 28);
-        g.setColour(inspectorVisible ? Theme::active.withAlpha(0.2f) : Theme::surface);
-        g.fillRoundedRectangle(inspectorBtn.toFloat(), 4.0f);
-        g.setColour(inspectorVisible ? Theme::active : Theme::border);
-        g.drawRoundedRectangle(inspectorBtn.toFloat(), 4.0f, 1.0f);
-        g.setColour(inspectorVisible ? Theme::active : Theme::textMuted);
-        g.setFont(juce::Font(10.0f).withStyle(juce::Font::bold));
-        g.drawText("Inspector", inspectorBtn, juce::Justification::centred);
-        x += 92;
-
-        // Tool group
-        struct ToolBtn { juce::String label; EditTool tool; juce::Rectangle<int> bounds; };
-        ToolBtn tools[] = { 
-            { "Sel", EditTool::select, {x, 6, 32, 28} },
-            { "Cut", EditTool::razor,  {x + 36, 6, 32, 28} },
-            { "Comp", EditTool::comp,  {x + 72, 6, 36, 28} }
-        };
-
-        g.setFont(10.0f);
-        for (auto& t : tools) {
-            bool isActive = (activeTool == t.tool);
-            g.setColour(isActive ? Theme::active.withAlpha(0.2f) : Theme::surface);
-            g.fillRoundedRectangle(t.bounds.toFloat(), 4.0f);
-            g.setColour(isActive ? Theme::active : Theme::border);
-            g.drawRoundedRectangle(t.bounds.toFloat(), 4.0f, 1.0f);
-            g.setColour(isActive ? Theme::active : Theme::textMuted);
-            g.drawText(t.label, t.bounds, juce::Justification::centred);
-            
-            if (t.tool == EditTool::select) selectBounds = t.bounds;
-            if (t.tool == EditTool::razor)  razorBounds = t.bounds;
-            if (t.tool == EditTool::comp)   compBounds = t.bounds;
-        }
-
-        // Metronome Button
-        x += 112;
-        clickBtn = juce::Rectangle<int>(x, 6, 44, 28);
-        g.setColour(metronomeEnabled ? Theme::active.withAlpha(0.2f) : Theme::surface);
-        g.fillRoundedRectangle(clickBtn.toFloat(), 4.0f);
-        g.setColour(metronomeEnabled ? Theme::active : Theme::border);
-        g.drawRoundedRectangle(clickBtn.toFloat(), 4.0f, 1.0f);
-        g.setColour(metronomeEnabled ? Theme::active : Theme::textMuted);
-        g.setFont(juce::Font(10.0f).withStyle(juce::Font::bold));
-        g.drawText("CLICK", clickBtn, juce::Justification::centred);
-        x += 52;
-
-        // PUNCH toggle
-        x += 8;
-        punchBtn = juce::Rectangle<int>(x, 6, 48, 28);
-        g.setColour(punchEnabled ? Theme::recordRed.withAlpha(0.2f) : Theme::surface);
-        g.fillRoundedRectangle(punchBtn.toFloat(), 4.0f);
-        g.setColour(punchEnabled ? Theme::recordRed : Theme::border);
-        g.drawRoundedRectangle(punchBtn.toFloat(), 4.0f, 1.0f);
-        g.setColour(punchEnabled ? Theme::recordRed : Theme::textMuted);
-        g.setFont(juce::Font(10.0f).withStyle(juce::Font::bold));
-        g.drawText("PUNCH", punchBtn, juce::Justification::centred);
-        x += 56;
-
-        // PDC toggle
-        pdcBtn = juce::Rectangle<int>(x, 6, 36, 28);
-        g.setColour(pdcEnabled ? Theme::active.withAlpha(0.15f) : Theme::surface);
-        g.fillRoundedRectangle(pdcBtn.toFloat(), 4.0f);
-        g.setColour(pdcEnabled ? Theme::active : Theme::border);
-        g.drawRoundedRectangle(pdcBtn.toFloat(), 4.0f, 1.0f);
-        g.setColour(pdcEnabled ? Theme::active : Theme::textMuted);
-        g.setFont(juce::Font(10.0f).withStyle(juce::Font::bold));
-        g.drawText("PDC", pdcBtn, juce::Justification::centred);
-        x += 44;
-
-        // Right side: Browser | Quantize | Timebase | Snap
-        // Anchored from right to avoid overlapping snap button.
-        // Total right group width: 72 + 12 + 120 + 12 + 120 + 12 + 100 + 12 = 460
-        int rx = getWidth() - 460;
-
-        browserBtn = juce::Rectangle<int>(rx, 6, 72, 28);
-        g.setColour(browserVisible ? Theme::active.withAlpha(0.2f) : Theme::surface);
-        g.fillRoundedRectangle(browserBtn.toFloat(), 4.0f);
-        g.setColour(browserVisible ? Theme::active : Theme::border);
-        g.drawRoundedRectangle(browserBtn.toFloat(), 4.0f, 1.0f);
-        g.setColour(browserVisible ? Theme::active : Theme::textMuted);
-        g.setFont(juce::Font(10.0f).withStyle(juce::Font::bold));
-        g.drawText("Browser", browserBtn, juce::Justification::centred);
-        rx += 84;
-
+        auto load = [] (const char* data, int size) -> std::unique_ptr<juce::Drawable>
         {
-            const char* countLabels[] = { "COUNT IN: Off", "COUNT IN: 1 Bar", "COUNT IN: 2 Bars" };
-            countInBtn = juce::Rectangle<int>(rx, 6, 120, 28);
-            g.setColour(countInBars > 0 ? Theme::active.withAlpha(0.12f) : Theme::surface.withAlpha(0.4f));
-            g.fillRoundedRectangle(countInBtn.toFloat(), 4.0f);
-            g.setColour(countInBars > 0 ? Theme::active : Theme::border.withAlpha(0.4f));
-            g.drawRoundedRectangle(countInBtn.toFloat(), 4.0f, 1.0f);
-            g.setColour(countInBars > 0 ? Theme::active : Theme::textMuted);
-            g.setFont(10.0f);
-            g.drawText(countLabels[countInBars], countInBtn.reduced(4, 0), juce::Justification::centred);
+            if (auto xml = juce::XmlDocument::parse (juce::String::fromUTF8 (data, size)))
+                return juce::Drawable::createFromSVG (*xml);
+            return nullptr;
+        };
+        iconInspector = load (BinaryData::aerion_inspector_svg, BinaryData::aerion_inspector_svgSize);
+        iconSelect    = load (BinaryData::aerion_select_svg,    BinaryData::aerion_select_svgSize);
+        iconCut       = load (BinaryData::aerion_cut_svg,       BinaryData::aerion_cut_svgSize);
+        iconComp      = load (BinaryData::aerion_comp_svg,      BinaryData::aerion_comp_svgSize);
+        iconPunch     = load (BinaryData::aerion_punch_svg,     BinaryData::aerion_punch_svgSize);
+        iconPdc       = load (BinaryData::aerion_pdc_svg,       BinaryData::aerion_pdc_svgSize);
+        iconMagnet    = load (BinaryData::aerion_magnet_svg,    BinaryData::aerion_magnet_svgSize);
+        iconMetronome = load (BinaryData::aerion_metronome_svg, BinaryData::aerion_metronome_svgSize);
+        iconCountIn   = load (BinaryData::aerion_countin_svg,   BinaryData::aerion_countin_svgSize);
+        iconBrowser   = load (BinaryData::aerion_browser_svg,   BinaryData::aerion_browser_svgSize);
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (Theme::bgBase);
+        g.setColour (Theme::border.withAlpha (0.6f));
+        g.drawLine (0.0f, (float)(getHeight() - 1), (float)getWidth(), (float)(getHeight() - 1));
+
+        const int btnY = 6, btnS = 28, h = getHeight();
+
+        // ── Left side ─────────────────────────────────────────────────────────
+        // Group 1: Inspector toggle
+        inspectorBtn = { 8, btnY, btnS, btnS };
+        drawIconBtn (g, inspectorBtn, iconInspector.get(), inspectorVisible);
+
+        drawDivider (g, 44, btnY, h - btnY);
+
+        // Group 2: Edit tools
+        selectBounds = { 52,  btnY, btnS, btnS };
+        razorBounds  = { 84,  btnY, btnS, btnS };
+        compBounds   = { 116, btnY, btnS, btnS };
+        drawIconBtn (g, selectBounds, iconSelect.get(), activeTool == EditTool::select);
+        drawIconBtn (g, razorBounds,  iconCut.get(),    activeTool == EditTool::razor);
+        drawIconBtn (g, compBounds,   iconComp.get(),   activeTool == EditTool::comp);
+
+        drawDivider (g, 152, btnY, h - btnY);
+
+        // Group 3: Recording setup
+        punchBtn = { 160, btnY, btnS, btnS };
+        pdcBtn   = { 192, btnY, btnS, btnS };
+        drawIconBtn (g, punchBtn, iconPunch.get(), punchEnabled, Theme::recordRed);
+        drawIconBtn (g, pdcBtn,   iconPdc.get(),   pdcEnabled);
+
+        // ── Right side ────────────────────────────────────────────────────────
+        const int W = getWidth();
+
+        // Group 6: Browser toggle (far right)
+        browserBtn = { W - 36, btnY, btnS, btnS };
+        drawIconBtn (g, browserBtn, iconBrowser.get(), browserVisible);
+
+        drawDivider (g, W - 50, btnY, h - btnY);
+
+        // Group 5: Metronome + CountIn
+        clickBtn   = { W - 86,  btnY, btnS, btnS };
+        countInBtn = { W - 118, btnY, btnS, btnS };
+        drawIconBtn (g, clickBtn,   iconMetronome.get(), metronomeEnabled);
+        drawIconBtn (g, countInBtn, iconCountIn.get(),   countInBars > 0);
+
+        // Tiny CountIn state label below the icon
+        {
+            const char* countLabels[] = { "OFF", "1", "2" };
+            g.setColour (countInBars > 0 ? Theme::active : Theme::textMuted.withAlpha (0.6f));
+            g.setFont (juce::Font (7.0f).withStyle (juce::Font::bold));
+            g.drawText (countLabels[countInBars], countInBtn.getX(), countInBtn.getBottom() - 9,
+                        countInBtn.getWidth(), 9, juce::Justification::centred);
         }
 
-        rx += 132;
-        g.setColour(Theme::surface.withAlpha(0.4f));
-        g.fillRoundedRectangle((float)rx, 6.0f, 120.0f, 28.0f, 4.0f);
-        g.setColour(Theme::textMuted.withAlpha(0.3f));
-        g.drawText("TIMEBASE  Bars", rx + 8, 6, 100, 28, juce::Justification::centredLeft);
+        drawDivider (g, W - 132, btnY, h - btnY);
 
-        int snapWidth = 100;
-        int rightMargin = 12;
-        int snapX = getWidth() - snapWidth - rightMargin;
-        snapBounds = juce::Rectangle<int>(snapX, 6, snapWidth, 28);
-        g.setColour((snapEnabled ? Theme::active : Theme::surface).withAlpha(snapEnabled ? 0.2f : 1.0f));
-        g.fillRoundedRectangle(snapBounds.toFloat(), 4.0f);
-        g.setColour(snapEnabled ? Theme::active : Theme::border);
-        g.drawRoundedRectangle(snapBounds.toFloat(), 4.0f, 1.0f);
-        
-        g.setColour(snapEnabled ? Theme::active : Theme::textMain);
-        juce::String snapText = "Snap: " + getSnapIntervalText (snapInterval);
-        g.drawText(snapText, snapBounds, juce::Justification::centred);
+        // Group 4: Snap (compact 24px square with icon + tiny sub-label)
+        snapBounds = { W - 162, btnY + 2, 24, 24 };
+        {
+            bool hov = snapBounds.contains (hoverPos);
+            auto bf = snapBounds.toFloat();
+            g.setColour (snapEnabled ? Theme::active.withAlpha (0.2f)
+                                     : hov ? Theme::surface.brighter (0.08f) : Theme::surface);
+            g.fillRoundedRectangle (bf, 3.0f);
+            g.setColour (snapEnabled ? Theme::active
+                                     : hov ? Theme::border.brighter (0.3f) : Theme::border);
+            g.drawRoundedRectangle (bf, 3.0f, 1.0f);
+
+            // Magnet icon
+            if (iconMagnet != nullptr)
+                iconMagnet->drawWithin (g, snapBounds.reduced (5).toFloat().withTrimmedBottom (5),
+                                        juce::RectanglePlacement::centred, 1.0f);
+
+            // Tiny interval sub-label
+            g.setColour (snapEnabled ? Theme::active : Theme::textMuted);
+            g.setFont (juce::Font (6.5f).withStyle (juce::Font::bold));
+            g.drawText (getSnapIntervalText (snapInterval),
+                        snapBounds.getX(), snapBounds.getBottom() - 8,
+                        snapBounds.getWidth(), 8, juce::Justification::centred);
+        }
     }
 
     static juce::String getSnapIntervalText (double interval)
     {
-        if (interval >= 4.0)  return "Bar";
-        if (interval >= 2.0)  return "1/2";
-        if (interval >= 1.0)  return "1/4";
-        if (interval >= 0.5)  return "1/8";
-        if (interval >= 0.25) return "1/16";
+        if (interval >= 4.0)   return "Bar";
+        if (interval >= 2.0)   return "1/2";
+        if (interval >= 1.0)   return "1/4";
+        if (interval >= 0.5)   return "1/8";
+        if (interval >= 0.25)  return "1/16";
         if (interval >= 0.125) return "1/32";
         return "1/64";
     }
 
-    void mouseDown(const juce::MouseEvent& e) override
+    void mouseMove (const juce::MouseEvent& e) override { hoverPos = e.getPosition(); repaint(); }
+    void mouseExit (const juce::MouseEvent& e) override { juce::ignoreUnused (e); hoverPos = { -1, -1 }; repaint(); }
+
+    void mouseDown (const juce::MouseEvent& e) override
     {
-        if (inspectorBtn.contains(e.getPosition())) {
+        if (inspectorBtn.contains (e.getPosition())) {
             inspectorVisible = !inspectorVisible;
             repaint();
             if (onToggleInspector) onToggleInspector();
             return;
         }
-        if (browserBtn.contains(e.getPosition())) {
+        if (browserBtn.contains (e.getPosition())) {
             browserVisible = !browserVisible;
             repaint();
             if (onToggleBrowser) onToggleBrowser();
             return;
         }
-        if (selectBounds.contains(e.getPosition())) {
+        if (selectBounds.contains (e.getPosition())) {
             activeTool = EditTool::select;
             repaint();
-            if (onToolChanged) onToolChanged(activeTool);
+            if (onToolChanged) onToolChanged (activeTool);
             return;
         }
-        if (razorBounds.contains(e.getPosition())) {
+        if (razorBounds.contains (e.getPosition())) {
             activeTool = EditTool::razor;
             repaint();
-            if (onToolChanged) onToolChanged(activeTool);
+            if (onToolChanged) onToolChanged (activeTool);
             return;
         }
-        if (clickBtn.contains(e.getPosition())) {
+        if (compBounds.contains (e.getPosition())) {
+            activeTool = EditTool::comp;
+            repaint();
+            if (onToolChanged) onToolChanged (activeTool);
+            return;
+        }
+        if (clickBtn.contains (e.getPosition())) {
             if (e.mods.isRightButtonDown())
             {
                 if (onShowMetronomeSettings) onShowMetronomeSettings();
@@ -719,39 +941,40 @@ public:
             }
             return;
         }
-        if (punchBtn.contains(e.getPosition())) {
+        if (punchBtn.contains (e.getPosition())) {
             punchEnabled = !punchEnabled;
             repaint();
-            if (onPunchChanged) onPunchChanged(punchEnabled);
+            if (onPunchChanged) onPunchChanged (punchEnabled);
             return;
         }
-        if (pdcBtn.contains(e.getPosition())) {
+        if (pdcBtn.contains (e.getPosition())) {
             pdcEnabled = !pdcEnabled;
             repaint();
-            if (onPdcChanged) onPdcChanged(pdcEnabled);
+            if (onPdcChanged) onPdcChanged (pdcEnabled);
             return;
         }
-        if (countInBtn.contains(e.getPosition())) {
+        if (countInBtn.contains (e.getPosition())) {
             countInBars = (countInBars + 1) % 3;
             repaint();
-            if (onCountInChanged) onCountInChanged(countInBars);
+            if (onCountInChanged) onCountInChanged (countInBars);
             return;
         }
-        if (snapBounds.contains(e.getPosition())) {
-            if (e.mods.isRightButtonDown() || e.x > snapBounds.getRight() - 30)
+        if (snapBounds.contains (e.getPosition())) {
+            if (e.mods.isRightButtonDown() || e.x > snapBounds.getX() + 14)
             {
                 juce::PopupMenu m;
-                m.addItem (1, "Bar",   true, juce::approximatelyEqual (snapInterval, 4.0));
-                m.addItem (2, "1/2",   true, juce::approximatelyEqual (snapInterval, 2.0));
+                m.addItem (1, "Bar",  true, juce::approximatelyEqual (snapInterval, 4.0));
+                m.addItem (2, "1/2",  true, juce::approximatelyEqual (snapInterval, 2.0));
                 m.addItem (3, "1/4",  true, juce::approximatelyEqual (snapInterval, 1.0));
-                m.addItem (4, "1/8",   true, juce::approximatelyEqual (snapInterval, 0.5));
-                m.addItem (5, "1/16",  true, juce::approximatelyEqual (snapInterval, 0.25));
-                m.addItem (6, "1/32",  true, juce::approximatelyEqual (snapInterval, 0.125));
-                
+                m.addItem (4, "1/8",  true, juce::approximatelyEqual (snapInterval, 0.5));
+                m.addItem (5, "1/16", true, juce::approximatelyEqual (snapInterval, 0.25));
+                m.addItem (6, "1/32", true, juce::approximatelyEqual (snapInterval, 0.125));
+                m.addItem (7, "1/64", true, juce::approximatelyEqual (snapInterval, 0.0625));
+
                 m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (localAreaToGlobal (snapBounds)),
                     [this] (int result) {
                         if (result == 0) return;
-                        double intervals[] = { 0, 4.0, 2.0, 1.0, 0.5, 0.25, 0.125 };
+                        double intervals[] = { 0, 4.0, 2.0, 1.0, 0.5, 0.25, 0.125, 0.0625 };
                         snapInterval = intervals[result];
                         if (onSnapIntervalChanged) onSnapIntervalChanged (snapInterval);
                         repaint();
@@ -759,7 +982,7 @@ public:
             }
             else
             {
-                snapEnabled = ! snapEnabled;
+                snapEnabled = !snapEnabled;
                 repaint();
                 if (onToggleSnap) onToggleSnap();
             }
@@ -769,8 +992,39 @@ public:
     juce::Rectangle<int> getClickBtnBounds() const { return clickBtn; }
 
 private:
-    juce::Rectangle<int> snapBounds, selectBounds, razorBounds, compBounds, inspectorBtn, browserBtn, clickBtn;
-    juce::Rectangle<int> punchBtn, pdcBtn, countInBtn;
+    // Icon drawables
+    std::unique_ptr<juce::Drawable> iconInspector, iconSelect, iconCut, iconComp;
+    std::unique_ptr<juce::Drawable> iconPunch, iconPdc;
+    std::unique_ptr<juce::Drawable> iconMagnet, iconMetronome, iconCountIn, iconBrowser;
+
+    // Hit-test rectangles (computed each paint, read in mouseDown)
+    juce::Rectangle<int> snapBounds, selectBounds, razorBounds, compBounds;
+    juce::Rectangle<int> inspectorBtn, browserBtn, clickBtn, punchBtn, pdcBtn, countInBtn;
+
+    // Hover tracking
+    juce::Point<int> hoverPos { -1, -1 };
+
+    void drawIconBtn (juce::Graphics& g, juce::Rectangle<int> b,
+                      juce::Drawable* icon, bool active,
+                      juce::Colour activeColour = Theme::active) const
+    {
+        bool hov = b.contains (hoverPos);
+        auto bf = b.toFloat();
+        g.setColour (active ? activeColour.withAlpha (0.2f)
+                            : hov ? Theme::surface.brighter (0.08f) : Theme::surface);
+        g.fillRoundedRectangle (bf, 4.0f);
+        g.setColour (active ? activeColour
+                            : hov ? Theme::border.brighter (0.3f) : Theme::border);
+        g.drawRoundedRectangle (bf, 4.0f, 1.0f);
+        if (icon != nullptr)
+            icon->drawWithin (g, b.reduced (6).toFloat(), juce::RectanglePlacement::centred, 1.0f);
+    }
+
+    static void drawDivider (juce::Graphics& g, int x, int y, int h)
+    {
+        g.setColour (Theme::border);
+        g.drawLine ((float)x, (float)(y + 4), (float)x, (float)(y + h - 4), 1.0f);
+    }
 };
 
 //==============================================================================
@@ -785,8 +1039,19 @@ public:
         projectData.getProjectTree().addListener (this);
         startTimerHz (30); // drives meter animation
 
+        auto loadIcon = [] (const char* data, int size) -> std::unique_ptr<juce::Drawable>
+        {
+            if (auto xml = juce::XmlDocument::parse (juce::String::fromUTF8 (data, size)))
+                return juce::Drawable::createFromSVG (*xml);
+            return nullptr;
+        };
+
         if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::aerion_fader_svg, BinaryData::aerion_fader_svgSize)))
             faderKnobDrawable = juce::Drawable::createFromSVG (*svgXml);
+
+        iconArm  = loadIcon (BinaryData::aerion_arm_svg,   BinaryData::aerion_arm_svgSize);
+        iconMute = loadIcon (BinaryData::aerion_mute_svg,  BinaryData::aerion_mute_svgSize);
+        iconSolo = loadIcon (BinaryData::aerion_Solo_svg,  BinaryData::aerion_Solo_svgSize);
     }
 
     ~Inspector() override { projectData.getProjectTree().removeListener (this); }
@@ -806,6 +1071,7 @@ public:
     tracktion::Track* selectedTrack = nullptr;
 
     std::unique_ptr<juce::Drawable> faderKnobDrawable;
+    std::unique_ptr<juce::Drawable> iconArm, iconMute, iconSolo;
 
     void paint (juce::Graphics& g) override
     {
@@ -862,24 +1128,24 @@ public:
         g.setFont (11.0f);
         g.drawText ("Main", headerB.getRight() - 100, headerB.getY() + 50, 100, 18, juce::Justification::right);
 
-        // State pills
+        // State buttons — compact single-letter controls
         b.removeFromTop (8);
         auto pills = b.removeFromTop (24);
-        armBounds  = pills.removeFromLeft (48); drawPill (g, armBounds,  "ARM",  armed, Theme::recordRed);
-        pills.removeFromLeft (6);
-        muteBounds = pills.removeFromLeft (48); drawPill (g, muteBounds, "MUTE", muted, Theme::meterYellow);
-        pills.removeFromLeft (6);
-        soloBounds = pills.removeFromLeft (48); drawPill (g, soloBounds, "SOLO", solo,  Theme::accent);
-        
-        // Phase and Mono (Phase 1)
+        armBounds  = pills.removeFromLeft (24); drawPill (g, armBounds,  "A", armed, Theme::recordRed);
+        pills.removeFromLeft (4);
+        muteBounds = pills.removeFromLeft (24); drawPill (g, muteBounds, "M", muted, Theme::meterYellow);
+        pills.removeFromLeft (4);
+        soloBounds = pills.removeFromLeft (24); drawPill (g, soloBounds, "S", solo,  Theme::meterGreen);
+
+        // Phase and Mono — keep text pills (no icons for these)
         if (selectedTrack != nullptr)
         {
-            pills.removeFromLeft (12);
+            pills.removeFromLeft (8);
             phaseBounds = pills.removeFromLeft (24);
             bool phaseOn = audioEngine.getTrackPhase (selectedTrack);
             drawPill (g, phaseBounds, "Ø", phaseOn, Theme::active);
-            
-            pills.removeFromLeft (6);
+
+            pills.removeFromLeft (4);
             monoBounds = pills.removeFromLeft (24);
             bool monoOn = audioEngine.getTrackMono (selectedTrack);
             drawPill (g, monoBounds, "M", monoOn, Theme::active);
@@ -1121,6 +1387,17 @@ public:
         g.setColour (on ? juce::Colours::black : Theme::textMuted);
         g.setFont (juce::Font (9.0f).withStyle (juce::Font::bold));
         g.drawText (label, r, juce::Justification::centred);
+    }
+
+    static void drawIconStateBtn (juce::Graphics& g, juce::Rectangle<int> r,
+                                  juce::Drawable* icon, bool on, juce::Colour activeColour)
+    {
+        g.setColour (on ? activeColour.withAlpha (0.8f) : Theme::surface);
+        g.fillRoundedRectangle (r.toFloat(), 4.0f);
+        g.setColour (on ? activeColour : Theme::border);
+        g.drawRoundedRectangle (r.toFloat(), 4.0f, 1.0f);
+        if (icon != nullptr)
+            icon->drawWithin (g, r.reduced (5).toFloat(), juce::RectanglePlacement::centred, 1.0f);
     }
 
 private:
@@ -4956,10 +5233,12 @@ public:
     {
         projectData.getProjectTree().addListener (this);
 
-        auto setupLabel = [this] (juce::Label& l, const char* suffix = nullptr) {
-            l.setFont (juce::Font (20.0f).withStyle (juce::Font::bold));
-            l.setJustificationType (juce::Justification::centredLeft);
-            l.setColour (juce::Label::textColourId, Theme::active);
+        auto setupLabel = [this] (juce::Label& l)
+        {
+            l.setFont (juce::Font (13.0f).withStyle (juce::Font::bold));
+            l.setJustificationType (juce::Justification::centred);
+            l.setColour (juce::Label::textColourId, Theme::accent);
+            l.setColour (juce::Label::backgroundColourId, juce::Colours::transparentBlack);
             l.setEditable (true, false, false);
             l.setColour (juce::Label::textWhenEditingColourId, Theme::textMain);
             l.setColour (juce::Label::backgroundWhenEditingColourId, Theme::surface);
@@ -4990,73 +5269,31 @@ public:
 
     void resized() override
     {
-        // Right side counters.
-        int rx = getWidth() - 360;
-        rx += 210;
-        tempoBounds = juce::Rectangle<int>(rx, 8, 80, 28);
-        tempoLabel.setBounds (tempoBounds);
+        const int panelH = 36;
+        const int panelY = (getHeight() - panelH) / 2;
 
-        rx += 90;
-        timeSigBounds = juce::Rectangle<int>(rx, 8, 60, 28);
-        timeSigLabel.setBounds (timeSigBounds);
+        // Tempo display: 96px wide, right-anchored
+        tempoBounds = { getWidth() - 182, panelY, 94, panelH };
+        tempoLabel.setBounds (tempoBounds.reduced (4, 8));
+
+        // Time sig display: 68px wide, rightmost
+        timeSigBounds = { getWidth() - 80, panelY, 72, panelH };
+        timeSigLabel.setBounds (timeSigBounds.reduced (4, 8));
     }
 
-    void paint(juce::Graphics& g) override
+    void paint (juce::Graphics& g) override
     {
-        g.fillAll(Theme::bgPanel);
-        g.setColour(Theme::border);
-        g.drawLine(0.0f, 0.0f, (float)getWidth(), (float)0.0f);
+        g.fillAll (Theme::bgBase);
+        g.setColour (Theme::border.withAlpha (0.6f));
+        g.drawLine (0.0f, 0.0f, (float)getWidth(), 0.0f);
 
-        // Update labels if not editing
         double pos = audioEngine.getTransportPosition();
-        if (! tempoLabel.isBeingEdited())
-            tempoLabel.setText (juce::String::formatted ("%.2f", audioEngine.getTempoAtPosition (pos)), juce::dontSendNotification);
-        
-        if (! timeSigLabel.isBeingEdited())
-            timeSigLabel.setText (audioEngine.getTimeSigAtPosition (pos), juce::dontSendNotification);
+        const int W = getWidth();
+        const int H = getHeight();
+        const int panelH = 36;
+        const int panelY = (H - panelH) / 2;
 
-        // Layout: [perf/cpu] [transport buttons] [time/tempo/sig] [metronome]
-        const int btnW = 44;
-        const int btnH = 36;
-        int cy = (getHeight() - btnH) / 2;
-        int cx = getWidth() / 2 - (btnW * 6 + 5 * 6) / 2;
-
-        rewindBounds = juce::Rectangle<int>(cx,                cy, btnW, btnH); cx += btnW + 6;
-        forwardBounds= juce::Rectangle<int>(cx,                cy, btnW, btnH); cx += btnW + 6;
-        stopBounds   = juce::Rectangle<int>(cx,                cy, btnW, btnH); cx += btnW + 6;
-        playBounds   = juce::Rectangle<int>(cx,                cy, btnW, btnH); cx += btnW + 6;
-        recBounds    = juce::Rectangle<int>(cx,                cy, btnW, btnH); cx += btnW + 6;
-        loopBounds   = juce::Rectangle<int>(cx,                cy, btnW, btnH);
-
-        drawBtn(g, rewindBounds.toFloat(),  Glyph::rewind);
-        drawBtn(g, forwardBounds.toFloat(), Glyph::forward);
-        drawBtn(g, stopBounds.toFloat(),    Glyph::stop);
-        drawBtn(g, playBounds.toFloat(),    Glyph::play,   audioEngine.isPlaying());
-        drawBtn(g, recBounds.toFloat(),     Glyph::record, audioEngine.isRecording());
-        drawBtn(g, loopBounds.toFloat(),    Glyph::loop,   audioEngine.getEdit().getTransport().looping);
-
-        // Right side counters.
-        juce::String counter = audioEngine.getBarsBeatsString(pos);
-
-        int rx = getWidth() - 360;
-        g.setColour(Theme::active);
-        g.setFont(juce::Font(20.0f).withStyle(juce::Font::bold));
-        g.drawText(counter, rx, 8, 200, 28, juce::Justification::centredLeft);
-        g.setColour(Theme::textMuted);
-        g.setFont(juce::Font(8.0f).withStyle(juce::Font::bold));
-        g.drawText("BARS . BEATS . TICKS", rx, getHeight() - 16, 200, 12, juce::Justification::centredLeft);
-
-        rx += 210;
-        g.setColour(Theme::textMuted.withAlpha(0.5f));
-        g.setFont(juce::Font(8.0f).withStyle(juce::Font::bold));
-        g.drawText("TEMPO", rx, getHeight() - 16, 80, 12, juce::Justification::centredLeft);
-
-        rx += 90;
-        g.setColour(Theme::textMuted.withAlpha(0.5f));
-        g.setFont(juce::Font(8.0f).withStyle(juce::Font::bold));
-        g.drawText("TIME", rx, getHeight() - 16, 60, 12, juce::Justification::centredLeft);
-
-        // Left side: real SR / buffer / CPU info
+        // ── Left: SR / Buffer / CPU ────────────────────────────────────────────
         {
             auto bi = audioEngine.getBufferInfo();
             juce::String srStr  = juce::String (bi.sampleRate / 1000.0, 1) + " kHz";
@@ -5066,71 +5303,137 @@ public:
                                 : cpu > 0.60f ? Theme::meterYellow
                                               : Theme::accent;
 
-            g.setColour (Theme::textMuted.withAlpha (0.5f));
-            g.setFont (juce::Font (8.0f).withStyle (juce::Font::bold));
-            g.drawText ("SR",  12, 12, 30, 12, juce::Justification::left);
-            g.drawText ("BUF", 12, 30, 30, 12, juce::Justification::left);
-            g.setColour (Theme::active);
-            g.setFont (juce::Font (10.0f).withStyle (juce::Font::bold));
-            g.drawText (srStr,  42, 8,  72, 18, juce::Justification::centredLeft);
-            g.drawText (bufStr, 42, 26, 72, 18, juce::Justification::centredLeft);
-            // CPU bar
-            g.setColour (Theme::surface.withAlpha (0.5f));
-            g.fillRoundedRectangle (120.0f, 14.0f, 60.0f, 6.0f, 2.0f);
-            g.setColour (cpuCol.withAlpha (0.8f));
-            g.fillRoundedRectangle (120.0f, 14.0f, 60.0f * cpu, 6.0f, 2.0f);
-            g.setColour (Theme::textMuted.withAlpha (0.4f));
-            g.setFont (juce::Font (8.0f).withStyle (juce::Font::bold));
-            g.drawText ("CPU", 120, 24, 60, 12, juce::Justification::left);
+            g.setColour (Theme::textMuted.withAlpha (0.45f));
+            g.setFont (juce::Font (7.5f).withStyle (juce::Font::bold));
+            g.drawText ("SR",  10, panelY + 2,  26, 12, juce::Justification::right);
+            g.drawText ("BUF", 10, panelY + 18, 26, 12, juce::Justification::right);
+            g.setColour (Theme::accent.withAlpha (0.9f));
+            g.setFont (juce::Font (11.0f).withStyle (juce::Font::bold));
+            g.drawText (srStr,  40, panelY,      88, 17, juce::Justification::centredLeft);
+            g.drawText (bufStr, 40, panelY + 17, 88, 17, juce::Justification::centredLeft);
+            g.setColour (Theme::surface.withAlpha (0.7f));
+            g.fillRoundedRectangle (130.0f, (float)(panelY + 5), 50.0f, 5.0f, 2.0f);
+            g.setColour (cpuCol.withAlpha (0.85f));
+            g.fillRoundedRectangle (130.0f, (float)(panelY + 5), 50.0f * cpu, 5.0f, 2.0f);
+            g.setColour (Theme::textMuted.withAlpha (0.35f));
+            g.setFont (juce::Font (7.0f).withStyle (juce::Font::bold));
+            g.drawText ("CPU", 130, panelY + 14, 50, 10, juce::Justification::centred);
         }
+
+        drawSectionDivider (g, 190, panelY - 4, panelH + 8);
+
+        // ── Center: Transport buttons ──────────────────────────────────────────
+        const int btnS = 34, btnGap = 8;
+        const int totalBtnW = 6 * btnS + 5 * btnGap;   // 6 buttons
+        int cx = W / 2 - totalBtnW / 2;
+        int cy = (H - btnS) / 2;
+
+        rewindBounds  = { cx,                        cy, btnS, btnS }; cx += btnS + btnGap;
+        forwardBounds = { cx,                        cy, btnS, btnS }; cx += btnS + btnGap;
+        stopBounds    = { cx,                        cy, btnS, btnS }; cx += btnS + btnGap;
+        playBounds    = { cx,                        cy, btnS, btnS }; cx += btnS + btnGap;
+        recBounds     = { cx,                        cy, btnS, btnS }; cx += btnS + btnGap;
+        loopBounds    = { cx,                        cy, btnS, btnS };
+
+        drawBtn (g, rewindBounds.toFloat(),  Glyph::rewind);
+        drawBtn (g, forwardBounds.toFloat(), Glyph::forward);
+        drawBtn (g, stopBounds.toFloat(),    Glyph::stop);
+        drawBtn (g, playBounds.toFloat(),    Glyph::play,   audioEngine.isPlaying());
+        drawBtn (g, recBounds.toFloat(),     Glyph::record, audioEngine.isRecording());
+        drawBtn (g, loopBounds.toFloat(),    Glyph::loop,   audioEngine.getEdit().getTransport().looping);
+
+        drawSectionDivider (g, W - 186, panelY - 4, panelH + 8);
+
+        // ── Tempo display ──────────────────────────────────────────────────────
+        drawDisplayPanel (g, tempoBounds);
+        if (! tempoLabel.isBeingEdited())
+            tempoLabel.setText (juce::String::formatted ("%.2f", audioEngine.getTempoAtPosition (pos)),
+                                juce::dontSendNotification);
+        g.setColour (Theme::textMuted.withAlpha (0.45f));
+        g.setFont (juce::Font (7.0f).withStyle (juce::Font::bold));
+        g.drawText ("TEMPO",
+                    tempoBounds.getX(), tempoBounds.getBottom() - 11, tempoBounds.getWidth(), 11,
+                    juce::Justification::centred);
+
+        drawSectionDivider (g, W - 84, panelY - 4, panelH + 8);
+
+        // ── Time Sig display ───────────────────────────────────────────────────
+        drawDisplayPanel (g, timeSigBounds);
+        if (! timeSigLabel.isBeingEdited())
+            timeSigLabel.setText (audioEngine.getTimeSigAtPosition (pos), juce::dontSendNotification);
+        g.setColour (Theme::textMuted.withAlpha (0.45f));
+        g.setFont (juce::Font (7.0f).withStyle (juce::Font::bold));
+        g.drawText ("TIME SIG",
+                    timeSigBounds.getX(), timeSigBounds.getBottom() - 11, timeSigBounds.getWidth(), 11,
+                    juce::Justification::centred);
     }
 
     enum class Glyph { play, stop, record, rewind, forward, loop };
 
-    static void drawBtn(juce::Graphics& g, juce::Rectangle<float> b, Glyph k, bool active = false)
+    static void drawBtn (juce::Graphics& g, juce::Rectangle<float> b, Glyph k, bool active = false)
     {
+        auto bc = b.reduced (2.0f);
         juce::Colour col = (k == Glyph::record) ? Theme::recordRed : Theme::active;
-        g.setColour(active ? col.withAlpha(0.2f) : Theme::surface);
-        g.fillRoundedRectangle(b, 4.0f);
-        g.setColour(active ? col : Theme::border);
-        g.drawRoundedRectangle(b, 4.0f, 1.0f);
-        g.setColour(active ? col : Theme::textMain);
 
-        auto cx = b.getCentreX();
-        auto cy = b.getCentreY();
+        g.setColour (active ? col.withAlpha (0.18f) : juce::Colour (0xff0c1018));
+        g.fillRoundedRectangle (bc, 4.0f);
+        g.setColour (active ? col.withAlpha (0.55f) : Theme::border.withAlpha (0.45f));
+        g.drawRoundedRectangle (bc, 4.0f, 1.0f);
+
+        float cx = bc.getCentreX(), cy = bc.getCentreY();
+        g.setColour (active ? col : Theme::textMuted.withAlpha (0.75f));
+
         switch (k)
         {
             case Glyph::play: {
                 juce::Path p;
-                p.addTriangle(cx - 5, cy - 7, cx - 5, cy + 7, cx + 7, cy);
-                g.fillPath(p);
+                p.addTriangle (cx - 5.0f, cy - 7.0f, cx - 5.0f, cy + 7.0f, cx + 7.0f, cy);
+                g.fillPath (p);
             } break;
             case Glyph::stop:
-                g.fillRect(cx - 6, cy - 6, 12.0f, 12.0f);
+                g.fillRoundedRectangle (cx - 6.0f, cy - 6.0f, 12.0f, 12.0f, 1.5f);
                 break;
             case Glyph::record:
-                g.setColour(Theme::recordRed);
-                g.fillEllipse(cx - 7, cy - 7, 14.0f, 14.0f);
+                g.setColour (active ? Theme::recordRed : Theme::recordRed.withAlpha (0.65f));
+                g.fillEllipse (cx - 6.5f, cy - 6.5f, 13.0f, 13.0f);
+                if (active) {
+                    g.setColour (Theme::recordRed.withAlpha (0.18f));
+                    g.fillEllipse (cx - 9.5f, cy - 9.5f, 19.0f, 19.0f);
+                }
                 break;
             case Glyph::rewind: {
                 juce::Path p;
-                p.addTriangle(cx - 8, cy, cx,     cy - 6, cx,     cy + 6);
-                p.addTriangle(cx,     cy, cx + 8, cy - 6, cx + 8, cy + 6);
-                g.fillPath(p);
+                p.addTriangle (cx - 2.0f, cy, cx + 7.0f, cy - 6.0f, cx + 7.0f, cy + 6.0f);
+                p.addTriangle (cx - 9.0f, cy, cx - 2.0f, cy - 6.0f, cx - 2.0f, cy + 6.0f);
+                g.fillPath (p);
             } break;
             case Glyph::forward: {
                 juce::Path p;
-                p.addTriangle(cx - 8, cy - 6, cx - 8, cy + 6, cx,     cy);
-                p.addTriangle(cx,     cy - 6, cx,     cy + 6, cx + 8, cy);
-                g.fillPath(p);
+                p.addTriangle (cx + 2.0f, cy, cx - 7.0f, cy - 6.0f, cx - 7.0f, cy + 6.0f);
+                p.addTriangle (cx + 9.0f, cy, cx + 2.0f, cy - 6.0f, cx + 2.0f, cy + 6.0f);
+                g.fillPath (p);
             } break;
             case Glyph::loop: {
-                g.drawEllipse(cx - 8, cy - 6, 16.0f, 12.0f, 1.5f);
+                g.drawEllipse (cx - 7.5f, cy - 5.5f, 15.0f, 11.0f, 1.5f);
                 juce::Path arrow;
-                arrow.addTriangle(cx + 6, cy - 8, cx + 10, cy, cx + 2, cy);
-                g.fillPath(arrow);
+                arrow.addTriangle (cx + 5.5f, cy - 7.5f, cx + 9.5f, cy - 1.5f, cx + 1.5f, cy - 1.5f);
+                g.fillPath (arrow);
             } break;
         }
+    }
+
+    static void drawDisplayPanel (juce::Graphics& g, juce::Rectangle<int> b)
+    {
+        g.setColour (juce::Colour (0xff050709));
+        g.fillRoundedRectangle (b.toFloat(), 3.0f);
+        g.setColour (Theme::border.withAlpha (0.7f));
+        g.drawRoundedRectangle (b.toFloat(), 3.0f, 1.0f);
+    }
+
+    static void drawSectionDivider (juce::Graphics& g, int x, int y, int h)
+    {
+        g.setColour (Theme::border.withAlpha (0.4f));
+        g.drawLine ((float)x, (float)(y + 4), (float)x, (float)(y + h - 4), 1.0f);
     }
 
     void mouseDown(const juce::MouseEvent& e) override

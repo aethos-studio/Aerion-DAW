@@ -45,6 +45,19 @@ juce_add_binary_data(AerionDawResources
         Resources/aerion_fader.svg
         Resources/Cinzel-Regular.ttf
         Resources/Cinzel-Bold.ttf
+        Resources/Icons/aerion_inspector.svg
+        Resources/Icons/aerion_browser.svg
+        Resources/Icons/aerion_select.svg
+        Resources/Icons/aerion_cut.svg
+        Resources/Icons/aerion_comp.svg
+        Resources/Icons/aerion_punch.svg
+        Resources/Icons/aerion_pdc.svg
+        Resources/Icons/aerion_magnet.svg
+        Resources/Icons/aerion_metronome.svg
+        Resources/Icons/aerion_countin.svg
+        Resources/Icons/aerion_arm.svg
+        Resources/Icons/aerion_mute.svg
+        Resources/Icons/aerion_Solo.svg
 )
 
 juce_generate_juce_header(AerionDaw)
