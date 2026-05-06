@@ -61,4 +61,3 @@ Recommended workflow:
   - `cmake --preset win-msvc-debug`
 - Then add the fetched JUCE source folder to the Cursor workspace and force indexing.
   - Look for a `build/_deps/...` folder containing JUCE modules (vendored via Tracktion Engine).
-

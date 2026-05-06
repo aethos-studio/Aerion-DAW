@@ -10,6 +10,9 @@ coverage/
 .claude/
 GEMINI.md
 CLAUDE.md
+ARCHITECTURE.md
+CMAKEPresets.json
+.cursorrules
 testing.md
 UX-redesign.md
 Aerion-DAW-Manual-0.0.1.html
