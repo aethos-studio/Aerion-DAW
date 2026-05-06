@@ -60,67 +60,102 @@ inline void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
 {
     if (area.getHeight() < 30) return;
 
-    int track_x   = area.getCentreX() - 3;
-    int meter_w   = 12;
-    int meter_x   = area.getCentreX() + 18;
-    int track_w   = 6;
-    int faderTop  = area.getY() + 4;
-    int faderH    = area.getHeight() - 28;
+    int faderTop = area.getY() + 4;
+    int faderH   = area.getHeight() - 24;
 
+    int cx      = area.getCentreX();
+    int track_w = 6;
+    int track_x = cx - track_w / 2;
+
+    int meter_w   = 8;
+    int meter_gap = 4;
+    int meter_lx  = track_x - meter_gap - meter_w;
+    int meter_rx  = track_x + track_w + meter_gap;
+
+    // Scale tick marks to the left of the left meter
+    struct Tick { float db; const char* label; };
+    static const Tick kTicks[] = {
+        { -60.0f, "-inf" }, { -30.0f, "-30" }, { -18.0f, "-18" },
+        { -12.0f, "-12"  }, {  -6.0f, "-6"  }, {   0.0f, "0"   }, { 6.0f, "+6" }
+    };
+    int tick_x2 = meter_lx - 1;
+    int tick_x1 = tick_x2 - 5;
+    g.setFont (juce::Font (7.0f));
+    for (auto& tick : kTicks)
+    {
+        float fPos = AudioEngineManager::getFaderPosFromDb (tick.db);
+        int   tY   = faderTop + (int) (faderH * (1.0f - fPos));
+        bool  is0  = juce::approximatelyEqual (tick.db, 0.0f);
+        g.setColour (is0 ? Theme::border.brighter (0.3f) : Theme::border.withAlpha (0.5f));
+        g.drawHorizontalLine (tY, (float) tick_x1, (float) tick_x2);
+        g.setColour (Theme::textMuted.withAlpha (0.6f));
+        g.drawText (tick.label,
+                    juce::Rectangle<int> (area.getX(), tY - 4, tick_x1 - area.getX(), 9),
+                    juce::Justification::centredRight, false);
+    }
+
+    // Fader rail
     g.setColour (juce::Colours::black.withAlpha (0.6f));
     g.fillRoundedRectangle ((float) track_x, (float) faderTop, (float) track_w, (float) faderH, 3.0f);
 
-    // 0dB tick mark.
-    float zeroPos = AudioEngineManager::getFaderPosFromDb (0.0f);
-    int   zeroY   = faderTop + (int) (faderH * (1.0f - zeroPos));
-    g.setColour (Theme::border.withAlpha (0.4f));
-    g.drawHorizontalLine (zeroY, (float) (track_x - 4), (float) (track_x + track_w + 4));
+    // 0dB tick on fader rail
+    {
+        float zeroPos = AudioEngineManager::getFaderPosFromDb (0.0f);
+        int   zeroY   = faderTop + (int) (faderH * (1.0f - zeroPos));
+        g.setColour (Theme::border.withAlpha (0.5f));
+        g.drawHorizontalLine (zeroY, (float) (track_x - 2), (float) (track_x + track_w + 2));
+    }
 
-    // Meter
+    // Dual meters (same peak for L and R — no separate L/R API)
     float peak = audioEngine.getTrackPeak (track);
     float pPos = AudioEngineManager::getFaderPosFromDb (peak);
+    bool  clip = peak > 0.0f;
 
-    // Meter background slot (always visible)
-    g.setColour (juce::Colours::black.withAlpha (0.5f));
-    g.fillRoundedRectangle ((float) meter_x, (float) faderTop, (float) meter_w, (float) faderH, 2.0f);
-    g.setColour (Theme::border.withAlpha (0.6f));
-    g.drawRoundedRectangle ((float) meter_x, (float) faderTop, (float) meter_w, (float) faderH, 2.0f, 1.0f);
-
-    // Clip indicator light (top of slot)
-    if (peak > 0.0f)
+    auto drawMeter = [&] (int mx)
     {
-        g.setColour (Theme::recordRed);
-        g.fillRoundedRectangle ((float) meter_x, (float) faderTop, (float) meter_w, 6.0f, 1.5f);
-    }
+        g.setColour (juce::Colours::black.withAlpha (0.5f));
+        g.fillRoundedRectangle ((float) mx, (float) faderTop, (float) meter_w, (float) faderH, 2.0f);
+        g.setColour (Theme::border.withAlpha (0.4f));
+        g.drawRoundedRectangle ((float) mx, (float) faderTop, (float) meter_w, (float) faderH, 2.0f, 1.0f);
 
-    if (pPos > 0.0f)
-    {
-        int mY = faderTop + (int) (faderH * (1.0f - pPos));
-        // Multi-stop gradient: Red (>0dB), Yellow (0 to -12dB), Green (<-12dB)
-        juce::ColourGradient mg (Theme::meterRed, 0, (float) faderTop,
-                                 Theme::meterGreen, 0, (float) (faderTop + faderH), false);
-        mg.addColour (0.17, Theme::meterYellow); // 0dB threshold
-        mg.addColour (0.33, Theme::meterGreen);  // -12dB threshold
-        g.setGradientFill (mg);
-        g.fillRoundedRectangle ((float) meter_x, (float) mY, (float) meter_w, (float) (faderTop + faderH - mY), 2.0f);
-    }
+        if (clip)
+        {
+            g.setColour (Theme::recordRed);
+            g.fillRoundedRectangle ((float) mx, (float) faderTop, (float) meter_w, 5.0f, 1.5f);
+        }
 
-    // Fader cap.
-    float db    = audioEngine.getTrackVolumeDb (track);
-    float sPos  = AudioEngineManager::getFaderPosFromDb (db);
-    int   capY  = faderTop + (int) (faderH * (1.0f - sPos));
-    juce::Rectangle<float> cap ((float) (area.getCentreX() - 9), (float) (capY - 24), 18.0f, 48.0f);
+        if (pPos > 0.0f)
+        {
+            int mY = faderTop + (int) (faderH * (1.0f - pPos));
+            juce::ColourGradient mg (Theme::meterRed,   0, (float) faderTop,
+                                     Theme::meterGreen, 0, (float) (faderTop + faderH), false);
+            mg.addColour (0.17, Theme::meterYellow);
+            mg.addColour (0.33, Theme::meterGreen);
+            g.setGradientFill (mg);
+            g.fillRoundedRectangle ((float) mx, (float) mY, (float) meter_w,
+                                    (float) (faderTop + faderH - mY), 2.0f);
+        }
+    };
+
+    drawMeter (meter_lx);
+    drawMeter (meter_rx);
+
+    // Fader cap
+    float db   = audioEngine.getTrackVolumeDb (track);
+    float sPos = AudioEngineManager::getFaderPosFromDb (db);
+    int   capY = faderTop + (int) (faderH * (1.0f - sPos));
+    juce::Rectangle<float> cap ((float) (cx - 9), (float) (capY - 24), 18.0f, 48.0f);
     if (faderKnobDrawable != nullptr)
         faderKnobDrawable->drawWithin (g, cap, juce::RectanglePlacement::centred, 1.0f);
 
-    // dB readout.
+    // Peak-hold dB readout
     float maxPeak = audioEngine.getTrackMaxPeak (track);
     bool clipping = maxPeak > 0.0f;
     g.setColour (clipping ? Theme::recordRed : Theme::textMuted);
     g.setFont (juce::Font (9.0f).withStyle (juce::Font::bold));
-    juce::String dbText = (maxPeak > -90.0f) 
-        ? juce::String::formatted ("%+.1f", maxPeak)
-        : (track ? juce::String::formatted ("%+.1f dB", db) : juce::String ("MASTER"));
+    juce::String dbText = (maxPeak > -90.0f)
+        ? juce::String::formatted ("%+.1f dB", maxPeak)
+        : juce::String::formatted ("%+.1f dB", db);
 
     auto readoutArea = area.withY (area.getBottom() - 16).withHeight (14);
     g.drawText (dbText, readoutArea, juce::Justification::centred);
@@ -4618,16 +4653,18 @@ class Mixer : public juce::Component,
 public:
     void timerCallback() override { repaint(); }
 
-    static constexpr int kStripW       = 110;
-    static constexpr int kHeaderH      = 28;
-    static constexpr int kColorBandH   = 4;
-    static constexpr int kNameH        = 20;
-    static constexpr int kInsertSlots  = 4;
-    static constexpr int kInsertSlotH  = 16;
-    static constexpr int kPanH         = 22;   // horizontal pan slider, much smaller than the old knob
-    static constexpr int kBottomH      = 22;
-    static constexpr int kStripGap     = 6;
-    static constexpr int kMasterGap    = 18;
+    static constexpr int kStripW        = 110;
+    static constexpr int kHeaderH       = 28;
+    static constexpr int kColorBandH    = 4;
+    static constexpr int kNameH         = 20;
+    static constexpr int kPanAreaH      = 36;   // rotary knob row
+    static constexpr int kPanKnobSize   = 28;   // knob diameter
+    static constexpr int kSideBtnColW   = 26;   // right button column width
+    static constexpr int kSideBtnH      = 18;   // height per side button
+    static constexpr int kSideBtnGap    = 2;    // gap between buttons
+    static constexpr int kBottomH       = 16;   // peak-hold label
+    static constexpr int kStripGap      = 6;
+    static constexpr int kMasterGap     = 18;
 
     std::function<void()> onDetachRequested;
     std::function<void(tracktion::Track*, const juce::PluginDescription&)> onPluginDroppedOnStrip;
@@ -4712,30 +4749,29 @@ public:
         StripHit hit;
         hit.track    = track;
         hit.isMaster = isMaster;
-        
+
         auto* folder = dynamic_cast<tracktion::FolderTrack*>(track);
 
-        // Background panel.
-        g.setColour(folder != nullptr ? Theme::bgPanel.darker(0.1f) : Theme::bgPanel);
-        g.fillRoundedRectangle(cb.toFloat(), 4.0f);
-        g.setColour(Theme::border);
-        g.drawRoundedRectangle(cb.toFloat(), 4.0f, 1.0f);
+        // Background panel
+        g.setColour (folder != nullptr ? Theme::bgPanel.darker (0.1f) : Theme::bgPanel);
+        g.fillRoundedRectangle (cb.toFloat(), 4.0f);
+        g.setColour (Theme::border);
+        g.drawRoundedRectangle (cb.toFloat(), 4.0f, 1.0f);
 
-        // Color band at the top.
-        auto inner = cb.reduced(4);
-        auto band = inner.removeFromTop(kColorBandH);
-        g.setColour(tColor);
-        g.fillRoundedRectangle(band.toFloat(), 2.0f);
+        auto inner = cb.reduced (4);
 
-        // Name.
-        auto nameArea = inner.removeFromTop(kNameH);
-        g.setColour(Theme::textMain);
-        g.setFont(juce::Font(11.0f).withStyle(juce::Font::bold));
-        
-        juce::String name = isMaster ? juce::String("MASTER") : track->getName();
+        // Color band
+        g.setColour (tColor);
+        g.fillRoundedRectangle (inner.removeFromTop (kColorBandH).toFloat(), 2.0f);
+        inner.removeFromTop (2);
+
+        // Track name
+        auto nameArea = inner.removeFromTop (kNameH);
+        g.setColour (Theme::textMain);
+        g.setFont (juce::Font (11.0f).withStyle (juce::Font::bold));
+        juce::String name = isMaster ? juce::String ("MASTER") : track->getName();
         if (folder != nullptr)
         {
-            // Draw folder icon
             auto iconR = nameArea.removeFromLeft (16).reduced (2);
             g.setColour (Theme::textMuted);
             juce::Path p;
@@ -4744,93 +4780,51 @@ public:
             g.fillPath (p);
             g.setColour (Theme::textMain);
         }
-        
-        g.drawText(name, nameArea, juce::Justification::centred);
+        g.drawText (name, nameArea, juce::Justification::centred);
+        inner.removeFromTop (2);
 
-        inner.removeFromTop(2);
-
-        // Inserts area: kInsertSlots clickable rows.
-        auto insertsBox = inner.removeFromTop(kInsertSlots * kInsertSlotH + 4);
-        g.setColour(juce::Colours::black.withAlpha(0.35f));
-        g.fillRoundedRectangle(insertsBox.toFloat(), 2.0f);
-        g.setColour(Theme::border);
-        g.drawRoundedRectangle(insertsBox.toFloat(), 2.0f, 1.0f);
-
-        auto rowsArea = insertsBox.reduced(2);
-        int  pluginIdx = 0;
-        for (int s = 0; s < kInsertSlots; ++s)
-        {
-            juce::Rectangle<int> slot = rowsArea.removeFromTop(kInsertSlotH);
-            tracktion::Plugin* plugin = nullptr;
-
-            // Walk the plugin list, skipping internal utility plugins.
-            int seen = 0;
-            for (auto* p : track->pluginList)
-            {
-                if (dynamic_cast<tracktion::ExternalPlugin*>(p) == nullptr) continue;
-                if (seen == s) { plugin = p; break; }
-                ++seen;
-            }
-
-            if (plugin != nullptr)
-            {
-                g.setColour(Theme::surface.brighter(0.1f));
-                g.fillRect(slot.reduced(1));
-                
-                auto bypassArea = slot.removeFromLeft(14).reduced(3);
-                bool isEnabled = plugin->isEnabled();
-                g.setColour (isEnabled ? Theme::active : Theme::textMuted.withAlpha (0.4f));
-                g.fillEllipse (bypassArea.toFloat());
-                
-                g.setColour(Theme::active);
-                g.fillRect(slot.getX(), slot.getY() + 2, 2, slot.getHeight() - 4);
-                g.setColour(Theme::textMain);
-                g.setFont(juce::Font(10.0f));
-                g.drawText(plugin->getName(), slot.withTrimmedLeft(6).withTrimmedRight(2),
-                           juce::Justification::centredLeft);
-
-                hit.insertSlots.add (slot);
-                hit.insertBypassBtns.add (bypassArea);
-                hit.insertPlugins.add (plugin);
-            }
-            else
-            {
-                if (s == pluginIdx) // first empty slot — show "+ FX" hint
-                {
-                    g.setColour(Theme::textMuted.withAlpha(0.4f));
-                    g.setFont(juce::Font(9.0f));
-                    g.drawText("+ FX", slot, juce::Justification::centred);
-                }
-            }
-
-            // Always make the slot clickable so we can pick the plugin add-target.
-            hit.insertEmptySlots.add (slot);
-            ++pluginIdx;
-        }
-
-        // Pan: horizontal slider centred at 0.
-        inner.removeFromTop(2);
-        auto panArea = inner.removeFromTop(kPanH);
-        float pan = audioEngine.getTrackPan(track);
-        drawPanSlider(g, panArea, pan, true);
+        // Pan knob row
+        auto panArea = inner.removeFromTop (kPanAreaH);
+        float pan = audioEngine.getTrackPan (track);
+        drawPanKnob (g, panArea, pan);
         hit.panArea = panArea;
 
-        // M / S row at the very bottom.
-        auto msRow = inner.removeFromBottom(kBottomH).reduced(0, 2);
-        int msW = (msRow.getWidth() - 4) / 2;
-        auto mB = msRow.removeFromLeft(msW);
-        msRow.removeFromLeft(4);
-        auto sB = msRow.removeFromLeft(msW);
+        // dB gain readout to the right of the knob
+        {
+            float db = audioEngine.getTrackVolumeDb (track);
+            int lx = panArea.getX() + kPanKnobSize + 5;
+            g.setColour (Theme::textMuted.withAlpha (0.8f));
+            g.setFont (juce::Font (8.0f));
+            g.drawText (juce::String::formatted ("%.2fdB", db),
+                        juce::Rectangle<int> (lx, panArea.getBottom() - 12,
+                                              panArea.getRight() - lx, 12),
+                        juce::Justification::centredLeft, false);
+        }
+        inner.removeFromTop (2);
 
-        Timeline::drawTrackBtn(g, mB, "M", track->isMuted(false), Theme::meterYellow);
-        Timeline::drawTrackBtn(g, sB, "S", track->isSolo(false), Theme::accent);
-        hit.muteBtn = mB;
-        hit.soloBtn = sB;
+        // Right-side button column
+        auto rightCol = inner.removeFromRight (kSideBtnColW);
+        inner.removeFromRight (2);
+        {
+            juce::Rectangle<int> btnHits[5];
+            drawSideButtonColumn (g, rightCol, track, audioEngine, btnHits);
+            hit.muteBtn  = btnHits[0];
+            hit.soloBtn  = btnHits[1];
+            hit.monoBtn  = btnHits[2];
+            hit.fxBtn    = btnHits[3];
+            hit.infoBtn  = btnHits[4];
+        }
 
-        // Fader area = whatever is left between pan and M/S row.
-        auto faderArea = inner;
-        ::paintFader(g, faderArea, audioEngine, track, tColor, isMaster, faderKnobDrawable.get(), &hit.peakReadoutArea);
-        hit.faderArea = faderArea;
+        // Collect plugin list (not drawn; used by FX button handler)
+        for (auto* pl : track->pluginList)
+            if (auto* ep = dynamic_cast<tracktion::ExternalPlugin*> (pl))
+                hit.insertPlugins.add (ep);
+
+        // Fader + dual meters (fills remaining inner zone)
+        auto faderZone = inner.withTrimmedBottom (kBottomH);
+        ::paintFader (g, faderZone, audioEngine, track, tColor, isMaster,
+                      faderKnobDrawable.get(), &hit.peakReadoutArea);
+        hit.faderArea = faderZone;
 
         // Plugin-drag hover highlight
         if (! isMaster && pluginDragHoverTrack == track)
@@ -4842,50 +4836,92 @@ public:
         }
 
         stripHits.add (hit);
+    }
+
+        static void drawPanKnob (juce::Graphics& g, juce::Rectangle<int> b, float pan)
+        {
+            int   kd = kPanKnobSize;
+            int   kx = b.getX() + 2;
+            int   ky = b.getY() + (b.getHeight() - kd) / 2;
+            float cx = kx + kd / 2.0f;
+            float cy = ky + kd / 2.0f;
+            float r  = kd / 2.0f - 2.0f;
+
+            // JUCE arc: 0 = 12 o'clock, clockwise positive
+            const float kStart = juce::MathConstants<float>::pi * 1.1667f; // ~7 o'clock
+            const float kEnd   = juce::MathConstants<float>::pi * 2.8333f; // ~5 o'clock
+            float t     = (juce::jlimit (-1.0f, 1.0f, pan) + 1.0f) / 2.0f;
+            float angle = kStart + t * (kEnd - kStart);
+
+            // Groove arc
+            juce::Path groove;
+            groove.addArc (cx - r, cy - r, r * 2.0f, r * 2.0f, kStart, kEnd, true);
+            g.setColour (juce::Colours::black.withAlpha (0.55f));
+            g.strokePath (groove, juce::PathStrokeType (2.5f, juce::PathStrokeType::curved,
+                                                         juce::PathStrokeType::rounded));
+
+            // Value arc from 12 o'clock to current angle
+            float mid  = kStart + 0.5f * (kEnd - kStart);
+            float arcA = juce::jmin (mid, angle);
+            float arcB = juce::jmax (mid, angle);
+            if (arcB - arcA > 0.01f)
+            {
+                juce::Path fill;
+                fill.addArc (cx - r, cy - r, r * 2.0f, r * 2.0f, arcA, arcB, true);
+                g.setColour (Theme::active);
+                g.strokePath (fill, juce::PathStrokeType (2.5f, juce::PathStrokeType::curved,
+                                                           juce::PathStrokeType::rounded));
+            }
+
+            // Knob body
+            float br = r - 2.5f;
+            g.setColour (Theme::surface.brighter (0.15f));
+            g.fillEllipse (cx - br, cy - br, br * 2.0f, br * 2.0f);
+            g.setColour (Theme::border);
+            g.drawEllipse (cx - br, cy - br, br * 2.0f, br * 2.0f, 1.0f);
+
+            // Pointer line
+            float px = cx + (br - 2.0f) * std::sin (angle);
+            float py = cy - (br - 2.0f) * std::cos (angle);
+            g.setColour (Theme::textMain.withAlpha (0.9f));
+            g.drawLine (cx, cy, px, py, 1.5f);
+
+            // Label to the right of the knob
+            float p = juce::jlimit (-1.0f, 1.0f, pan);
+            juce::String label = juce::approximatelyEqual (p, 0.0f)
+                ? juce::String ("center")
+                : juce::String::formatted (p < 0 ? "L%d" : "R%d",
+                                           (int) std::round (std::abs (p) * 100.0f));
+            int lx = kx + kd + 3;
+            g.setColour (Theme::textMuted);
+            g.setFont (juce::Font (8.5f).withStyle (juce::Font::bold));
+            g.drawText (label, juce::Rectangle<int> (lx, ky, b.getRight() - lx, kd),
+                        juce::Justification::centredLeft, false);
         }
 
-        static void drawPanSlider (juce::Graphics& g, juce::Rectangle<int> b, float pan, bool enabled)
+        // btns[0]=M, [1]=S, [2]=MONO, [3]=FX, [4]=i
+        static void drawSideButtonColumn (juce::Graphics& g, juce::Rectangle<int> col,
+                                          tracktion::Track* track,
+                                          AudioEngineManager& audioEngine,
+                                          juce::Rectangle<int> (&btns)[5])
         {
-        // Track.
-        auto track = juce::Rectangle<int> (b.getX() + 6, b.getY() + 4, b.getWidth() - 12, 4);
-        g.setColour (juce::Colours::black.withAlpha (0.55f));
-        g.fillRoundedRectangle (track.toFloat(), 2.0f);
-
-        // Centre tick.
-        g.setColour (Theme::border);
-        g.drawLine ((float) track.getCentreX(), (float) (track.getY() - 2),
-                    (float) track.getCentreX(), (float) (track.getBottom() + 2), 1.0f);
-
-        // Filled segment from centre to current value.
-        if (enabled)
-        {
-            float t = juce::jlimit (-1.0f, 1.0f, pan);
-            int   half = track.getWidth() / 2;
-            int   cx   = track.getCentreX();
-            int   x0   = t < 0.0f ? cx + (int) (t * half) : cx;
-            int   w    = (int) (std::abs (t) * half);
-            g.setColour (Theme::active);
-            g.fillRoundedRectangle ((float) x0, (float) track.getY(),
-                                    (float) w, (float) track.getHeight(), 2.0f);
-
-            // Thumb.
-            int thumbX = cx + (int) (t * half);
-            juce::Rectangle<float> thumb ((float) (thumbX - 4), (float) (track.getY() - 3),
-                                           8.0f, (float) (track.getHeight() + 6));
-            g.setColour (Theme::textMain);
-            g.fillRoundedRectangle (thumb, 2.0f);
-        }
-
-        // Label below the slider.
-        g.setColour (Theme::textMuted);
-        g.setFont (juce::Font (9.0f).withStyle (juce::Font::bold));
-        juce::String label = enabled
-            ? (juce::approximatelyEqual (pan, 0.0f) ? juce::String ("C")
-              : juce::String::formatted (pan < 0 ? "L%d" : "R%d", (int) std::round (std::abs (pan) * 100.0f)))
-            : juce::String ("---");
-        g.drawText (label,
-                    juce::Rectangle<int> (b.getX(), b.getY() + 10, b.getWidth(), b.getHeight() - 10),
-                    juce::Justification::centred);
+            const char* labels[5] = { "M", "S", "MONO", "FX", "i" };
+            bool states[5] = {
+                track->isMuted (false),
+                track->isSolo  (false),
+                audioEngine.getTrackMono (track),
+                false, false
+            };
+            juce::Colour colours[5] = {
+                Theme::meterYellow, Theme::accent, Theme::active, Theme::active, Theme::textMuted
+            };
+            auto cursor = col;
+            for (int i = 0; i < 5; ++i)
+            {
+                btns[i] = cursor.removeFromTop (kSideBtnH);
+                cursor.removeFromTop (kSideBtnGap);
+                Timeline::drawTrackBtn (g, btns[i], labels[i], states[i], colours[i]);
+            }
         }
 
 
@@ -4945,84 +4981,56 @@ public:
 
         void mouseDown(const juce::MouseEvent& e) override
         {
-            if (detachBtn.contains(e.getPosition())) {
+            if (detachBtn.contains (e.getPosition())) {
                 if (onDetachRequested) onDetachRequested();
                 return;
             }
 
             for (auto& hit : stripHits)
             {
-                if (hit.muteBtn.contains(e.getPosition())) { audioEngine.toggleTrackMute(hit.track); repaint(); return; }
-                if (hit.soloBtn.contains(e.getPosition())) { audioEngine.toggleTrackSolo(hit.track); repaint(); return; }
+                if (hit.muteBtn.contains (e.getPosition()))  { audioEngine.toggleTrackMute (hit.track); repaint(); return; }
+                if (hit.soloBtn.contains (e.getPosition()))  { audioEngine.toggleTrackSolo (hit.track); repaint(); return; }
 
-                // Peak readout click -> reset peak.
-                if (hit.peakReadoutArea.contains (e.getPosition()))
+                if (hit.monoBtn.contains (e.getPosition()))
                 {
-                    audioEngine.clearTrackMaxPeak (hit.track);
-                    repaint();
+                    audioEngine.setTrackMono (hit.track, ! audioEngine.getTrackMono (hit.track));
+                    repaint(); return;
+                }
+
+                if (hit.fxBtn.contains (e.getPosition()))
+                {
+                    auto* trk    = hit.track;
+                    auto  screen = localAreaToGlobal (hit.fxBtn);
+                    PluginPicker::show (audioEngine, screen, [this, trk] (const juce::PluginDescription& d) {
+                        if (auto p = audioEngine.addPluginToTrack (trk, d))
+                            p->showWindowExplicitly();
+                        repaint();
+                    });
                     return;
                 }
 
-                // Bypass toggles
-                for (int i = 0; i < hit.insertBypassBtns.size(); ++i)
+                if (hit.infoBtn.contains (e.getPosition()))
                 {
-                    if (hit.insertBypassBtns[i].contains (e.getPosition()))
-                    {
-                        auto* p = hit.insertPlugins[i];
-                        p->setEnabled (! p->isEnabled());
-                        repaint();
-                        return;
-                    }
+                    audioEngine.clearTrackMaxPeak (hit.track);
+                    repaint(); return;
                 }
 
-                // Pan slider: click sets initial position, drag continues from there.
-                if (hit.panArea.contains(e.getPosition())) {
+                if (hit.peakReadoutArea.contains (e.getPosition()))
+                {
+                    audioEngine.clearTrackMaxPeak (hit.track);
+                    repaint(); return;
+                }
+
+                if (hit.panArea.contains (e.getPosition()))
+                {
                     activePanTrack  = hit.track;
                     activePanArea   = hit.panArea;
                     dragStartY      = e.y;
                     panAtDragStart  = audioEngine.getTrackPan (hit.track);
-                    setPanFromX(activePanTrack, activePanArea, e.x);
                     return;
                 }
 
-                // Existing plugin slot — double-click handled in mouseDoubleClick.
-                // Right-click on a populated slot → remove plugin.
-                for (int i = 0; i < hit.insertSlots.size(); ++i)
-                {
-                    if (hit.insertSlots[i].contains(e.getPosition()))
-                    {
-                        if (e.mods.isPopupMenu())
-                        {
-                            showInsertContextMenu(hit.insertPlugins[i], hit.track, e.getScreenPosition());
-                            return;
-                        }
-                        return;
-                    }
-                }
-
-                // Empty slot click — open plugin picker for this track.
-                for (auto& slot : hit.insertEmptySlots)
-                {
-                    if (slot.contains(e.getPosition()))
-                    {
-                        bool slotIsPopulated = false;
-                        for (auto& used : hit.insertSlots)
-                            if (used == slot) { slotIsPopulated = true; break; }
-                        if (slotIsPopulated) continue;
-
-                        auto* trk = hit.track;
-                        auto screen = localAreaToGlobal(slot);
-                        PluginPicker::show(audioEngine, screen, [this, trk] (const juce::PluginDescription& d) {
-                            if (auto p = audioEngine.addPluginToTrack(trk, d))
-                                p->showWindowExplicitly();
-                            repaint();
-                        });
-                        return;
-                    }
-                }
-
-                // Fader area: capture for drag only, do not jump on click.
-                if (hit.faderArea.contains(e.getPosition()))
+                if (hit.faderArea.contains (e.getPosition()))
                 {
                     if (e.mods.isPopupMenu())
                     {
@@ -5076,16 +5084,6 @@ public:
                 repaint();
                 return;
             }
-
-            for (int i = 0; i < hit.insertSlots.size(); ++i)
-                if (hit.insertSlots[i].contains(e.getPosition()))
-                {
-                    auto p = hit.insertPlugins[i];
-                    p->setEnabled(true);
-                    p->setProcessingEnabled(true);
-                    p->showWindowExplicitly();
-                    return;
-                }
         }
     }
 
@@ -5095,22 +5093,14 @@ private:
         tracktion::Track* track = nullptr;
         bool isMaster = false;
         juce::Rectangle<int> muteBtn, soloBtn, panArea, faderArea, peakReadoutArea;
+        juce::Rectangle<int> monoBtn, fxBtn, infoBtn;
         juce::Array<juce::Rectangle<int>>      insertSlots;
         juce::Array<juce::Rectangle<int>>      insertEmptySlots;
         juce::Array<juce::Rectangle<int>>      insertBypassBtns;
         juce::Array<tracktion::Plugin*>        insertPlugins;
     };
 
-    void setPanFromX(tracktion::Track* t, juce::Rectangle<int> area, int x)
-    {
-        if (! t) return;
-        // The pan slider track is smaller than the full panArea
-        auto sliderTrack = juce::Rectangle<int>(area.getX() + 6, area.getY() + 4, area.getWidth() - 12, 4);
-        float pPos = juce::jlimit(0.0f, 1.0f, (float)(x - sliderTrack.getX()) / (float)sliderTrack.getWidth());
-        audioEngine.setTrackPan(t, (pPos * 2.0f) - 1.0f);
-    }
-
-    void showInsertContextMenu(tracktion::Plugin* plugin, tracktion::Track* track, juce::Point<int> screenPos)
+void showInsertContextMenu(tracktion::Plugin* plugin, tracktion::Track* track, juce::Point<int> screenPos)
     {
         juce::PopupMenu m;
         m.addItem (1, "Open Editor");
