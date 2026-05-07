@@ -261,7 +261,7 @@ public:
     juce::String projectTitle = "My Song";
 
     // === Callbacks ===
-    std::function<void()> onNew, onOpen, onSave, onSaveAs, onImport, onSettings;
+    std::function<void()> onNew, onOpen, onSave, onSaveAs, onImport, onExportMixdown, onSettings;
     std::function<void()> onUndo, onRedo;
     std::function<void()> onToggleMetronome, onShowMetronomeSettings;
     std::function<void()> onToggleSnap;
@@ -387,6 +387,7 @@ private:
         m.addItem (6, "Save Project As...");
         m.addSeparator();
         m.addItem (4, "Import Audio File...");
+        m.addItem (7, "Export Mixdown...");
         m.addSeparator();
         m.addItem (5, "Audio Settings...");
         m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
@@ -395,6 +396,7 @@ private:
             if (r == 3 && onSave)     onSave();
             if (r == 6 && onSaveAs)   onSaveAs();
             if (r == 4 && onImport)   onImport();
+            if (r == 7 && onExportMixdown) onExportMixdown();
             if (r == 5 && onSettings) onSettings();
         });
     }

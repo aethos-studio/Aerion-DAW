@@ -6,6 +6,7 @@
 #include "AIManager.h"
 #include "AerionTooltipWindow.h"
 #include "UIComponents.h"
+#include "Export/MixdownExportDialog.h"
 
 class MainComponent  : public juce::Component,
                        public juce::DragAndDropContainer,
@@ -42,6 +43,7 @@ private:
     void saveProject();
     void saveProjectAs();
     void importAudioFile();
+    void exportMixdown();
     void showAudioSettings();
 
     void detachMixer();

@@ -52,7 +52,8 @@ MainComponent::MainComponent()
     // Defer plugin scan so the main window can appear before the cache load
     // and disk scan starts. The scan runs on a background thread and fires
     // onScanFinished / broadcastChange when done.
-    juce::MessageManager::callAsync ([this] { audioEngine.scanPlugins(); });
+    if (audioEngine.shouldRunStartupScan())
+        juce::MessageManager::callAsync ([this] { audioEngine.scanPlugins(); });
 
     browser.onPluginPicked = [this] (const juce::PluginDescription& desc)
     {
@@ -136,6 +137,7 @@ MainComponent::MainComponent()
     menuBar.onSave     = [this] { saveProject(); };
     menuBar.onSaveAs   = [this] { saveProjectAs(); };
     menuBar.onImport   = [this] { importAudioFile(); };
+    menuBar.onExportMixdown = [this] { exportMixdown(); };
     menuBar.onSettings = [this] { showAudioSettings(); };
 
     menuBar.onUndo = [this] { audioEngine.undo(); };
@@ -687,6 +689,41 @@ void MainComponent::showAudioSettings()
     options.resizable                     = false;
 
     options.launchAsync();
+}
+
+void MainComponent::exportMixdown()
+{
+    juce::Logger::writeToLog ("ExportMixdown: clicked");
+    std::optional<tracktion::TimeRange> sel;
+    if (timeline.selectedClip != nullptr)
+    {
+        juce::Logger::writeToLog ("ExportMixdown: selectedClip=" + timeline.selectedClip->getName());
+        sel = tracktion::TimeRange (timeline.selectedClip->getPosition().getStart(),
+                                    timeline.selectedClip->getPosition().getEnd());
+    }
+    else
+    {
+        juce::Logger::writeToLog ("ExportMixdown: no selectedClip");
+    }
+
+    juce::Logger::writeToLog ("ExportMixdown: constructing dialog");
+    auto* dialog = new MixdownExportDialog (audioEngine.getEngine(),
+                                            audioEngine.getEdit(),
+                                            menuBar.projectTitle,
+                                            sel);
+    juce::Logger::writeToLog ("ExportMixdown: dialog constructed");
+
+    juce::DialogWindow::LaunchOptions options;
+    options.content.setOwned (dialog);
+    options.dialogTitle = "Export Mixdown";
+    options.dialogBackgroundColour = Theme::bgBase;
+    options.escapeKeyTriggersCloseButton = true;
+    options.useNativeTitleBar = false;
+    options.resizable = false;
+    options.componentToCentreAround = this;
+    juce::Logger::writeToLog ("ExportMixdown: launching async dialog window");
+    options.launchAsync();
+    juce::Logger::writeToLog ("ExportMixdown: launchAsync returned");
 }
 
 void MainComponent::timerCallback()

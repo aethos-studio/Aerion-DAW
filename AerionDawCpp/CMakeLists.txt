@@ -79,6 +79,11 @@ target_sources(AerionDaw PRIVATE
     Source/GoogleDriveClient.cpp
     Source/AIManager.h
     Source/AIManager.cpp
+    Source/Export/MixdownExportDialog.h
+    Source/Export/MixdownExportDialog.cpp
+    Source/Export/MixdownExportJob.h
+    Source/Export/MixdownExportJob.cpp
+    Source/Export/WaveformPreviewComponent.h
 )
 
 # Link necessary JUCE and Tracktion modules
