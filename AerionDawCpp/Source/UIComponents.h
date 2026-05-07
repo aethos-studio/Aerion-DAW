@@ -6,6 +6,7 @@
 #include "UI/ThemeTokens.h"
 #include "UI/Primitives.h"
 #include "UI/LookAndFeel.h"
+#include "UI/ThemeTypefaces.h"
 
 enum class EditTool { select, razor, comp };
 
@@ -234,6 +235,144 @@ public:
     }
 protected:
     juce::String name;
+};
+
+//==============================================================================
+// "About Aerion DAW" dialog. Hosts the vertical Aerion logo, version + credits,
+// and (when ASIO is compiled in) the official Steinberg "ASIO compatible" logo
+// + trademark attribution as required by Steinberg's brand guidelines.
+class AboutDialog : public juce::Component
+{
+public:
+    AboutDialog()
+    {
+        if (auto x = juce::XmlDocument::parse (juce::String::fromUTF8 (
+                BinaryData::aerion_logo_vertical_svg,
+                BinaryData::aerion_logo_vertical_svgSize)))
+            aerionLogo = juce::Drawable::createFromSVG (*x);
+
+       #if JUCE_WINDOWS && JUCE_ASIO
+        if (auto x = juce::XmlDocument::parse (juce::String::fromUTF8 (
+                BinaryData::asio_compatible_logo_svg,
+                BinaryData::asio_compatible_logo_svgSize)))
+            asioLogo = juce::Drawable::createFromSVG (*x);
+       #endif
+
+        setOpaque (true);
+        setSize (440, 460);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (juce::Colour (0xff0c0f14));
+
+        auto b = getLocalBounds().toFloat().reduced (24.0f);
+
+        if (aerionLogo != nullptr)
+        {
+            auto logoArea = b.removeFromTop (160.0f);
+            aerionLogo->drawWithin (g, logoArea, juce::RectanglePlacement::centred, 1.0f);
+        }
+
+        b.removeFromTop (8.0f);
+
+        const auto regTF  = ThemeTypefaces::cinzelRegular();
+        const auto boldTF = ThemeTypefaces::cinzelBold();
+
+        juce::Font titleFont (boldTF != nullptr
+            ? juce::FontOptions (boldTF).withHeight (22.0f)
+            : juce::FontOptions().withHeight (22.0f).withStyle ("Bold"));
+        titleFont.setExtraKerningFactor (0.10f);
+        g.setFont (titleFont);
+        g.setColour (juce::Colour (0xffebf8ff));
+        {
+            auto titleRow = b.removeFromTop (28.0f);
+            g.drawText ("AERION DAW", titleRow.toNearestInt(),
+                        juce::Justification::centred, false);
+        }
+
+        juce::Font versionFont (regTF != nullptr
+            ? juce::FontOptions (regTF).withHeight (12.0f)
+            : juce::FontOptions().withHeight (12.0f));
+        versionFont.setExtraKerningFactor (0.18f);
+        g.setFont (versionFont);
+        g.setColour (juce::Colour (0xff63b3ed));
+        {
+            auto versionRow = b.removeFromTop (18.0f);
+            g.drawText ("v0.1   -   AETHOS STUDIO LTD.", versionRow.toNearestInt(),
+                        juce::Justification::centred, false);
+        }
+
+        b.removeFromTop (16.0f);
+
+        juce::Font bodyFont (regTF != nullptr
+            ? juce::FontOptions (regTF).withHeight (12.5f)
+            : juce::FontOptions().withHeight (12.5f));
+        bodyFont.setExtraKerningFactor (0.06f);
+        g.setFont (bodyFont);
+        g.setColour (juce::Colour (0xffaecbe0));
+        {
+            auto creditRow = b.removeFromTop (60.0f);
+            g.drawMultiLineText (
+                "Built with JUCE and Tracktion Engine.\n"
+                "Audio I/O routed through ASIO, WASAPI, DirectSound,\n"
+                "CoreAudio, ALSA, JACK and WinRT MIDI.",
+                creditRow.getX(), (int) creditRow.getY() + 12,
+                (int) creditRow.getWidth(), juce::Justification::centred);
+        }
+
+       #if JUCE_WINDOWS && JUCE_ASIO
+        if (asioLogo != nullptr)
+        {
+            auto footer = getLocalBounds().toFloat().removeFromBottom (76.0f).reduced (24.0f, 8.0f);
+
+            const float logoH = 30.0f;
+            const float logoW = 88.0f;
+            juce::Rectangle<float> logoBounds (footer.getCentreX() - logoW * 0.5f,
+                                               footer.getY(),
+                                               logoW, logoH);
+            asioLogo->drawWithin (g, logoBounds,
+                                  juce::RectanglePlacement::centred, 0.95f);
+
+            juce::Font footerFont (regTF != nullptr
+                ? juce::FontOptions (regTF).withHeight (10.0f)
+                : juce::FontOptions().withHeight (10.0f));
+            footerFont.setExtraKerningFactor (0.18f);
+            g.setFont (footerFont);
+            g.setColour (juce::Colour (0xff9ecfeb).withAlpha (0.65f));
+            g.drawText (juce::String::fromUTF8 (
+                            u8"ASIO\u2122 - \u00A9 Steinberg Media Technologies GmbH"),
+                        (int) footer.getX(),
+                        (int) (logoBounds.getBottom() + 4.0f),
+                        (int) footer.getWidth(), 16,
+                        juce::Justification::centred);
+        }
+       #endif
+    }
+
+    // Show as a modal floating window. Closes when the user clicks outside or
+    // presses Escape.
+    static void launch()
+    {
+        auto* dialog = new AboutDialog();
+
+        juce::DialogWindow::LaunchOptions opts;
+        opts.content.setOwned (dialog);
+        opts.dialogTitle = "About Aerion DAW";
+        opts.dialogBackgroundColour = juce::Colour (0xff0c0f14);
+        opts.escapeKeyTriggersCloseButton = true;
+        opts.useNativeTitleBar = true;
+        opts.resizable = false;
+        opts.launchAsync();
+    }
+
+private:
+    std::unique_ptr<juce::Drawable> aerionLogo;
+   #if JUCE_WINDOWS && JUCE_ASIO
+    std::unique_ptr<juce::Drawable> asioLogo;
+   #endif
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AboutDialog)
 };
 
 //==============================================================================
@@ -562,19 +701,42 @@ private:
         m.addItem (1, "About Aerion DAW");
         m.showMenuAsync (anchoredMenuOptions(), [] (int r) {
             if (r == 1)
-                juce::AlertWindow::showMessageBoxAsync (
-                    juce::MessageBoxIconType::InfoIcon,
-                    "Aerion DAW",
-                    "Aerion DAW v0.1\nDeveloped by Aethos Studio Ltd.\n\nBuilt with JUCE & Tracktion Engine.");
+                AboutDialog::launch();
         });
     }
 };
 
 //==============================================================================
 // Top toolbar  -  tools on the left, view modes + snap on the right.
-class DAWToolbar : public juce::Component
+class DAWToolbar : public juce::Component,
+                   public juce::TooltipClient
 {
 public:
+    juce::String getTooltip() override
+    {
+        switch (computeToolbarHoverZone (hoverPos))
+        {
+            case 1:  return inspectorVisible ? "Hide Inspector" : "Show Inspector";
+            case 2:  return "Select tool";
+            case 3:  return "Razor / split tool";
+            case 4:  return "Comp / takes tool";
+            case 5:  return punchEnabled ? "Punch in/out (on)" : "Punch in/out (off)";
+            case 6:  return pdcEnabled   ? "Plugin delay compensation (on)"
+                                         : "Plugin delay compensation (off)";
+            case 7:  return browserVisible ? "Hide Browser" : "Show Browser";
+            case 8:  return metronomeEnabled ? "Metronome (on) - Right-click for settings"
+                                             : "Metronome (off) - Right-click for settings";
+            case 9:  return countInBars > 0
+                         ? juce::String::formatted ("Count-in: %d bar%s", countInBars, countInBars == 1 ? "" : "s")
+                         : juce::String ("Count-in: off");
+            case 10: return snapEnabled
+                         ? juce::String ("Snap: ") + getSnapIntervalText (snapInterval)
+                         : juce::String ("Snap: off (right-click to choose interval)");
+            case 11: return autoCrossfadeEnabled ? "Auto-crossfade (on)" : "Auto-crossfade (off)";
+            default: return {};
+        }
+    }
+
     std::function<void()> onToggleSnap;
     std::function<void(double)> onSnapIntervalChanged;
     std::function<void()> onToggleInspector;
@@ -986,7 +1148,9 @@ public:
         g.drawText ("In",  headerB.getX(), headerB.getY() + 32, 40, 18, juce::Justification::left);
         g.drawText ("Out", headerB.getX(), headerB.getY() + 50, 40, 18, juce::Justification::left);
 
-        // Input routing  -  clickable panel showing current device name
+        // Input routing  -  clickable panel showing current device name. If a
+        // specific MIDI controller has been pinned to the track, append a
+        // " | MIDI: <name>" tag so users see both routings at a glance.
         {
             juce::String inputName = "Input L+R";
             if (selectedTrack != nullptr)
@@ -995,6 +1159,14 @@ public:
                 auto names = audioEngine.getInputDeviceNames();
                 if (devIdx >= 0 && devIdx < names.size()) inputName = names[devIdx];
                 else if (!names.isEmpty())                 inputName = names[0];
+
+                int midiIdx = audioEngine.getTrackMidiInputDeviceIdx (selectedTrack);
+                if (midiIdx >= 0)
+                {
+                    auto midis = audioEngine.getMidiInputDeviceNames();
+                    if (midiIdx < midis.size())
+                        inputName += " | MIDI: " + midis[midiIdx];
+                }
             }
             inputRoutingBounds = juce::Rectangle<int> (headerB.getRight() - 100, headerB.getY() + 28, 100, 20);
             Theme::drawRoundedPanel (g, inputRoutingBounds.toFloat(), Theme::surface);
@@ -1027,6 +1199,21 @@ public:
             monoBounds = pills.removeFromLeft (24);
             bool monoOn = audioEngine.getTrackMono (selectedTrack);
             drawPill (g, monoBounds, "M", monoOn, Theme::active);
+
+            // Input-monitoring override: cycles Auto -> On -> Off. The label
+            // mirrors the current state so the user sees what's active without
+            // hovering for a tooltip.
+            pills.removeFromLeft (8);
+            monBounds = pills.removeFromLeft (32);
+            const auto monMode = audioEngine.getTrackMonitorMode (selectedTrack);
+            const bool monActive = monMode != AudioEngineManager::MonitorMode::Off;
+            const juce::Colour monColour = (monMode == AudioEngineManager::MonitorMode::On)
+                ? Theme::recordRed
+                : Theme::active;
+            const char* monLabel = (monMode == AudioEngineManager::MonitorMode::On)  ? "ON"
+                                 : (monMode == AudioEngineManager::MonitorMode::Off) ? "OFF"
+                                                                                     : "AUT";
+            drawPill (g, monBounds, monLabel, monActive, monColour);
         }
 
         b.removeFromTop (16);
@@ -1118,17 +1305,50 @@ public:
             solo = selectedTrack->isSolo (false); repaint(); return;
         }
 
-        // Input routing dropdown
+        // Input routing dropdown - split into "Audio Input" and "MIDI Controller"
+        // submenus so audio + MIDI tracks share one entry point on the Inspector.
         if (inputRoutingBounds.contains (e.getPosition()) && selectedTrack != nullptr)
         {
-            auto names = audioEngine.getInputDeviceNames();
+            constexpr int kAudioAll  = 1000;
+            constexpr int kMidiAll   = 2000;
+            constexpr int kAudioBase = 1;
+            constexpr int kMidiBase  = 2001;
+
+            const auto audioNames = audioEngine.getInputDeviceNames();
+            const auto midiNames  = audioEngine.getMidiInputDeviceNames();
+            const int curAudio    = audioEngine.getTrackInputDeviceIdx (selectedTrack);
+            const int curMidi     = audioEngine.getTrackMidiInputDeviceIdx (selectedTrack);
+
+            juce::PopupMenu audioMenu;
+            audioMenu.addItem (kAudioAll, "All audio inputs", true, curAudio < 0);
+            audioMenu.addSeparator();
+            for (int i = 0; i < audioNames.size(); ++i)
+                audioMenu.addItem (kAudioBase + i, audioNames[i], true, i == curAudio);
+
+            juce::PopupMenu midiMenu;
+            midiMenu.addItem (kMidiAll, "All MIDI controllers", true, curMidi < 0);
+            midiMenu.addSeparator();
+            if (midiNames.isEmpty())
+                midiMenu.addItem (-1, "(no MIDI inputs - enable in Audio Settings)", false, false);
+            else
+                for (int i = 0; i < midiNames.size(); ++i)
+                    midiMenu.addItem (kMidiBase + i, midiNames[i], true, i == curMidi);
+
             juce::PopupMenu m;
-            for (int i = 0; i < names.size(); ++i)
-                m.addItem (i + 1, names[i]);
+            m.addSubMenu ("Audio Input",     audioMenu);
+            m.addSubMenu ("MIDI Controller", midiMenu);
+
             m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
                 [this](int r) {
-                    if (r > 0 && selectedTrack != nullptr)
-                        audioEngine.setTrackInputDevice (selectedTrack, r - 1);
+                    if (selectedTrack == nullptr) { repaint(); return; }
+                    if (r == kAudioAll)
+                        audioEngine.setTrackInputDevice (selectedTrack, -1);
+                    else if (r >= kAudioBase && r < kAudioAll)
+                        audioEngine.setTrackInputDevice (selectedTrack, r - kAudioBase);
+                    else if (r == kMidiAll)
+                        audioEngine.setTrackMidiInputDevice (selectedTrack, -1);
+                    else if (r >= kMidiBase && r < kMidiBase + 200)
+                        audioEngine.setTrackMidiInputDevice (selectedTrack, r - kMidiBase);
                     repaint();
                 });
             return;
@@ -1156,6 +1376,17 @@ public:
             if (monoBounds.contains (e.getPosition()))
             {
                 audioEngine.setTrackMono (selectedTrack, ! audioEngine.getTrackMono (selectedTrack));
+                repaint();
+                return;
+            }
+            if (monBounds.contains (e.getPosition()))
+            {
+                using MM = AudioEngineManager::MonitorMode;
+                const auto cur = audioEngine.getTrackMonitorMode (selectedTrack);
+                const auto next = (cur == MM::Auto) ? MM::On
+                                : (cur == MM::On)   ? MM::Off
+                                                    : MM::Auto;
+                audioEngine.setTrackMonitorMode (selectedTrack, next);
                 repaint();
                 return;
             }
@@ -1292,6 +1523,7 @@ private:
     // Phase 1 Members
     juce::Rectangle<int> hpfBounds, lpfBounds, phaseBounds, monoBounds, filterAddBtn;
     juce::Rectangle<int> armBounds, muteBounds, soloBounds, inputRoutingBounds;
+    juce::Rectangle<int> monBounds;
     bool filtersExpanded = true;
 
     void drawFilterSlider (juce::Graphics& g, juce::Rectangle<int> r, float value, float min, float max)
@@ -1769,9 +2001,12 @@ public:
         for (int i = 0; i < rowBounds.size(); ++i)
             if (rowBounds[i].contains (e.getPosition()))
             {
-                if (tab == Tab::plugins) {
-                    if (onPluginPicked) onPluginPicked (rowDescs[i]);
-                } else {
+                if (tab == Tab::plugins)
+                {
+                    // Do not insert on single-click — use drag-and-drop to a track or mixer strip.
+                    repaint();
+                }
+                else {
                     auto& f = rowFiles.getReference (i);
                     if (f.isDirectory()) {
                         currentDir = f;
@@ -1842,6 +2077,7 @@ private:
 class PianoRollEditor : public juce::Component,
                         public juce::Timer,
                         public juce::ScrollBar::Listener,
+                        public juce::ComboBox::Listener,
                         public juce::ValueTree::Listener
 {
 public:
@@ -1849,6 +2085,7 @@ public:
         : midiClip (clip), edit (edit), projectData (pd)
     {
         projectData.getProjectTree().addListener (this);
+        midiClip.state.addListener (this);
         snapEnabled = projectData.getProjectTree().getProperty (IDs::snapEnabled);
         snapInterval = projectData.getProjectTree().getProperty (IDs::snapInterval);
 
@@ -1859,22 +2096,95 @@ public:
         hScroll.addListener (this);
         vScroll.addListener (this);
         scrollY = (127 - 72) * kRowH;   // open near C4
+
+        ccTypeCombo.addItem ("Pitch Bend", 1);
+        ccTypeCombo.addItem ("CC1 Mod Wheel", 2);
+        ccTypeCombo.addItem ("CC7 Volume", 3);
+        ccTypeCombo.addItem ("CC10 Pan", 4);
+        ccTypeCombo.addItem ("CC11 Expression", 5);
+        ccTypeCombo.addItem ("CC64 Sustain", 6);
+        ccTypeCombo.addItem ("Other CC...", 7);
+        ccTypeCombo.addListener (this);
+        addAndMakeVisible (ccTypeCombo);
+        syncCCSelectorFromClipState();
+
         startTimerHz (30);
     }
 
     ~PianoRollEditor() override 
     { 
         projectData.getProjectTree().removeListener (this);
+        midiClip.state.removeListener (this);
         stopTimer(); 
+    }
+
+    void comboBoxChanged (juce::ComboBox* box) override
+    {
+        if (box != &ccTypeCombo) return;
+
+        const int id = ccTypeCombo.getSelectedId();
+        if (id == 7)
+        {
+            auto* alert = new juce::AlertWindow ("Custom CC number", "Enter controller number (0-127):", juce::AlertWindow::QuestionIcon);
+            alert->addTextEditor ("cc", juce::String (ccCustomNumber), "CC");
+            alert->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
+            alert->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+            juce::Component::SafePointer<PianoRollEditor> safe (this);
+            alert->enterModalState (true, juce::ModalCallbackFunction::create ([safe, alert] (int r) mutable
+            {
+                std::unique_ptr<juce::AlertWindow> owned (alert);
+                if (safe == nullptr) return;
+                safe->handleCustomCCAlert (r, owned->getTextEditorContents ("cc"));
+            }), true);
+            return;
+        }
+
+        int stored = 1;
+        switch (id)
+        {
+            case 1: stored = -1; break;
+            case 2: stored = 1;  break;
+            case 3: stored = 7;  break;
+            case 4: stored = 10; break;
+            case 5: stored = 11; break;
+            case 6: stored = 64; break;
+            default: return;
+        }
+        midiClip.state.setProperty (IDs::pianoRollCC, stored, &edit.getUndoManager());
+    }
+
+    /** Called from modal dialog (must be public for non-member callback). */
+    void handleCustomCCAlert (int result, juce::String ccText)
+    {
+        if (result == 1)
+        {
+            int v = juce::jlimit (0, 127, ccText.getIntValue());
+            ccCustomNumber = v;
+            midiClip.state.setProperty (IDs::pianoRollCC, v, &edit.getUndoManager());
+        }
+        else
+            syncCCSelectorFromClipState();
+        repaint();
     }
 
     void valueTreePropertyChanged (juce::ValueTree& v, const juce::Identifier& i) override
     {
-        if (i == IDs::snapEnabled)
-            snapEnabled = v.getProperty (i);
-        else if (i == IDs::snapInterval)
-            snapInterval = v.getProperty (i);
-        
+        if (&v == &midiClip.state)
+        {
+            if (i == IDs::pianoRollCC)
+                syncCCSelectorFromClipState();
+            repaint();
+            return;
+        }
+
+        if (&v == &projectData.getProjectTree())
+        {
+            if (i == IDs::snapEnabled)
+                snapEnabled = v.getProperty (i);
+            else if (i == IDs::snapInterval)
+                snapInterval = v.getProperty (i);
+        }
+
         repaint();
     }
     void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override {}
@@ -1885,24 +2195,27 @@ public:
     {
         g.fillAll (Theme::bgBase);
         auto ga = gridArea();
+        auto ca = ccLaneArea();
         auto va = velocityArea();
-        
+
         drawGrid (g, ga);
+        drawCCLane (g, ca);
         drawVelocityLane (g, va);
         drawNotes (g, ga);
         drawPianoKeys (g);
-        
-        // Clip-length end marker
+
+        // Clip-length end marker (grid + CC + velocity stack)
         g.setColour (Theme::active.withAlpha (0.4f));
         float endX = beatToX (clipLengthBeats());
         if (endX > (float) kKeyW && endX < (float) ga.getRight())
-            g.fillRect (endX, (float) kHdrH, 2.0f, (float) (ga.getHeight() + va.getHeight()));
+            g.fillRect (endX, (float) kHdrH, 2.0f, (float) (va.getBottom() - kHdrH));
     }
 
     void resized() override
     {
-        hScroll.setBounds (getLocalBounds().removeFromBottom (14).withTrimmedLeft (kKeyW));
-        vScroll.setBounds (getLocalBounds().removeFromRight (14).withTrimmedTop (kHdrH).withTrimmedBottom (kVelocityH));
+        hScroll.setBounds (getLocalBounds().removeFromBottom (kBottomScrollH).withTrimmedLeft (kKeyW));
+        vScroll.setBounds (getLocalBounds().removeFromRight (14).withTrimmedTop (kHdrH).withTrimmedBottom (bottomStackH()));
+        ccTypeCombo.setBounds (kKeyW + 2, ccLaneArea().getY() + 2, 118, 18);
         updateScrollRanges();
     }
 
@@ -1932,7 +2245,8 @@ public:
             double s = n->getStartBeat().inBeats();
             double l = n->getLengthBeats().inBeats();
             double ns = std::floor (s / snapInterval + 0.5) * snapInterval;
-            double ne = std::floor ((s + l) / snapInterval + 0.5) * snapInterval;            n->setStartAndLength (tracktion::BeatPosition::fromBeats (ns),
+            double ne = std::floor ((s + l) / snapInterval + 0.5) * snapInterval;
+            n->setStartAndLength (tracktion::BeatPosition::fromBeats (ns),
                                   tracktion::BeatDuration::fromBeats (juce::jmax (snapInterval, ne - ns)),
                                   &edit.getUndoManager());
         }
@@ -1944,12 +2258,33 @@ public:
         snapEnabled  = (bool)   projectData.getProjectTree().getProperty (IDs::snapEnabled,  true);
         snapInterval = (double) projectData.getProjectTree().getProperty (IDs::snapInterval, 1.0);
         auto ga = gridArea();
+        auto ca = ccLaneArea();
         auto va = velocityArea();
+        auto sp = laneSplitterArea();
 
         if (e.x < kKeyW)
         {
             lastClickedNote = yToNote (e.y);
             repaint();
+            return;
+        }
+
+        if (sp.contains (e.getPosition()))
+        {
+            dragMode = PRDragMode::laneSplitter;
+            splitterDragStartY = e.y;
+            splitterStartCcH = kCCLaneH;
+            splitterStartVelH = kVelocityLaneH;
+            return;
+        }
+
+        if (ca.contains (e.getPosition()))
+        {
+            dragMode = PRDragMode::ccLane;
+            if (e.mods.isRightButtonDown())
+                tryRemoveCCEventAt (e);
+            else
+                applyCCValueAt (e.x, e.y, true);
             return;
         }
 
@@ -2005,6 +2340,34 @@ public:
     {
         snapEnabled  = (bool)   projectData.getProjectTree().getProperty (IDs::snapEnabled,  true);
         snapInterval = (double) projectData.getProjectTree().getProperty (IDs::snapInterval, 1.0);
+
+        if (dragMode == PRDragMode::laneSplitter)
+        {
+            int dy = e.y - splitterDragStartY;
+            int newCc = juce::jlimit (40, 200, splitterStartCcH + dy);
+            int newVel = juce::jlimit (40, 200, splitterStartVelH - dy);
+            if (newCc + newVel > 280)
+            {
+                const int over = newCc + newVel - 280;
+                if (dy >= 0)
+                    newVel = juce::jmax (40, newVel - over);
+                else
+                    newCc = juce::jmax (40, newCc - over);
+            }
+            kCCLaneH = newCc;
+            kVelocityLaneH = newVel;
+            resized();
+            repaint();
+            return;
+        }
+
+        if (dragMode == PRDragMode::ccLane)
+        {
+            if (! e.mods.isRightButtonDown())
+                applyCCValueAt (e.x, e.y, false);
+            return;
+        }
+
         if (dragMode == PRDragMode::velocity)
         {
             updateVelocityAt (e.x, e.y);
@@ -2037,7 +2400,15 @@ public:
         repaint();
     }
 
-    void mouseUp (const juce::MouseEvent&) override { draggingNote = nullptr; resizing = false; dragMode = PRDragMode::none; lastClickedNote = -1; repaint(); }
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        draggingNote = nullptr;
+        resizing = false;
+        dragMode = PRDragMode::none;
+        lastClickedNote = -1;
+        lastCCPaintBeat = -1.0e9;
+        repaint();
+    }
 
     void updateVelocityAt (int x, int y)
     {
@@ -2077,18 +2448,24 @@ private:
     static constexpr int kKeyW = 44;
     static constexpr int kRowH = 12;
     static constexpr int kHdrH = 24;
-    static constexpr int kVelocityH = 100;
+    static constexpr int kBottomScrollH = 14;
+    static constexpr int kSplitterH = 4;
 
     tracktion::MidiClip& midiClip;
     tracktion::Edit&     edit;
     ProjectData&         projectData;
 
     juce::ScrollBar hScroll { false }, vScroll { true };
+    juce::ComboBox  ccTypeCombo;
+    int ccCustomNumber = 17;
+    int kCCLaneH = 80;
+    int kVelocityLaneH = 80;
+
     double viewBeat = 0.0;
     int    scrollY  = 0;
     double pxPerBeat = 80.0;
 
-    enum class PRDragMode { none, notes, velocity };
+    enum class PRDragMode { none, notes, velocity, ccLane, laneSplitter };
     PRDragMode dragMode = PRDragMode::none;
     tracktion::MidiNote* draggingNote  = nullptr;
     int    lastClickedNote = -1;
@@ -2098,14 +2475,208 @@ private:
     double origStart = 0, origLen = 0;
     int    origNote  = 0;
 
+    int    splitterDragStartY = 0;
+    int    splitterStartCcH = 80;
+    int    splitterStartVelH = 80;
+    double lastCCPaintBeat = -1.0e9;
+
+    int bottomStackH() const noexcept { return kCCLaneH + kSplitterH + kVelocityLaneH + kBottomScrollH; }
+
     juce::Rectangle<int> gridArea() const
     {
-        return { kKeyW, kHdrH, getWidth() - kKeyW - 14, getHeight() - kHdrH - kVelocityH - 14 };
+        const int stack = bottomStackH();
+        const int h = juce::jmax (40, getHeight() - kHdrH - stack);
+        return { kKeyW, kHdrH, getWidth() - kKeyW - 14, h };
+    }
+
+    juce::Rectangle<int> ccLaneArea() const
+    {
+        auto g = gridArea();
+        return { g.getX(), g.getBottom(), g.getWidth(), kCCLaneH };
+    }
+
+    juce::Rectangle<int> laneSplitterArea() const
+    {
+        auto c = ccLaneArea();
+        return { c.getX(), c.getBottom(), c.getWidth(), kSplitterH };
     }
 
     juce::Rectangle<int> velocityArea() const
     {
-        return { kKeyW, getHeight() - kVelocityH - 14, getWidth() - kKeyW - 14, kVelocityH };
+        auto s = laneSplitterArea();
+        return { s.getX(), s.getBottom(), s.getWidth(), kVelocityLaneH };
+    }
+
+    void syncCCSelectorFromClipState()
+    {
+        const int v = (int) midiClip.state.getProperty (IDs::pianoRollCC, 1);
+        if (v == -1)
+            ccTypeCombo.setSelectedId (1, juce::dontSendNotification);
+        else if (v == 1)  ccTypeCombo.setSelectedId (2, juce::dontSendNotification);
+        else if (v == 7)  ccTypeCombo.setSelectedId (3, juce::dontSendNotification);
+        else if (v == 10) ccTypeCombo.setSelectedId (4, juce::dontSendNotification);
+        else if (v == 11) ccTypeCombo.setSelectedId (5, juce::dontSendNotification);
+        else if (v == 64) ccTypeCombo.setSelectedId (6, juce::dontSendNotification);
+        else
+        {
+            ccCustomNumber = v;
+            ccTypeCombo.setSelectedId (7, juce::dontSendNotification);
+        }
+    }
+
+    int activeControllerType() const noexcept
+    {
+        const int stored = (int) midiClip.state.getProperty (IDs::pianoRollCC, 1);
+        if (stored == -1)
+            return tracktion::MidiControllerEvent::pitchWheelType;
+        return stored;
+    }
+
+    bool isPitchMode() const noexcept { return (int) midiClip.state.getProperty (IDs::pianoRollCC, 1) == -1; }
+
+    float ccValueToY (juce::Rectangle<int> ca, int rawValue) const
+    {
+        if (isPitchMode())
+        {
+            const float n = juce::jlimit (0.0f, 1.0f, (float) (rawValue / 16383.0));
+            return (float) ca.getBottom() - 2.0f - n * (float) (ca.getHeight() - 4);
+        }
+        const float n = juce::jlimit (0.0f, 1.0f, (float) rawValue / 127.0f);
+        return (float) ca.getBottom() - 2.0f - n * (float) (ca.getHeight() - 4);
+    }
+
+    int yToCCValue (juce::Rectangle<int> ca, int y) const
+    {
+        const float t = juce::jlimit (0.0f, 1.0f,
+                                    ((float) ca.getBottom() - (float) y) / (float) juce::jmax (1, ca.getHeight() - 4));
+        if (isPitchMode())
+            return (int) std::lround (t * 16383.0);
+        return (int) std::lround (t * 127.0);
+    }
+
+    void applyCCValueAt (int x, int y, bool force)
+    {
+        auto ca = ccLaneArea();
+        const double b = snapBeat ((double) xToBeat (x));
+        if (! force && std::abs (b - lastCCPaintBeat) < 1.0e-7)
+            return;
+
+        const int v = yToCCValue (ca, y);
+        auto& seq = midiClip.getSequence();
+        seq.setControllerValueAt (activeControllerType(),
+                                  tracktion::BeatPosition::fromBeats (b),
+                                  v,
+                                  &edit.getUndoManager());
+        lastCCPaintBeat = b;
+        updateScrollRanges();
+        repaint();
+    }
+
+    void tryRemoveCCEventAt (const juce::MouseEvent& e)
+    {
+        auto ca = ccLaneArea();
+        const int ctype = activeControllerType();
+        tracktion::MidiControllerEvent* hit = nullptr;
+        float bestD = 1.0e9f;
+        auto& seq = midiClip.getSequence();
+
+        for (auto* ev : seq.getControllerEvents())
+        {
+            if (ev->getType() != ctype) continue;
+            const float px = beatToX (ev->getBeatPosition().inBeats());
+            const float py = ccValueToY (ca, ev->getControllerValue());
+            const float d = std::hypot (px - (float) e.x, py - (float) e.y);
+            if (d < 10.0f && d < bestD)
+            {
+                bestD = d;
+                hit = ev;
+            }
+        }
+
+        if (hit != nullptr)
+        {
+            seq.removeControllerEvent (*hit, &edit.getUndoManager());
+            repaint();
+        }
+    }
+
+    void drawCCLane (juce::Graphics& g, juce::Rectangle<int> ca)
+    {
+        g.setColour (Theme::bgBase.darker (0.08f));
+        g.fillRect (ca);
+        g.setColour (Theme::border.withAlpha (0.35f));
+        g.drawRoundedRectangle (ca.toFloat().reduced (0.5f), 2.0f, 1.0f);
+
+        const int ctype = activeControllerType();
+        juce::Array<tracktion::MidiControllerEvent*> evs;
+        for (auto* ev : midiClip.getSequence().getControllerEvents())
+            if (ev->getType() == ctype)
+                evs.add (ev);
+
+        std::sort (evs.begin(), evs.end(),
+                   [] (tracktion::MidiControllerEvent* a, tracktion::MidiControllerEvent* b) {
+                       return a->getBeatPosition().inBeats() < b->getBeatPosition().inBeats();
+                   });
+
+        const int refVal = isPitchMode() ? 8192 : 64;
+        g.setColour (Theme::border.withAlpha (0.25f));
+        const float refY = ccValueToY (ca, refVal);
+        g.drawHorizontalLine ((int) refY, (float) ca.getX(), (float) ca.getRight());
+
+        if (! evs.isEmpty())
+        {
+            juce::Path path;
+            bool first = true;
+            float prevY = 0;
+
+            for (auto* ev : evs)
+            {
+                const float x = beatToX (ev->getBeatPosition().inBeats());
+                const float y = ccValueToY (ca, ev->getControllerValue());
+                if (x < (float) ca.getX() - 4.0f || x > (float) ca.getRight() + 4.0f)
+                    continue;
+
+                if (first)
+                {
+                    path.startNewSubPath (x, y);
+                    first = false;
+                    prevY = y;
+                }
+                else if (isPitchMode())
+                {
+                    path.lineTo (x, y);
+                    prevY = y;
+                }
+                else
+                {
+                    path.lineTo (x, prevY);
+                    path.lineTo (x, y);
+                    prevY = y;
+                }
+            }
+
+            if (! path.isEmpty())
+            {
+                g.setColour (Theme::active.withAlpha (0.72f));
+                g.strokePath (path, juce::PathStrokeType (1.6f));
+            }
+
+            g.setColour (Theme::active.withAlpha (0.95f));
+            for (auto* ev : evs)
+            {
+                const float x = beatToX (ev->getBeatPosition().inBeats());
+                const float y = ccValueToY (ca, ev->getControllerValue());
+                if (x < (float) ca.getX() - 4.0f || x > (float) ca.getRight() + 4.0f)
+                    continue;
+                g.fillEllipse (x - 3.0f, y - 3.0f, 6.0f, 6.0f);
+            }
+        }
+
+        auto sp = laneSplitterArea();
+        g.setColour (Theme::border.withAlpha (0.45f));
+        g.fillRect (sp);
+        g.setColour (Theme::textMuted.withAlpha (0.35f));
+        g.drawHorizontalLine (sp.getCentreY(), (float) sp.getX() + 6.0f, (float) sp.getRight() - 6.0f);
     }
 
     double visibleBeats() const { return gridArea().getWidth() / pxPerBeat; }
@@ -2123,6 +2694,12 @@ private:
         double mx = clipLengthBeats();
         for (auto* n : midiClip.getSequence().getNotes())
             mx = juce::jmax (mx, n->getEndBeat().inBeats());
+
+        const int ctype = activeControllerType();
+        for (auto* ev : midiClip.getSequence().getControllerEvents())
+            if (ev->getType() == ctype)
+                mx = juce::jmax (mx, ev->getBeatPosition().inBeats());
+
         return mx + 4.0;
     }
 
@@ -2130,10 +2707,10 @@ private:
     float xToBeat (int x)       const { return (float)((x - kKeyW) / pxPerBeat + viewBeat); }
     int   noteToY (int note)    const { return kHdrH + (127 - note) * kRowH - scrollY; }
     int   yToNote (int y)       const { return juce::jlimit (0, 127, 127 - (y - kHdrH + scrollY) / kRowH); }
-    double snapBeat (double b)  const 
-    { 
+    double snapBeat (double b)  const
+    {
         if (! snapEnabled) return b;
-        return std::round (b / snapInterval) * snapInterval; 
+        return std::round (b / snapInterval) * snapInterval;
     }
 
     juce::Rectangle<float> noteRect (tracktion::MidiNote* n, juce::Rectangle<int>) const
@@ -2926,7 +3503,14 @@ public:
 
             if (dragging)
             {
-                if (dropFolderTarget != nullptr)
+                if (dropDetachToTopLevel)
+                {
+                    g.setColour (Theme::accent.withAlpha (0.22f));
+                    g.fillRect (0, kRulerH, 14, laneBottom() - kRulerH);
+                    g.setColour (Theme::active.withAlpha (0.85f));
+                    g.drawVerticalLine (14, (float) kRulerH, (float) laneBottom());
+                }
+                else if (dropFolderTarget != nullptr)
                 {
                     for (auto& row : getVisibleRows())
                     {
@@ -3138,7 +3722,9 @@ public:
         g.drawLine((float)kHeaderWidth, (float)y, (float)kHeaderWidth, (float)(y + rowH));
 
         g.setColour(tColor);
-        g.fillRect((float)indent, (float)y, 4.0f, (float)rowH);
+        const bool submixFolder = folder != nullptr && audioEngine.isFolderSubmix (folder);
+        const float barW = submixFolder ? 3.0f : 4.0f;
+        g.fillRect((float)indent, (float)y, barW, (float)rowH);
 
         const int textX = 14 + indent;
         g.setColour(Theme::textMain);
@@ -3163,9 +3749,20 @@ public:
             g.setColour (Theme::textMain);
         }
 
-        juce::String label = track->getName()
-                             + (folder ? juce::String("  [GROUP]") : juce::String());
+        juce::String label = track->getName();
+        if (folder != nullptr && ! submixFolder)
+            label += "  [GROUP]";
         g.drawText(label, textX, y + 8, kHeaderWidth - textX - 8, 20, juce::Justification::left);
+
+        if (submixFolder)
+        {
+            auto br = juce::Rectangle<int> (kHeaderWidth - 22, y + 6, 14, 14);
+            g.setColour (tColor.withAlpha (0.45f));
+            g.fillRoundedRectangle (br.toFloat(), 2.0f);
+            g.setColour (Theme::textMain);
+            g.setFont (Theme::uiSize (9.0f).boldened());
+            g.drawText ("S", br, juce::Justification::centred);
+        }
 
         // M / S / R / A buttons (top row), FX button below.
         int btnY = y + 32;
@@ -3400,6 +3997,98 @@ public:
                     g.setFont (Theme::uiSize (10.0f));
                     g.drawText(clip->getName(), cb.reduced(6, 2).toNearestInt(), juce::Justification::topLeft);
                 }
+            }
+        }
+
+        // Live-recording overlay: while the engine is actively writing to this track,
+        // Tracktion only commits the WaveAudioClip on stop, so getClips() is empty during
+        // capture. Render the in-flight RecordingThumbnailManager::Thumbnail directly so
+        // the user sees the waveform grow live (Studio One / Reaper behaviour).
+        if (audio != nullptr && audioEngine.isRecording())
+        {
+            juce::Graphics::ScopedSaveState s (g);
+            g.reduceClipRegion (kHeaderWidth, y, getWidth() - kHeaderWidth, rowH);
+
+            for (auto* idi : audioEngine.getEdit().getEditInputDevices().getDevicesForTargetTrack (*audio))
+            {
+                if (idi == nullptr || ! idi->isRecordingActive (audio->itemID))
+                    continue;
+
+                const auto recFile = idi->getRecordingFile (audio->itemID);
+                if (recFile == juce::File()) continue;
+
+                auto recThumb = audioEngine.getEngine().getRecordingThumbnailManager().getThumbnailFor (recFile);
+                if (recThumb == nullptr || recThumb->thumb == nullptr) continue;
+
+                const double startSec = idi->getPunchInTime (audio->itemID).inSeconds();
+                const double nowSec   = audioEngine.getTransportPosition();
+                if (nowSec <= startSec) continue;
+
+                const float startX = timeToX ((float) startSec);
+                const float endX   = timeToX ((float) nowSec);
+                if (endX <= startX) continue;
+
+                juce::Rectangle<float> cb (startX, (float) y + 2.0f, endX - startX, (float) kTrackH - 4.0f);
+                if (cb.getRight() < kHeaderWidth || cb.getX() > getWidth()) continue;
+
+                {
+                    auto shadow = cb.translated (0.0f, 1.0f);
+                    g.setColour (juce::Colours::black.withAlpha (0.35f));
+                    g.fillRoundedRectangle (shadow, 6.0f);
+                }
+
+                juce::ColourGradient grad (Theme::recordRed.brighter (0.20f), cb.getX(), cb.getY(),
+                                           Theme::recordRed.darker   (0.30f), cb.getX(), cb.getBottom(), false);
+                grad.addColour (0.18, Theme::recordRed.brighter (0.30f));
+                g.setGradientFill (grad);
+                g.fillRoundedRectangle (cb, 6.0f);
+
+                g.setColour (Theme::recordRed.brighter (0.5f).withAlpha (0.95f));
+                g.drawRoundedRectangle (cb, 6.0f, 1.5f);
+
+                g.setColour (juce::Colours::white.withAlpha (0.18f));
+                g.drawLine (cb.getX() + 2.0f, cb.getY() + 1.0f, cb.getRight() - 2.0f, cb.getY() + 1.0f, 1.0f);
+
+                auto innerCb = cb.reduced (2);
+                auto viewportCb = innerCb.getIntersection (
+                    juce::Rectangle<float> ((float) kHeaderWidth, innerCb.getY(),
+                                            (float) (getWidth() - kHeaderWidth - kVScrollW),
+                                            innerCb.getHeight()));
+                if (! viewportCb.isEmpty() && innerCb.getWidth() > 0.0f)
+                {
+                    const double clipLen      = nowSec - startSec;
+                    const double fullW        = (double) innerCb.getWidth();
+                    const double audioStart   = (double) (viewportCb.getX() - innerCb.getX()) * clipLen / fullW;
+                    const double audioEnd     = audioStart + (double) viewportCb.getWidth() * clipLen / fullW;
+
+                    juce::Rectangle<int> wfArea (juce::roundToInt (viewportCb.getX()),
+                                                 juce::roundToInt (viewportCb.getY()),
+                                                 juce::jmax (1, juce::roundToInt (viewportCb.getWidth())),
+                                                 juce::jmax (1, juce::roundToInt (viewportCb.getHeight())));
+
+                    auto drawWave = [&] ()
+                    {
+                        recThumb->thumb->drawChannels (g, wfArea, audioStart, audioEnd, 1.0f);
+                    };
+                    g.setColour (juce::Colours::white.withAlpha (0.95f));
+                    drawWave();
+                    {
+                        juce::Graphics::ScopedSaveState ss (g);
+                        g.addTransform (juce::AffineTransform::translation (0.0f, -1.0f));
+                        g.setColour (juce::Colours::white.withAlpha (0.7f));
+                        drawWave();
+                    }
+                    {
+                        juce::Graphics::ScopedSaveState ss (g);
+                        g.addTransform (juce::AffineTransform::translation (0.0f,  1.0f));
+                        g.setColour (juce::Colours::white.withAlpha (0.7f));
+                        drawWave();
+                    }
+                }
+
+                g.setColour (Theme::textMain);
+                g.setFont (Theme::uiSize (10.0f).boldened());
+                g.drawText ("REC", cb.reduced (6, 2).toNearestInt(), juce::Justification::topLeft);
             }
         }
 
@@ -3954,6 +4643,8 @@ public:
                     dragSourceTrack      = clickedTrack;
                     dropInsertBeforeRowIdx = -1;
                     dropFolderTarget     = nullptr;
+                    dropFolderAsFirstChild = false;
+                    dropDetachToTopLevel = false;
                     dropPreviewY         = -1;
                     repaint();
                     return;
@@ -4043,6 +4734,16 @@ public:
         m.addSeparator();
         m.addItem (10, "Add Send to New Bus...");
         m.addSeparator();
+
+        if (auto* f = dynamic_cast<tracktion::FolderTrack*> (track))
+        {
+            if (audioEngine.isFolderSubmix (f))
+                m.addItem (20, "Convert to Folder (organizational)");
+            else
+                m.addItem (21, "Convert to Submix");
+            m.addSeparator();
+        }
+
         m.addItem (2, "Delete Track");
 
         m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ screenPos.x, screenPos.y, 1, 1 }),
@@ -4066,6 +4767,12 @@ public:
                 else if (chosen == 10)
                 {
                     audioEngine.addSendToNewBus (track);
+                    repaint();
+                }
+                else if (chosen == 20 || chosen == 21)
+                {
+                    if (auto* f = dynamic_cast<tracktion::FolderTrack*> (track))
+                        audioEngine.setFolderSubmix (f, chosen == 21);
                     repaint();
                 }
                 else if (chosen == 3)
@@ -4141,6 +4848,27 @@ public:
 
             dropInsertBeforeRowIdx = rows.size();  // default: after all rows
             dropFolderTarget       = nullptr;
+            dropFolderAsFirstChild = false;
+            dropDetachToTopLevel   = false;
+
+            int sourceIndent = 0;
+            tracktion::FolderTrack* sourceParent = nullptr;
+            for (auto& row : rows)
+                if (row.track == dragSourceTrack)
+                {
+                    sourceParent = row.parent;
+                    sourceIndent = row.indent;
+                    break;
+                }
+
+            if (sourceParent != nullptr && e.x < sourceIndent - 16)
+            {
+                dropDetachToTopLevel = true;
+                dropInsertBeforeRowIdx = -1;
+                dropPreviewY         = -1;
+                repaint();
+                return;
+            }
 
             for (int i = 0; i < rows.size(); ++i)
             {
@@ -4155,6 +4883,7 @@ public:
                         if (virtualY >= midTop && virtualY < midBot && f != dragSourceTrack)
                         {
                             dropFolderTarget       = f;
+                            dropFolderAsFirstChild = (virtualY < midTop + (midBot - midTop) / 3);
                             dropInsertBeforeRowIdx = -1;
                             break;
                         }
@@ -4331,13 +5060,25 @@ public:
             {
                 auto rows = getVisibleRows();
 
-                if (dropFolderTarget != nullptr)
+                if (dropDetachToTopLevel)
                 {
-                    // Drop into folder as its last child
-                    tracktion::Track* lastChild = nullptr;
-                    for (auto* child : dropFolderTarget->getAllAudioSubTracks (false))
-                        lastChild = child;
-                    audioEngine.moveTrackAfter (dragSourceTrack, lastChild, dropFolderTarget);
+                    tracktion::FolderTrack* parent = nullptr;
+                    for (auto& row : rows)
+                        if (row.track == dragSourceTrack) { parent = row.parent; break; }
+                    if (parent != nullptr)
+                        audioEngine.moveTrackAfter (dragSourceTrack, parent, nullptr);
+                }
+                else if (dropFolderTarget != nullptr)
+                {
+                    if (dropFolderAsFirstChild)
+                        audioEngine.moveTrackAfter (dragSourceTrack, nullptr, dropFolderTarget);
+                    else
+                    {
+                        tracktion::Track* lastChild = nullptr;
+                        for (auto* child : dropFolderTarget->getAllAudioSubTracks (false))
+                            lastChild = child;
+                        audioEngine.moveTrackAfter (dragSourceTrack, lastChild, dropFolderTarget);
+                    }
                 }
                 else if (dropInsertBeforeRowIdx >= 0)
                 {
@@ -4369,6 +5110,8 @@ public:
             dragSourceTrack      = nullptr;
             dropInsertBeforeRowIdx = -1;
             dropFolderTarget     = nullptr;
+            dropFolderAsFirstChild = false;
+            dropDetachToTopLevel = false;
             dropPreviewY         = -1;
             repaint();
             return;
@@ -4571,6 +5314,8 @@ private:
     tracktion::Track*      dragSourceTrack      = nullptr;
     int                    dropInsertBeforeRowIdx = -1;
     tracktion::FolderTrack* dropFolderTarget    = nullptr;
+    bool                    dropFolderAsFirstChild = false;
+    bool                    dropDetachToTopLevel = false;
     int  dropPreviewY  = -1;
     juce::Rectangle<int> addTrackBtn, addMidiTrackBtn, addFolderBtn;
 
@@ -4677,6 +5422,7 @@ class Mixer : public juce::Component,
 {
 public:
     static constexpr int kStripW        = 110;
+    static constexpr int kFolderSubmixExtraW = 8;
     static constexpr int kHeaderH       = 28;
     static constexpr int kColorBandH    = 4;
     static constexpr int kNameH         = 20;
@@ -4769,10 +5515,14 @@ public:
             bool isMaster = (i == tracks.size());
             tracktion::Track* track = isMaster ? audioEngine.getMasterTrack() : tracks[i];
             juce::Colour tColor = isMaster ? Theme::meterRed : Theme::colourForTrack(i);
+            int stripW = kStripW;
+            if (auto* f = dynamic_cast<tracktion::FolderTrack*> (track))
+                if (audioEngine.isFolderSubmix (f))
+                    stripW += kFolderSubmixExtraW;
 
-            paintStrip(g, juce::Rectangle<int>(x, y, kStripW, h), track, tColor, isMaster);
+            paintStrip(g, juce::Rectangle<int>(x, y, stripW, h), track, tColor, isMaster);
 
-            x += kStripW + kStripGap;
+            x += stripW + kStripGap;
             if (isMaster) break;
             if (i == tracks.size() - 1) x += kMasterGap;
         }
@@ -4782,8 +5532,9 @@ public:
                     tracktion::Track* track, juce::Colour tColor, bool isMaster)
     {
         StripHit hit;
-        hit.track    = track;
-        hit.isMaster = isMaster;
+        hit.track       = track;
+        hit.isMaster    = isMaster;
+        hit.stripBounds = cb;
 
         auto* folder = dynamic_cast<tracktion::FolderTrack*>(track);
 
@@ -4792,6 +5543,11 @@ public:
         g.fillRoundedRectangle (cb.toFloat(), 4.0f);
         g.setColour (Theme::border);
         g.drawRoundedRectangle (cb.toFloat(), 4.0f, 1.0f);
+        if (folder != nullptr && audioEngine.isFolderSubmix (folder))
+        {
+            g.setColour (tColor.withAlpha (0.95f));
+            g.drawRoundedRectangle (cb.toFloat().expanded (0.75f), 5.0f, 1.5f);
+        }
 
         auto inner = cb.reduced (4);
 
@@ -4857,8 +5613,9 @@ public:
 
         // Fader + dual meters (fills remaining inner zone)
         auto faderZone = inner.withTrimmedBottom (kBottomH);
+        const bool k14 = isMaster && (bool) projectData.getProjectTree().getProperty (IDs::masterKMeter, false);
         ::paintFader (g, faderZone, audioEngine, track, tColor, isMaster,
-                      faderKnobDrawable.get(), &hit.peakReadoutArea);
+                      faderKnobDrawable.get(), &hit.peakReadoutArea, k14);
         hit.faderArea = faderZone;
 
         // Plugin-drag hover highlight
@@ -4971,6 +5728,22 @@ public:
             m.addItem (2, "Mono Sum", true, isMono);
             m.addSeparator();
 
+            if (auto* f = dynamic_cast<tracktion::FolderTrack*> (t))
+            {
+                if (audioEngine.isFolderSubmix (f))
+                    m.addItem (20, "Convert to Folder (organizational)");
+                else
+                    m.addItem (21, "Convert to Submix");
+                m.addSeparator();
+            }
+
+            if (t == audioEngine.getMasterTrack())
+            {
+                const bool km = (bool) projectData.getProjectTree().getProperty (IDs::masterKMeter, false);
+                m.addItem (22, "K-14 Reference Scale", true, km);
+                m.addSeparator();
+            }
+
             // Snapshots Submenu
             juce::PopupMenu snaps;
             auto names = audioEngine.getMixSnapshotNames();
@@ -4997,6 +5770,17 @@ public:
                     if (result == 1)      audioEngine.setTrackPhase (t, ! audioEngine.getTrackPhase (t));
                     else if (result == 2) audioEngine.setTrackMono (t, ! audioEngine.getTrackMono (t));
                     else if (result == 3) audioEngine.clearTrackMaxPeak (t);
+                    else if (result == 20 || result == 21)
+                    {
+                        if (auto* f = dynamic_cast<tracktion::FolderTrack*> (t))
+                            audioEngine.setFolderSubmix (f, result == 21);
+                    }
+                    else if (result == 22 && t == audioEngine.getMasterTrack())
+                    {
+                        auto tree = projectData.getProjectTree();
+                        const bool cur = (bool) tree.getProperty (IDs::masterKMeter, false);
+                        tree.setProperty (IDs::masterKMeter, ! cur, nullptr);
+                    }
                     else if (result == 200)
                     {
                         // Show a quick dialog or just auto-name it
@@ -5019,6 +5803,16 @@ public:
             if (detachBtn.contains (e.getPosition())) {
                 if (onDetachRequested) onDetachRequested();
                 return;
+            }
+
+            if (e.mods.isPopupMenu())
+            {
+                for (auto& hit : stripHits)
+                    if (hit.stripBounds.contains (e.getPosition()))
+                    {
+                        showTrackContextMenu (hit.track, e.getScreenPosition());
+                        return;
+                    }
             }
 
             for (auto& hit : stripHits)
@@ -5127,6 +5921,7 @@ private:
     {
         tracktion::Track* track = nullptr;
         bool isMaster = false;
+        juce::Rectangle<int> stripBounds;
         juce::Rectangle<int> muteBtn, soloBtn, panArea, faderArea, peakReadoutArea;
         juce::Rectangle<int> monoBtn, fxBtn, infoBtn;
         juce::Array<juce::Rectangle<int>>      insertSlots;
@@ -5234,15 +6029,24 @@ void showInsertContextMenu(tracktion::Plugin* plugin, tracktion::Track* track, j
 
     tracktion::Track* getStripTrackAt (juce::Point<int> pos)
     {
-        // Re-derive strip geometry (stripHits is only valid within a paint() call)
-        auto tracks = audioEngine.getAudioTracks();
+        auto tracks = audioEngine.getMixerTracks();
         int x = 12;
-        for (int i = 0; i < tracks.size(); ++i)
+        int y = kHeaderH + 8;
+        int h = getHeight() - y - 12;
+        for (int i = 0; i <= tracks.size(); ++i)
         {
-            juce::Rectangle<int> strip (x, kHeaderH, kStripW, getHeight() - kHeaderH - 8);
+            const bool isMaster = (i == tracks.size());
+            auto* track = isMaster ? audioEngine.getMasterTrack() : tracks[i];
+            int stripW = kStripW;
+            if (auto* f = dynamic_cast<tracktion::FolderTrack*> (track))
+                if (audioEngine.isFolderSubmix (f))
+                    stripW += kFolderSubmixExtraW;
+            juce::Rectangle<int> strip (x, y, stripW, h);
             if (strip.contains (pos))
-                return tracks[i];
-            x += kStripW + kStripGap;
+                return track;
+            x += stripW + kStripGap;
+            if (! isMaster && i == tracks.size() - 1) x += kMasterGap;
+            if (isMaster) break;
         }
         return nullptr;
     }
@@ -5322,7 +6126,7 @@ public:
         {
             auto bi = audioEngine.getBufferInfo();
             juce::String srStr  = juce::String (bi.sampleRate / 1000.0, 1) + " kHz";
-            juce::String bufStr = juce::String (bi.blockSize) + " smp";
+            juce::String bufStr = juce::String::formatted ("%d@%.1fms", bi.blockSize, bi.oneBlockMs);
             float cpu = juce::jlimit (0.0f, 1.0f, bi.cpuUsage);
             juce::Colour cpuCol = cpu > 0.85f ? Theme::meterRed
                                 : cpu > 0.60f ? Theme::meterYellow

@@ -20,10 +20,17 @@ public:
                 BinaryData::aerion_logo_vertical_svgSize)))
             logoDrawable = juce::Drawable::createFromSVG (*xml);
 
+       #if JUCE_WINDOWS && JUCE_ASIO
+        if (auto xml = juce::XmlDocument::parse (juce::String::fromUTF8 (
+                BinaryData::asio_compatible_logo_svg,
+                BinaryData::asio_compatible_logo_svgSize)))
+            asioLogoDrawable = juce::Drawable::createFromSVG (*xml);
+       #endif
+
         setOpaque (true);
         setInterceptsMouseClicks (false, false);
 
-        const int w = 400, h = 460;
+        const int w = 400, h = 480;
         setSize (w, h);
 
         if (juce::Desktop::getInstance().getDisplays().getPrimaryDisplay() != nullptr)
@@ -41,9 +48,16 @@ public:
     {
         const float W = (float) getWidth();
         const float H = (float) getHeight();
-        const juce::Point<float> logoCenter (W * 0.5f, H * 0.42f);
+        const juce::Point<float> logoCenter (W * 0.5f, H * 0.40f);
 
         g.fillAll (juce::Colour (0xff080a0e));
+        // Subtle footer vignette so status + corner mark read as one calm band.
+        {
+            juce::ColourGradient grad (juce::Colours::transparentBlack, 0.0f, H * 0.62f,
+                                       juce::Colour (0xff040508), 0.0f, H, false);
+            g.setGradientFill (grad);
+            g.fillRect (0.0f, H * 0.62f, W, H * 0.38f);
+        }
 
         // -- Fog -------------------------------------------------------------
         const float fogRise = juce::jmin (1.0f, elapsedFrames / 90.0f);
@@ -85,7 +99,7 @@ public:
         // -- Title & subtitle -------------------------------------------------
         const float titleAlpha    = juce::jlimit (0.0f, 1.0f, (elapsedFrames - 110.0f) / 55.0f);
         const float subtitleAlpha = juce::jlimit (0.0f, 1.0f, (elapsedFrames - 130.0f) / 50.0f);
-        const float textBaseY = logoCenter.y + 126.0f;
+        const float textBaseY = logoCenter.y + 118.0f;
         const auto regTF = ThemeTypefaces::cinzelRegular();
 
         if (titleAlpha > 0.0f)
@@ -121,7 +135,7 @@ public:
                         juce::Justification::centred);
         }
 
-        // -- Status line (visible once fog is mostly up) ----------------------
+        // -- Status line (above footer; never overlaps corner ASIO mark) -----
         juce::String status;
         {
             const juce::ScopedLock sl (statusLock);
@@ -131,11 +145,11 @@ public:
         if (status.isNotEmpty() && statusAlpha > 0.0f)
         {
             juce::Font statusFont (regTF != nullptr
-                ? juce::FontOptions (regTF).withHeight (12.0f)
-                : juce::FontOptions().withHeight (12.0f));
-            statusFont.setExtraKerningFactor (0.18f);
+                ? juce::FontOptions (regTF).withHeight (11.0f)
+                : juce::FontOptions().withHeight (11.0f));
+            statusFont.setExtraKerningFactor (0.14f);
 
-            const int maxWidth = (int) W - 40;
+            const int maxWidth = (int) W - 48;
             if (statusFont.getStringWidth (status) > maxWidth)
             {
                 while (status.length() > 4 && statusFont.getStringWidth (status + "...") > maxWidth)
@@ -143,11 +157,31 @@ public:
                 status += "...";
             }
 
+            const float statusBandH = 22.0f;
+            const float statusY = H - 78.0f - statusBandH * 0.5f;
             g.setFont (statusFont);
-            g.setColour (juce::Colour (0xff63b3ed).withAlpha (statusAlpha * 0.55f));
-            g.drawText (status, 0, (int) textBaseY + 96, (int) W, 24,
+            g.setColour (juce::Colour (0xff8eb4d4).withAlpha (statusAlpha * 0.72f));
+            g.drawText (status, 24, (int) statusY, (int) W - 48, (int) statusBandH,
                         juce::Justification::centred);
         }
+
+       #if JUCE_WINDOWS && JUCE_ASIO
+        // Small ASIO-compatible mark, bottom-left. Full Steinberg attribution
+        // stays in Help -> About Aerion DAW (not repeated here to keep the splash calm).
+        const float asioAlpha = juce::jlimit (0.0f, 1.0f,
+                                              (elapsedFrames - 155.0f) / 50.0f);
+        if (asioLogoDrawable != nullptr && asioAlpha > 0.0f)
+        {
+            const float margin = 14.0f;
+            const float logoW = 48.0f;
+            const float logoH = 16.0f;
+            const float footerY = H - margin - logoH;
+            juce::Rectangle<float> asioBounds (margin, footerY, logoW, logoH);
+            asioLogoDrawable->drawWithin (g, asioBounds,
+                                          juce::RectanglePlacement::centred,
+                                          asioAlpha * 0.55f);
+        }
+       #endif
     }
 
     // Thread-safe: can be called from any thread.
@@ -196,6 +230,9 @@ private:
     }
 
     std::unique_ptr<juce::Drawable> logoDrawable;
+   #if JUCE_WINDOWS && JUCE_ASIO
+    std::unique_ptr<juce::Drawable> asioLogoDrawable;
+   #endif
     std::function<void()> onFinished;
     juce::CriticalSection statusLock;
     juce::String currentStatus;

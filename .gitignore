@@ -2,7 +2,6 @@ node_modules/
 build/
 dist/
 coverage/
-docs/
 .DS_Store
 *.log
 .env*
@@ -14,3 +13,9 @@ CMAKEPresets.json
 Cursor-AI/
 _CPack_Packages/
 ci-artifacts/
+scripts/
+docs/
+# Steinberg ASIO SDK is bundled in-tree under AerionDawCpp/External/ASIO-SDK_*
+# (GPLv3, redistributable). The SDK is intentionally tracked so a fresh clone
+# gets ASIO support out of the box - do NOT add it back to .gitignore unless
+# you switch the licensing model away from GPLv3.

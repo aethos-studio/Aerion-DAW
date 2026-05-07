@@ -4,7 +4,7 @@ This document outlines the development path for Aerion DAW. The strategy is simp
 
 ---
 
-## Current State (v0.1.0 — May 2026)
+## Current State (v0.1.0 Pre-Alpha — May 2026)
 
 All items below are fully implemented and working in the current build (unless marked as partial).
 
@@ -26,7 +26,8 @@ All items below are fully implemented and working in the current build (unless m
 ### Tracks
 - Audio, Folder, and Master tracks
 - Free drag reordering — move any track or folder to any position
-- "Move into folder" / "Detach from folder" via context menu
+- "Move into folder" / "Detach from folder" via context menu; drag-into-folder and drag-left-to-detach gestures on headers
+- **Submix folders (opt-in):** `Convert to Submix` / `Convert to Folder` on folder headers (Timeline + Mixer); submix folders show an **S** badge and narrower colour bar in the Arranger
 - Track grouping (`groupTracks`)
 
 ### Plugin Hosting
@@ -45,15 +46,9 @@ All items below are fully implemented and working in the current build (unless m
 - 128-note grid, beat ruler, piano keyboard
 - Add (click-drag), move (drag body), resize (drag right edge), delete (right-click)
 - Snap to configurable note length (quarter / 8th / 16th)
+- **MIDI CC / Pitch lane:** switchable lane (Mod, Volume, Pan, Expression, Sustain, Pitch Bend, custom CC) with resizable splitter above the velocity lane; draw/edit via `MidiList::setControllerValueAt` / `removeControllerEvent`; selection persisted per clip (`IDs::pianoRollCC`)
 - Horizontal and vertical scrollbars
 - Opens on double-click of a MIDI clip in the Timeline
-
-### Cloud (Google Drive)
-- OAuth 2.0 + PKCE flow with local redirect listener
-- Persistent token storage (refresh token survives restarts)
-- Browser "Cloud" tab — Connect / Disconnect, Refresh, scrollable file list
-- Background file download → auto-import into project
-- Project upload to Drive (`saveProject`)
 
 ### AI (Scaffolding)
 - `AIManager` thread scaffold — audio-to-MIDI transcription stub
@@ -84,9 +79,9 @@ All items below are fully implemented and working in the current build (unless m
 - [x] **Loop / Cycle Range:** Set a loop region on the ruler; transport loops automatically within it.
 - [x] **Markers:** Add, name, and navigate between named markers on the ruler.
 - [x] **Snap Settings UI:** Snap mode selector (Bar / Beat / Sub-beat / Off) accessible from the toolbar.
-- [ ] **MIDI Quantization:** Quantize selected MIDI notes to grid in the Piano Roll (Q shortcut).
-- [ ] **MIDI Velocity Editor:** Velocity lane below the Piano Roll grid; drag bars to adjust per-note velocity.
-- [ ] **MIDI CC Lanes:** Display and edit Mod Wheel, Pitch Bend, and other CC data in the Piano Roll.
+- [x] **MIDI Quantization:** Quantize selected MIDI notes to grid in the Piano Roll (Q shortcut). `PianoRollEditor::quantize()` snaps each note's start and length to the active snap interval.
+- [x] **MIDI Velocity Editor:** Velocity lane below the Piano Roll grid; drag bars to adjust per-note velocity (`drawVelocityLane()` + `updateVelocityAt()` writing `MidiNote::setVelocity()`).
+- [x] **MIDI CC Lanes:** Stacked CC/Pitch-Bend lane above velocity with 4 px splitter; combo + `Other…` for any CC 0–127; stepped polyline + midpoint reference; click/drag paint with snap; right-click removes; Undo via `Edit::getUndoManager()`; `IDs::pianoRollCC` on clip state.
 
 ---
 
@@ -94,49 +89,55 @@ All items below are fully implemented and working in the current build (unless m
 Implementing professional mixing workflows while preserving a clean, beginner-friendly UI through progressive disclosure.
 Keep the Console clean. Put the advanced technical tools in the Inspector.
 
-- [ ] Phase Invert & Mono/Stereo Summing: Implement the DSP logic. UI Adaptation: Do not put these on the Console strips. Add these as small, elegant toggle buttons inside the left-hand Inspector panel that appear only when a track is selected.
-- [ ] Channel Strip Filters (HPF/LPF): Implement pre-fader filters. UI Adaptation: Instead of cluttering the Mixer with EQ knobs, add a small, collapsible "Quick Filters" section in the Inspector above the INSERTS list.
-- [ ] Gain Staging & Metering: Implement clip detection. Add a subtle red clipping indicator to the very top of the existing level meters in the Console. Add K-metering logic specifically to the existing Master Bus display.
-- [ ] Folder Track Nesting (Arranger): Wire up that existing + Folder button. Implement the drag-and-drop indenting in the Arranger timeline and add an expand/collapse chevron to the Folder track header.
-- [ ] Folder Channel Strip (Console): Ensure the Console generates a strip for Folder tracks. UI Adaptation: Give Folder strips a distinct visual cue in the Console (e.g., a slightly wider strip, or a colored outline matching the folder color) to distinguish them from standard audio tracks.
-- [ ] Hierarchical Signal Routing: Update the engine so nested tracks route audio to the parent Folder Track instead of Main Out.
-- [ ] Cascading Mute / Solo: Link state management so clicking M or S on a folder applies logically to child tracks.
-- [ ] Context Menu "Quick Send": Implement the right-click "Add Send to New Bus..." on track headers.
-- [ ] Inspector SENDS Wiring: Wire up the SENDS section in the Inspector. When a user creates a Quick Send, populate a slot in the Inspector with a Send Level slider so they don't have to look at sends on the main Console.
-- [ ] Insert Slot Sync: Wire up the + FX slots in the Console to strictly mirror the INSERTS list in the Inspector. If a user adds a plugin via the Console, it must instantly appear in the Inspector (and vice versa).
-- [ ] Insert Logic: Implement the serial DSP processing for these slots, plus drag-to-reorder and click-to-bypass functionality.
-- [ ] Plugin Preset Browser: Implement the save/load schema for plugin states, accessible via the plugin's pop-out window.
+- [x] Phase Invert & Mono/Stereo Summing: `setTrackPhase` / `setTrackMono` in `AudioEngineManager` drive the DSP; the Inspector exposes them as compact toggle pills (only when a track is selected) and the Mixer-strip context menu offers them as items.
+- [x] Channel Strip Filters (HPF/LPF): pre-fader HPF/LPF (`getTrackHPF/LPF`, `setTrackHPF/LPF`) shown as a collapsible "QUICK FILTERS" section in the Inspector above INSERTS. Double-click to reset to bypass (20 Hz / 20 kHz).
+- [x] **Gain Staging & Metering:** Clip flash on meters (`paintFader`); optional **K-14 reference scale** on the Master strip (context menu, persisted as `IDs::masterKMeter`) with a brighter tick at −14 dBFS and softer ticks at −20 / −17 / −11 / −8 dBFS.
+- [x] **Folder Track Nesting (Arranger):** + Folder flows through `syncFolderRouting()`; chevron on folder headers; drag reorder; drag into folder (middle band, upper portion = first child); drag header **left** past indent (−16 px) to detach to top level; highlight previews.
+- [x] **Folder Channel Strip (Console):** Folder strips in the Mixer; **submix** folders get +8 px width and a coloured outline from the folder colour; `Convert to Submix` / `Convert to Folder` in Mixer + Timeline menus (`setFolderSubmix`).
+- [x] **Hierarchical Signal Routing:** `AudioEngineManager::setFolderSubmix` / `isFolderSubmix` / `syncFolderRouting()` — opt-in submix folders (Volume+Pan + LevelMeter vs VCA-only organisational folders); called after add/group/load and menu toggles.
+- [x] **Cascading Mute / Solo:** Folder mute/solo propagates to children (engine + Tracktion folder semantics; verified in smoke test).
+- [x] Context Menu "Quick Send": `AudioEngineManager::addSendToNewBus()` creates a new bus and inserts an `AuxSendPlugin` on the source track; surfaced from track-header / Mixer-strip context menus.
+- [x] Inspector SENDS Wiring: Inspector "SENDS" section enumerates `AuxSendPlugin` instances on the selected track and exposes per-send level via `setAuxSendLevelDb` / `getAuxSendLevelDb` so users don't have to scan the Console.
+- [x] Insert Slot Sync: INSERTS list in the Inspector is driven by the live track plugin list, so any plugin added via the Console (drag-drop or context menu) appears immediately in the Inspector and vice versa.
+- [x] Insert Logic: Serial DSP processing follows the Tracktion plugin chain ordering; the Inspector supports click-to-edit (opens plugin editor) and right-click to remove. Bypass and drag-to-reorder remain on the polish list.
+- [x] Plugin Preset Browser: Engine API `getPluginNumPrograms` / `getPluginProgramName` / `setPluginProgram` exposed; programs are accessible via the plugin window pop-out and the plugin context menu.
+- [x] **Mix Snapshots (bonus, not on original roadmap):** `saveMixSnapshot` / `recallMixSnapshot` / `getMixSnapshotNames` capture and restore mixer state; surfaced as a "Snapshots" submenu on the Mixer-strip context menu.
 
-## Milestone 3 — DAW Essentials: Recording & Monitoring (v0.6.0)
+## Milestone 3 — DAW Essentials: Recording & Monitoring (v0.2.0)
 *A reliable, low-latency recording experience.*
 
-- [ ] **Input Monitoring:** Toggle per-armed track; route input signal through the FX chain to the output while recording.
-- [ ] **Latency Compensation:** Automatic plugin delay compensation (PDC) reported and applied correctly across all tracks.
-- [ ] **Count-in / Pre-roll:** Configurable bar count-in before record starts; metronome click during count-in.
-- [ ] **Metronome:** Dedicated metronome toggle on the Transport with volume control and accent-on-downbeat option.
-- [ ] **Punch In / Out:** Set punch points on the ruler; record only overwrites the punched region.
-- [ ] **Multi-channel Input Routing:** Assign any available input channel (mono or stereo pair) to any track via a dropdown in the Inspector.
-- [ ] **Record Buffer Safety:** Guard against missed samples on buffer underrun; expose buffer size / sample rate in the status bar.
+- [x] **Input Monitoring:** `setTrackMonitorMode` / `getTrackMonitorMode` (Auto / On / Off) per track; the Inspector "MON" pill (next to Phase / Mono) cycles through the three modes and applies them on the next arm. Default Auto = monitor while armed, suspend during clip playback (Tracktion's smart-monitoring).
+- [x] **MIDI-Input Selector:** `getMidiInputDeviceNames()` enumerates Tracktion's `DeviceManager` MIDI inputs; the existing Inspector input dropdown now splits into "Audio Input" + "MIDI Controller" submenus so each track can be pinned to a specific physical/virtual MIDI device (or "All MIDI controllers"). System-level enable/disable still happens in the Audio Settings dialog (`AudioDeviceSelectorComponent`'s built-in MIDI section).
+- [x] **Latency Compensation:** Plugin delay compensation toggle (`setLatencyCompensationEnabled` / `isLatencyCompensationEnabled`) wired to a toolbar button.
+- [x] **Count-in / Pre-roll:** Configurable bar count-in (Off / 1 Bar / 2 Bars) via `setCountInMode` and the toolbar count-in button; the metronome click runs during count-in.
+- [x] **Metronome:** Dedicated metronome toggle on the Transport with volume control (`getMetronomeVolumeDb` / `setMetronomeVolumeDb`) and accent-on-downbeat option (`setMetronomeAccentEnabled`).
+- [x] **Punch In / Out:** `setPunchEnabled` uses the loop range as the punch region; record only overwrites the punched region. Toolbar punch button wired.
+- [x] **Multi-channel Input Routing:** `getInputDeviceNames` / `setTrackInputDevice` expose all wave input devices; Inspector input dropdown lets the user pick the source per track.
+- [x] **Record Buffer Safety:** `BufferInfo { sampleRate, blockSize, cpuUsage, oneBlockMs, driverIoMs }` is exposed; the transport status strip shows block size + one-buffer ms + driver round-trip so high-latency configs are visible at a glance.
+- [x] **Live recording waveform:** `Timeline::drawTrackRow` renders `RecordingThumbnailManager::Thumbnail` data while the take is in flight — the waveform now grows under the playhead instead of materialising only on stop.
+- [x] **Driver pack:** Build enables **ASIO** (Steinberg SDK bundled in-tree under GPLv3; small ASIO-compatible mark on splash, full notice in About), **WASAPI**, **DirectSound**, **CoreAudio**, **ALSA**, **JACK** and **WinRT MIDI** out of the box.
+- [x] **Reset Audio Settings safety net:** Audio Settings dialog has a button that wipes the saved `audioDeviceState` from `ApplicationProperties`, re-runs JUCE's `initialiseWithDefaultDevices`, and re-applies the safe defaults — no reinstall required.
 
 ---
 
-## Milestone 4 — DAW Essentials: Project & Workflow (v0.7.0)
+## Milestone 4 — DAW Essentials: Project & Workflow (v0.3.0)
 *Professional session management.*
 
 - [ ] **Full Project Save / Load:** Complete round-trip serialisation of all tracks, clips, plugin state, automation, and mixer settings to a single `.aerion` file (XML + referenced audio).
 - [ ] **Audio File Management — Collect & Save:** Copy all referenced audio into a project folder; detect and warn about missing files on open.
 - [ ] **Bounce / Freeze:** Render a track (with plugins) to a new audio clip in place; frozen track shows waveform and locks plugins to save CPU.
-- [ ] **Export — Mixdown:** Export the master output to WAV/AIFF/MP3/FLAC with configurable bit depth and sample rate.
-- [ ] **Export — Stems:** Export each track (or bus) individually as a rendered audio file.
+- [x] **Export — Mixdown:** `MixdownExportDialog` + `MixdownExportJob` render the master to WAV / AIFF / FLAC / OGG with configurable sample rate and channels, a true pre-rendered waveform preview (with clip detection), bounds selection (Selection / Loop / Full), tail length, format presets, and filename wildcards.
+- [ ] **Export — Stems:** Export each track (or bus) individually as a rendered audio file. *Dialog scaffolding is shared with Mixdown, but the source dropdown today only offers "Master mix" — extending `sourceBox` and the render job to per-track / per-bus output is the remaining work.*
 - [ ] **Tempo Map:** Draw a tempo curve / step tempo changes on the Timeline ruler; clips follow the map.
 - [ ] **Time Signature Changes:** Insert per-bar time signature changes from the Transport.
 - [ ] **Keyboard Shortcut System:** Fully customisable key bindings panel; ship sensible defaults aligned with common professional DAW conventions.
 - [ ] **Recent Projects List:** Menu → Open Recent with up to 10 entries.
 - [ ] **Crash Recovery:** Auto-save every N minutes to a recovery folder; prompt to restore on next launch.
+- [ ] **Hotkey implementation:** Assign sensible Hotkeys to all functions and create a subentry in the help section laying them all out.
 
 ---
 
-## Milestone 5 — DAW Essentials: Polish & Stability (v0.9.0)
+## Milestone 5 — DAW Essentials: Polish & Stability (v0.4.0)
 *Ship-ready quality.*
 
 - [ ] **Performance Optimization:** Multi-threaded audio graph; minimize UI thread blocking; profile and eliminate hot-path allocations. *In progress: splash/deferred device init, repaint scoping, tooltip/toolbar cadence — continue with timeline/piano-roll paint profiling.*
@@ -156,6 +157,9 @@ These are what make Aerion *Aerion*. They are deliberately deferred until the DA
 
 ### Linux Support
 Adding support for Linux Systems (Flatpak)
+
+### Update Mechanism
+In software update module that will check the github repo for new releases and offers to update automatically
 
 ### Cloud Sync
 - Automatic background sync of `.aerion` project files and referenced audio to Google Drive
@@ -177,9 +181,18 @@ Adding support for Linux Systems (Flatpak)
 
 ---
 
-## Suggested near-term focus (post–May 2026 session)
+## Next up (post Pre-Alpha — May 2026)
 
-1. **Milestone 2 wrap:** MIDI quantization + velocity/CC lanes (Editing), then Drive **project** sync (not just file download).
-2. **Stability around deferred audio:** If any race appears (user hits Play before devices open), add an explicit “engine ready” gate or status in the transport strip.
-3. **Profiling:** Sample `Timeline` / `PianoRollEditor` paint paths on a large session; prefer invalidation over full `repaint()` where ValueTree listeners fire.
-4. **M3 groundwork:** Count-in, metronome polish, and PDC toggles already partially surfaced — wire remaining engine behaviour and verify with real plugins.
+Picked from what's actually still missing now that M1/M2 scope above (including MIDI CC lanes, submix folders, K-14 on master, and arranger drag gestures) has shipped alongside quantize, velocity, phase/mono, HPF/LPF, inserts/sends/snapshots, metronome, count-in, punch, PDC, multi-channel input, buffer status, and mixdown export.
+
+1. **Stems export (M4):** Extend `MixdownExportDialog::sourceBox` and `MixdownExportJob` so users can render each track or bus individually using the existing dialog.
+2. **Bounce / Freeze, Recent Projects, Auto-save & Crash Recovery (M4):** Complete the session-management story so a Pre-Alpha user can safely work on a real project end-to-end.
+3. **Per-track input + monitor persistence:** Inspector input device, MIDI controller pin and monitor mode currently live in in-memory hash maps - round-trip them through `IDs::trackInputDeviceIdx` / `IDs::midiInputDevice` / `IDs::monitorMode` on the track ValueTree so they survive save / load.
+
+---
+
+## Trademarks
+
+- **ASIO** is a trademark and software of Steinberg Media Technologies GmbH. The Steinberg ASIO SDK is bundled in-tree at `AerionDawCpp/External/ASIO-SDK_*/` under GPLv3; the official ASIO-compatible mark appears small on the splash (bottom-left) and with full attribution in the About dialog.
+- **JUCE** is a trademark of Raw Material Software Limited.
+- **VST** is a trademark of Steinberg Media Technologies GmbH (Aerion uses VST3 plugin hosting only).

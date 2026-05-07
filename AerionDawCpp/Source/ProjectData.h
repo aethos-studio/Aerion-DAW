@@ -43,6 +43,11 @@ namespace IDs
     DECLARE_ID (punchEnabled);
     DECLARE_ID (pdcEnabled);
     DECLARE_ID (trackInputDeviceIdx);
+
+    /** Stored on `MidiClip::state` — int controller number (0–127) or -1 for pitch bend. */
+    DECLARE_ID (pianoRollCC);
+    /** Project-level: show K-14 reference ticks on the master meter in the Console. */
+    DECLARE_ID (masterKMeter);
 }
 
 class ProjectData

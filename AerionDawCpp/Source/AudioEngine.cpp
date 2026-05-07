@@ -5,6 +5,126 @@ namespace te = tracktion;
 
 namespace
 {
+    /** Picks the buffer size in `sizes` closest to `targetSamples`, preferring
+        an equal or smaller value when there's a tie. Used by the safe-default
+        path; never forces a buffer the device can't actually support. */
+    static int chooseBufferNear (const juce::Array<int>& sizes, int targetSamples)
+    {
+        if (sizes.isEmpty()) return targetSamples;
+        if (sizes.contains (targetSamples)) return targetSamples;
+
+        int best = sizes[0];
+        for (int s : sizes)
+        {
+            const auto distBest = std::abs (best - targetSamples);
+            const auto distS    = std::abs (s    - targetSamples);
+            if (distS < distBest || (distS == distBest && s <= targetSamples && best > targetSamples))
+                best = s;
+        }
+        return best;
+    }
+
+    /** Apply *safe* newcomer-friendly defaults: pick a robust, shared backend
+        that won't conflict with other apps holding the device, and only nudge
+        the buffer size if the current value is unusable. We deliberately do
+        NOT touch the sample rate (WASAPI Exclusive locks the rate when set,
+        so leaving it alone keeps the full list selectable in the dialog) and
+        do NOT auto-pick Exclusive Mode (it collides with browser/system audio
+        and causes distortion when another app already owns the device). */
+    static void applyBeginnerFriendlyDefaults (te::Engine& engine)
+    {
+        auto& adm = engine.getDeviceManager().deviceManager;
+
+       #if JUCE_WINDOWS
+        // Order: ASIO (best, opt-in via Steinberg SDK) → Windows Audio shared
+        // (always works, ~10 ms floor — still much better than DirectSound /
+        // Low Latency Mode and never collides with other apps).
+        const juce::StringArray prefs { "ASIO", "Windows Audio" };
+       #elif JUCE_MAC
+        const juce::StringArray prefs { "CoreAudio" };
+       #elif JUCE_LINUX
+        const juce::StringArray prefs { "JACK", "ALSA" };
+       #else
+        const juce::StringArray prefs;
+       #endif
+
+        juce::String pick;
+        for (const auto& pref : prefs)
+            for (auto* type : adm.getAvailableDeviceTypes())
+                if (type != nullptr && type->getTypeName() == pref)
+                {
+                    type->scanForDevices();
+                    if (! type->getDeviceNames (false).isEmpty()
+                        || ! type->getDeviceNames (true).isEmpty())
+                    { pick = pref; goto found; }
+                }
+        found:;
+
+        if (pick.isNotEmpty() && pick != adm.getCurrentAudioDeviceType())
+            adm.setCurrentAudioDeviceType (pick, true);
+
+        // Only nudge the buffer when the open device clearly can't deliver a
+        // usable interactive value. Don't touch sample rate — let the user / OS
+        // pick from the full list the device exposes.
+        if (auto* dev = adm.getCurrentAudioDevice())
+        {
+            juce::AudioDeviceManager::AudioDeviceSetup setup;
+            adm.getAudioDeviceSetup (setup);
+
+            const auto sizes = dev->getAvailableBufferSizes();
+            const int  cur   = setup.bufferSize;
+            if (! sizes.isEmpty() && (cur <= 0 || cur > 1024))
+            {
+                setup.bufferSize = chooseBufferNear (sizes, 256);
+                adm.setAudioDeviceSetup (setup, false);
+            }
+        }
+    }
+
+    /** If the OS / saved settings opened a multi‑thousand‑sample buffer (common with
+        WASAPI defaults), interactive MIDI monitoring feels like hundreds of ms of lag.
+        Nudge toward a sane size when clearly excessive. */
+    static void clampExcessiveAudioBufferSize (te::Engine& engine)
+    {
+        auto& adm = engine.getDeviceManager().deviceManager;
+        auto* dev = adm.getCurrentAudioDevice();
+        if (dev == nullptr) return;
+
+        const int current = dev->getCurrentBufferSizeSamples();
+        constexpr int kMaxInteractive = 1024;
+        constexpr int kClampIfLargerThan = 2048; // above this, monitoring / MIDI feels broken
+
+        if (current <= kClampIfLargerThan) return;
+
+        juce::AudioDeviceManager::AudioDeviceSetup setup;
+        adm.getAudioDeviceSetup (setup);
+
+        const auto sizes = dev->getAvailableBufferSizes();
+        int chosen = 0;
+
+        if (sizes.isEmpty())
+        {
+            chosen = juce::jmin (current, kMaxInteractive);
+        }
+        else
+        {
+            for (int s : sizes)
+                if (s <= kMaxInteractive && (chosen == 0 || s > chosen))
+                    chosen = s;
+
+            if (chosen == 0)
+                for (int s : sizes)
+                    if (s < current && (chosen == 0 || s < chosen))
+                        chosen = s;
+        }
+
+        if (chosen > 0 && chosen < current)
+        {
+            setup.bufferSize = chosen;
+            adm.setAudioDeviceSetup (setup, true);
+        }
+    }
+
     // Hosts a tracktion plugin's AudioProcessorEditor inside a JUCE DocumentWindow.
     // Without this, te::UIBehaviour::createPluginWindow returns nothing and
     // showWindowExplicitly() is a silent no-op.
@@ -139,6 +259,8 @@ AudioEngineManager::AudioEngineManager()
         if (closing.load()) return;
 
         std::unique_ptr<juce::XmlElement> savedAudioState (appProperties.getUserSettings()->getXmlValue ("audioDeviceState"));
+        const bool firstRun = (savedAudioState == nullptr);
+
         if (savedAudioState != nullptr)
             engine.getDeviceManager().deviceManager.initialise (2, 2, savedAudioState.get(), true);
         else
@@ -149,6 +271,11 @@ AudioEngineManager::AudioEngineManager()
             engine.getDeviceManager().closeDevices();
             return;
         }
+
+        if (firstRun)
+            applyBeginnerFriendlyDefaults (engine);
+        else
+            clampExcessiveAudioBufferSize (engine);
 
         engine.getDeviceManager().enableOutputClipping (true);
         engine.getDeviceManager().deviceManager.addChangeListener (this);
@@ -485,6 +612,62 @@ void AudioEngineManager::syncFolderRouting()
     }
 }
 
+bool AudioEngineManager::isFolderSubmix (te::FolderTrack* folder) const
+{
+    return folder != nullptr && folder->isSubmixFolder();
+}
+
+void AudioEngineManager::setFolderSubmix (te::FolderTrack* folder, bool asSubmix)
+{
+    if (folder == nullptr || edit == nullptr)
+        return;
+
+    if (asSubmix)
+    {
+        if (! folder->isSubmixFolder())
+        {
+            // Default organisational folder uses VCA-only plugins; submix needs Volume+Meter.
+            for (int i = folder->pluginList.size(); --i >= 0;)
+            {
+                if (auto* p = folder->pluginList[i])
+                    if (dynamic_cast<te::VCAPlugin*> (p) != nullptr)
+                        p->deleteFromParent();
+            }
+
+            if (folder->getVolumePlugin() == nullptr)
+                if (auto p = edit->getPluginCache().createNewPlugin (te::VolumeAndPanPlugin::xmlTypeName, {}))
+                    folder->pluginList.insertPlugin (p, 0, nullptr);
+
+            if (folder->pluginList.findFirstPluginOfType<te::LevelMeterPlugin>() == nullptr)
+                if (auto p = edit->getPluginCache().createNewPlugin (te::LevelMeterPlugin::xmlTypeName, {}))
+                    folder->pluginList.insertPlugin (p, -1, nullptr);
+        }
+    }
+    else
+    {
+        if (folder->isSubmixFolder())
+        {
+            juce::Array<te::Plugin*> toRemove;
+            for (auto* p : folder->pluginList)
+            {
+                if (dynamic_cast<te::VCAPlugin*> (p) != nullptr) continue;
+                if (dynamic_cast<te::TextPlugin*> (p) != nullptr) continue;
+                toRemove.add (p);
+            }
+
+            for (auto* p : toRemove)
+                p->deleteFromParent();
+
+            if (folder->pluginList.findFirstPluginOfType<te::VCAPlugin>() == nullptr)
+                if (auto p = edit->getPluginCache().createNewPlugin (te::VCAPlugin::xmlTypeName, {}))
+                    folder->pluginList.insertPlugin (p, -1, nullptr);
+        }
+    }
+
+    syncFolderRouting();
+    broadcastChange();
+}
+
 float AudioEngineManager::getTrackPeak (te::Track* track)
 {
     if (track == nullptr) return -100.0f;
@@ -502,6 +685,13 @@ float AudioEngineManager::getTrackPeak (te::Track* track)
 
     if (meterPlugin == nullptr)
     {
+        // FolderTracks are organisational by default. Adding any non-VCA / non-Text plugin
+        // (including a level meter) flips Tracktion's isSubmixFolder() to true, which would
+        // silently re-promote folders to submixes on every paint. Only auto-create meters
+        // on tracks where the submix-vs-folder distinction does not apply.
+        if (dynamic_cast<te::FolderTrack*> (track) != nullptr)
+            return -100.0f;
+
         if (auto p = edit->getPluginCache().createNewPlugin (te::LevelMeterPlugin::xmlTypeName, {}))
         {
             track->pluginList.insertPlugin (p, 0, nullptr);
@@ -574,6 +764,10 @@ te::AudioTrack* AudioEngineManager::addAudioTrack()
 te::FolderTrack* AudioEngineManager::addFolderTrack()
 {
     auto f = edit->insertNewFolderTrack (te::TrackInsertPoint::getEndOfTracks (*edit), nullptr, false);
+    if (f != nullptr)
+        // Tracktion may insert Volume/Meter by default, which makes isSubmixFolder() true immediately.
+        // Force organisational (VCA-style) folder until the user chooses Convert to Submix.
+        setFolderSubmix (f.get(), false);
     return f.get();
 }
 
@@ -590,6 +784,7 @@ te::FolderTrack* AudioEngineManager::groupTracks (const juce::Array<te::Track*>&
         if (t != nullptr && t != folder.get())
             edit->moveTrack (t, te::TrackInsertPoint (folder.get(), nullptr));
 
+    setFolderSubmix (folder.get(), false);
     return folder.get();
 }
 
@@ -603,6 +798,26 @@ void AudioEngineManager::moveTrackAfter (te::Track* t, te::Track* preceding, te:
 {
     if (t == nullptr) return;
     edit->moveTrack (t, te::TrackInsertPoint (folder, preceding));
+}
+
+namespace
+{
+    static te::InputDevice::MonitorMode toTeMonitorMode (AudioEngineManager::MonitorMode m)
+    {
+        switch (m)
+        {
+            case AudioEngineManager::MonitorMode::On:  return te::InputDevice::MonitorMode::on;
+            case AudioEngineManager::MonitorMode::Off: return te::InputDevice::MonitorMode::off;
+            case AudioEngineManager::MonitorMode::Auto:
+            default:                                   return te::InputDevice::MonitorMode::automatic;
+        }
+    }
+
+    static bool isMidiInputType (te::InputDevice::DeviceType type)
+    {
+        return type == te::InputDevice::physicalMidiDevice
+            || type == te::InputDevice::virtualMidiDevice;
+    }
 }
 
 void AudioEngineManager::setTrackArmed (te::Track* t, bool enabled)
@@ -621,36 +836,71 @@ void AudioEngineManager::setTrackArmed (te::Track* t, bool enabled)
         // Ensure the playback context exists  -  this creates InputDeviceInstances.
         edit->getTransport().ensureContextAllocated();
 
+        const auto trackKey = t->itemID.toString();
+
         // Target each wave input to this track and enable recording.
         // If the track has a preferred device index, route only that device; otherwise route all.
-        int preferredIdx = inputDeviceMap.contains (t->itemID.toString())
-                               ? inputDeviceMap[t->itemID.toString()] : -1;
+        const int preferredWaveIdx = inputDeviceMap.contains (trackKey)
+                                         ? inputDeviceMap[trackKey] : -1;
+        const int preferredMidiIdx = midiInputDeviceMap.contains (trackKey)
+                                         ? midiInputDeviceMap[trackKey] : -1;
 
-        int devIdx = 0;
+        int waveIdx = 0, midiIdx = 0;
         for (auto* in : edit->getAllInputDevices())
         {
-            if (in->getInputDevice().getDeviceType() == te::InputDevice::waveDevice)
+            const auto devType = in->getInputDevice().getDeviceType();
+
+            if (devType == te::InputDevice::waveDevice)
             {
-                if (preferredIdx < 0 || devIdx == preferredIdx)
+                if (preferredWaveIdx < 0 || waveIdx == preferredWaveIdx)
                 {
                     [[maybe_unused]] auto res = in->setTarget (t->itemID, true, &edit->getUndoManager(), 0);
                     in->setRecordingEnabled (t->itemID, true);
                 }
-                ++devIdx;
+                ++waveIdx;
+            }
+            else if (isMidiInputType (devType))
+            {
+                if (preferredMidiIdx < 0 || midiIdx == preferredMidiIdx)
+                {
+                    [[maybe_unused]] auto res = in->setTarget (t->itemID, true, &edit->getUndoManager(), 0);
+                    in->setRecordingEnabled (t->itemID, true);
+                }
+                ++midiIdx;
             }
         }
 
-        // Enable input monitoring through the FX chain while armed.
+        // Apply the per-track monitoring override (default = Auto). Note that
+        // monitor mode lives on the InputDevice itself, so a "last-armed-track
+        // wins" rule applies when several armed tracks share an input - which
+        // matches every other Tracktion-based DAW.
+        const auto teMode = toTeMonitorMode (getTrackMonitorMode (t));
+        waveIdx = midiIdx = 0;
         for (auto* in : edit->getAllInputDevices())
-            if (in->getInputDevice().getDeviceType() == te::InputDevice::waveDevice)
-                in->getInputDevice().setMonitorMode (te::InputDevice::MonitorMode::automatic);
+        {
+            const auto devType = in->getInputDevice().getDeviceType();
+
+            if (devType == te::InputDevice::waveDevice)
+            {
+                if (preferredWaveIdx < 0 || waveIdx == preferredWaveIdx)
+                    in->getInputDevice().setMonitorMode (teMode);
+                ++waveIdx;
+            }
+            else if (isMidiInputType (devType))
+            {
+                if (preferredMidiIdx < 0 || midiIdx == preferredMidiIdx)
+                    in->getInputDevice().setMonitorMode (teMode);
+                ++midiIdx;
+            }
+        }
     }
     else
     {
         for (auto* in : edit->getAllInputDevices())
         {
             in->setRecordingEnabled (t->itemID, false);
-            if (in->getInputDevice().getDeviceType() == te::InputDevice::waveDevice)
+            const auto devType = in->getInputDevice().getDeviceType();
+            if (devType == te::InputDevice::waveDevice || isMidiInputType (devType))
                 in->getInputDevice().setMonitorMode (te::InputDevice::MonitorMode::off);
         }
     }
@@ -736,6 +986,8 @@ te::AutomatableParameter* AudioEngineManager::getAutomationParam (te::Track* tra
     te::VolumeAndPanPlugin::Ptr vp;
     if (auto* a = dynamic_cast<te::AudioTrack*> (track))
         vp = a->getVolumePlugin();
+    else if (auto* f = dynamic_cast<te::FolderTrack*> (track))
+        vp = f->getVolumePlugin();
     else if (track->isMasterTrack())
         vp = edit->getMasterVolumePlugin();
 
@@ -952,6 +1204,7 @@ void AudioEngineManager::loadProject (const juce::File& file)
 
             armedTracks.clear();
             thumbnails.clear();
+            syncFolderRouting();
             broadcastChange();
         }
     }
@@ -973,6 +1226,7 @@ void AudioEngineManager::createNewProject()
 {
     setupInitialEdit();
     armedTracks.clear();
+    syncFolderRouting();
     broadcastChange();
 }
 
@@ -1236,8 +1490,75 @@ int AudioEngineManager::getTrackInputDeviceIdx (te::Track* track) const
     return inputDeviceMap.contains (key) ? inputDeviceMap[key] : -1;
 }
 
+juce::StringArray AudioEngineManager::getMidiInputDeviceNames() const
+{
+    juce::StringArray names;
+    auto& dm = engine.getDeviceManager();
+    for (int i = 0; i < dm.getNumMidiInDevices(); ++i)
+        if (auto d = dm.getMidiInDevice (i))
+            names.add (d->getName());
+    return names;
+}
+
+void AudioEngineManager::setTrackMidiInputDevice (te::Track* track, int midiDeviceIdx)
+{
+    if (track == nullptr) return;
+    midiInputDeviceMap.set (track->itemID.toString(), midiDeviceIdx);
+
+    // If currently armed, re-arm with the new MIDI device selection.
+    if (isTrackArmed (track))
+        setTrackArmed (track, true);
+}
+
+int AudioEngineManager::getTrackMidiInputDeviceIdx (te::Track* track) const
+{
+    if (track == nullptr) return -1;
+    auto key = track->itemID.toString();
+    return midiInputDeviceMap.contains (key) ? midiInputDeviceMap[key] : -1;
+}
+
+void AudioEngineManager::setTrackMonitorMode (te::Track* track, MonitorMode mode)
+{
+    if (track == nullptr) return;
+    monitorModeMap.set (track->itemID.toString(), static_cast<int> (mode));
+
+    // If the track is currently armed, push the new mode through immediately
+    // so the user hears the change without having to disarm/re-arm.
+    if (isTrackArmed (track))
+        setTrackArmed (track, true);
+}
+
+AudioEngineManager::MonitorMode AudioEngineManager::getTrackMonitorMode (te::Track* track) const
+{
+    if (track == nullptr) return MonitorMode::Auto;
+    auto key = track->itemID.toString();
+    if (! monitorModeMap.contains (key)) return MonitorMode::Auto;
+    return static_cast<MonitorMode> (monitorModeMap[key]);
+}
+
 AudioEngineManager::BufferInfo AudioEngineManager::getBufferInfo() const
 {
     auto& dm = engine.getDeviceManager();
-    return { dm.getSampleRate(), dm.getBlockSize(), dm.getCpuUsage() };
+    BufferInfo bi;
+    bi.sampleRate = dm.getSampleRate();
+    bi.blockSize  = dm.getBlockSize();
+    bi.cpuUsage   = dm.getCpuUsage();
+    bi.oneBlockMs = dm.getBlockSizeMs();
+    bi.driverIoMs = dm.getRecordAdjustmentMs();
+    return bi;
+}
+
+void AudioEngineManager::applyRecommendedAudioDefaults()
+{
+    // True "reset" so we recover from any sticky state (e.g. WASAPI Exclusive
+    // having locked the sample rate). Wipe the persisted device XML, ask
+    // JUCE to re-pick its system defaults, then apply our safe overlay.
+    auto& adm = engine.getDeviceManager().deviceManager;
+
+    appProperties.getUserSettings()->removeValue ("audioDeviceState");
+    appProperties.getUserSettings()->saveIfNeeded();
+
+    adm.initialiseWithDefaultDevices (2, 2);
+
+    applyBeginnerFriendlyDefaults (engine);
 }

@@ -55,13 +55,8 @@ MainComponent::MainComponent()
     if (audioEngine.shouldRunStartupScan())
         juce::MessageManager::callAsync ([this] { audioEngine.scanPlugins(); });
 
-    browser.onPluginPicked = [this] (const juce::PluginDescription& desc)
-    {
-        auto sel = timeline.getSelectedTracks();
-        if (sel.isEmpty()) return;
-        if (auto p = audioEngine.addPluginToTrack (sel[0], desc))
-            p->showWindowExplicitly();
-    };
+    // Plugins: add only by dragging from the Browser onto a track header or mixer strip
+    // (Browser::mouseDrag). Single-click no longer inserts onto the selection.
 
     browser.onRescanRequested = [this] { audioEngine.scanPlugins(); browser.repaint(); };
 
@@ -172,7 +167,7 @@ MainComponent::MainComponent()
         }
         timeline.repaint(); mixer.repaint();
     };
-    menuBar.onAddFolderTrack = [this] { audioEngine.addFolderTrack(); timeline.repaint(); mixer.repaint(); };
+    menuBar.onAddFolderTrack = [this] { audioEngine.addFolderTrack(); audioEngine.syncFolderRouting(); timeline.repaint(); mixer.repaint(); };
     menuBar.onDeleteTrack    = [this] {
         for (auto* t : timeline.getSelectedTracks()) audioEngine.deleteTrack (t);
         timeline.onTrackSelected (-1);
@@ -331,7 +326,10 @@ MainComponent::MainComponent()
 
     timeline.onAddFolder = [this]
     {
-        audioEngine.addFolderTrack();
+        auto sel = timeline.getSelectedTracks();
+        if (! sel.isEmpty()) audioEngine.groupTracks (sel);
+        else                  audioEngine.addFolderTrack();
+        audioEngine.syncFolderRouting();
         timeline.repaint();
         mixer.repaint();
     };
@@ -380,15 +378,6 @@ MainComponent::MainComponent()
     {
         if (auto p = audioEngine.addPluginToTrack (track, desc))
             p->showWindowExplicitly();
-        mixer.repaint();
-    };
-
-    timeline.onAddFolder = [this]
-    {
-        auto sel = timeline.getSelectedTracks();
-        if (! sel.isEmpty()) audioEngine.groupTracks (sel);
-        else                  audioEngine.addFolderTrack();
-        timeline.repaint();
         mixer.repaint();
     };
 
@@ -675,13 +664,57 @@ void MainComponent::importAudioFile()
 
 void MainComponent::showAudioSettings()
 {
-    auto* selector = new juce::AudioDeviceSelectorComponent (audioEngine.getEngine().getDeviceManager().deviceManager,
-                                                             0, 2, 0, 2, true, true, true, false);
-    selector->setSize (500, 450);
-    selector->setLookAndFeel (&metalLookAndFeel);
+    // Wraps the JUCE selector with a "Reset to Recommended Defaults" button so a
+    // user who already has a saved (and possibly suboptimal) audio config can
+    // get the same plug-and-play settings a first-run user gets, without
+    // having to delete the .settings file by hand.
+    class AudioSettingsPanel : public juce::Component
+    {
+    public:
+        AudioSettingsPanel (AudioEngineManager& ae, juce::LookAndFeel& lf)
+            : audioEngine (ae)
+        {
+            selector = std::make_unique<juce::AudioDeviceSelectorComponent> (
+                audioEngine.getEngine().getDeviceManager().deviceManager,
+                0, 2, 0, 2, true, true, true, false);
+            selector->setLookAndFeel (&lf);
+            addAndMakeVisible (*selector);
+
+            recommendBtn.setButtonText ("Reset Audio Settings");
+            recommendBtn.setTooltip ("Wipe saved audio config and fall back to a safe default "
+                                     "(ASIO if installed, otherwise Windows Audio shared). "
+                                     "Use this if a driver change locked you into a bad sample rate.");
+            recommendBtn.setLookAndFeel (&lf);
+            recommendBtn.onClick = [this] { audioEngine.applyRecommendedAudioDefaults(); };
+            addAndMakeVisible (recommendBtn);
+
+            setSize (500, 490);
+        }
+
+        ~AudioSettingsPanel() override
+        {
+            recommendBtn.setLookAndFeel (nullptr);
+            if (selector) selector->setLookAndFeel (nullptr);
+        }
+
+        void resized() override
+        {
+            auto r = getLocalBounds();
+            auto bottom = r.removeFromBottom (40).reduced (8, 6);
+            recommendBtn.setBounds (bottom);
+            selector->setBounds (r);
+        }
+
+    private:
+        AudioEngineManager& audioEngine;
+        std::unique_ptr<juce::AudioDeviceSelectorComponent> selector;
+        juce::TextButton recommendBtn;
+    };
+
+    auto* panel = new AudioSettingsPanel (audioEngine, metalLookAndFeel);
 
     juce::DialogWindow::LaunchOptions options;
-    options.content.setOwned (selector);
+    options.content.setOwned (panel);
     options.dialogTitle                   = "Audio Settings";
     options.dialogBackgroundColour        = Theme::bgPanel;
     options.escapeKeyTriggersCloseButton  = true;

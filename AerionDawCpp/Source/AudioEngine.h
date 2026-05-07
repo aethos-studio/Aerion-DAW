@@ -44,6 +44,10 @@ public:
     juce::Array<tracktion::Track*>      getMixerTracks();
     
     void syncFolderRouting();
+
+    /** Tracktion treats a folder as a submix when it has real insert plugins (Volume+Meter vs VCA-only). */
+    bool isFolderSubmix (tracktion::FolderTrack* folder) const;
+    void setFolderSubmix (tracktion::FolderTrack* folder, bool asSubmix);
     
     // Routing & Sends (Phase 4)
     void addSendToNewBus (tracktion::Track* track);
@@ -161,9 +165,40 @@ public:
     void setTrackInputDevice (tracktion::Track* track, int waveDeviceIdx);
     int  getTrackInputDeviceIdx (tracktion::Track* track) const;
 
-    // Buffer / CPU info for status bar
-    struct BufferInfo { double sampleRate; int blockSize; float cpuUsage; };
+    // MIDI controller routing per track. Index refers to the entry order in
+    // getMidiInputDeviceNames(). -1 means "all enabled MIDI controllers" (the
+    // Tracktion default).
+    juce::StringArray getMidiInputDeviceNames() const;
+    void setTrackMidiInputDevice (tracktion::Track* track, int midiDeviceIdx);
+    int  getTrackMidiInputDeviceIdx (tracktion::Track* track) const;
+
+    // Per-track input monitoring override.
+    //   Auto: monitor when armed, suspend during clip playback (Tracktion's
+    //         "automatic" mode - matches the previous always-Auto behaviour).
+    //   On  : always monitor while armed (input echo, useful for soft-synth
+    //         tracking through plugin FX).
+    //   Off : never monitor through the FX chain (e.g. relying on hardware
+    //         monitoring from the audio interface).
+    enum class MonitorMode { Auto = 0, On = 1, Off = 2 };
+    void        setTrackMonitorMode (tracktion::Track* track, MonitorMode mode);
+    MonitorMode getTrackMonitorMode (tracktion::Track* track) const;
+
+    // Buffer / CPU info for status bar (ms values from Tracktion DeviceManager)
+    struct BufferInfo
+    {
+        double sampleRate   = 0;
+        int    blockSize    = 0;
+        float  cpuUsage     = 0;
+        double oneBlockMs   = 0; // one audio callback period
+        double driverIoMs   = 0; // reported input+output latency (align / monitoring feel)
+    };
     BufferInfo getBufferInfo() const;
+
+    /** Apply newcomer-friendly audio defaults (best available backend, 48 kHz,
+        ~256 sample buffer). Surfaced from the Audio Settings dialog so users
+        can recover from a misconfigured `audioDeviceState` without editing
+        files. Called automatically on first run. */
+    void applyRecommendedAudioDefaults();
 
     // Pan helpers (range -1..1). No-op for tracks without a VolumeAndPanPlugin (e.g. Master).
     void  setTrackPan (tracktion::Track* track, float pan);
@@ -273,7 +308,9 @@ private:
     void broadcastChange();
 
     juce::HashMap<juce::String, bool> armedTracks;
-    juce::HashMap<juce::String, int>  inputDeviceMap;   // trackID -> waveDeviceIdx
+    juce::HashMap<juce::String, int>  inputDeviceMap;       // trackID -> waveDeviceIdx
+    juce::HashMap<juce::String, int>  midiInputDeviceMap;   // trackID -> midiDeviceIdx
+    juce::HashMap<juce::String, int>  monitorModeMap;       // trackID -> MonitorMode int
 
     bool punchEnabled = false;
     std::map<uint64_t, std::unique_ptr<tracktion::SmartThumbnail>> thumbnails;

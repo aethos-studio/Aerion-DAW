@@ -2,13 +2,29 @@ name: package
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version label to use for the artefacts (e.g. 0.2.0). Falls back to CMake project() version."
+        required: false
+        default: ""
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write   # needed to create the GitHub Release on tag push
 
 jobs:
   windows:
+    name: Windows installer (NSIS)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
+      # Tracktion v3.2.0 references some GitHub modules via SSH submodules in
+      # its .gitmodules - that fails on the unauthenticated CI runner, so we
+      # pre-clone the repo with HTTPS submodules and feed the path to
+      # FetchContent via FETCHCONTENT_SOURCE_DIR_*.
       - name: Pre-clone Tracktion Engine with HTTPS submodules
         shell: pwsh
         run: |
@@ -18,26 +34,49 @@ jobs:
           git submodule update --init --recursive --depth 1
           Pop-Location
 
-      - name: Configure
-        run: cmake -S AerionDawCpp -B build -G "Visual Studio 17 2022" -A x64 -DFETCHCONTENT_SOURCE_DIR_TRACKTION_ENGINE="${{ github.workspace }}\\tracktion_engine-src"
+      - name: Configure (Release, x64)
+        run: >
+          cmake -S AerionDawCpp -B build -G "Visual Studio 17 2022" -A x64
+          -DCMAKE_BUILD_TYPE=Release
+          -DFETCHCONTENT_SOURCE_DIR_TRACKTION_ENGINE="${{ github.workspace }}\tracktion_engine-src"
 
-      - name: Build
-        run: cmake --build build --config Debug --target AerionDaw
+      - name: Build (Release)
+        run: cmake --build build --config Release --target AerionDaw --parallel
 
       - name: Install NSIS (for CPack)
         shell: pwsh
-        run: choco install nsis -y
+        run: choco install nsis -y --no-progress
 
-      - name: Package (NSIS)
-        run: cpack --config build/CPackConfig.cmake -G NSIS -C Debug
+      - name: Package (NSIS installer)
+        run: cpack --config build/CPackConfig.cmake -G NSIS -C Release -B dist
 
-      - name: Upload installer
+      - name: Locate installer
+        id: find_installer
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -Path dist -Recurse -Filter "*.exe" | Where-Object { $_.Name -like "AerionDAW-*" -or $_.Name -like "Aerion DAW-*" } | Select-Object -First 1
+          if (-not $installer) { Write-Error "No NSIS installer produced under dist/"; exit 1 }
+          Write-Output "Installer: $($installer.FullName)"
+          "path=$($installer.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "name=$($installer.Name)"     | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Upload installer (workflow artefact)
         uses: actions/upload-artifact@v4
         with:
           name: aerion-windows-installer
-          path: "Aerion DAW-*-win64.exe"
+          path: ${{ steps.find_installer.outputs.path }}
+
+      - name: Attach installer to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          name: "Aerion DAW ${{ github.ref_name }}"
+          files: ${{ steps.find_installer.outputs.path }}
 
   macos:
+    name: macOS installer (DMG)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,18 +88,44 @@ jobs:
           git submodule set-url modules/juce https://github.com/juce-framework/JUCE.git
           git submodule update --init --recursive --depth 1
 
-      - name: Configure
-        run: cmake -S AerionDawCpp -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_SOURCE_DIR_TRACKTION_ENGINE="$GITHUB_WORKSPACE/tracktion_engine-src"
+      - name: Configure (Release, universal)
+        run: >
+          cmake -S AerionDawCpp -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+          -DAERION_ENABLE_ASIO=NEVER
+          -DFETCHCONTENT_SOURCE_DIR_TRACKTION_ENGINE="$GITHUB_WORKSPACE/tracktion_engine-src"
 
-      - name: Build
-        run: cmake --build build --target AerionDaw
+      - name: Build (Release)
+        run: cmake --build build --target AerionDaw --parallel
 
       - name: Package (DMG)
-        run: cpack --config build/CPackConfig.cmake -G DragNDrop -C Release
+        run: cpack --config build/CPackConfig.cmake -G DragNDrop -C Release -B dist
 
-      - name: Upload dmg
+      - name: Locate DMG
+        id: find_dmg
+        run: |
+          dmg=$(find dist -name "*.dmg" | head -n 1)
+          if [ -z "$dmg" ]; then
+            echo "No DMG produced under dist/" >&2
+            exit 1
+          fi
+          echo "DMG: $dmg"
+          echo "path=$dmg"           >> "$GITHUB_OUTPUT"
+          echo "name=$(basename $dmg)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload DMG (workflow artefact)
         uses: actions/upload-artifact@v4
         with:
           name: aerion-macos-dmg
-          path: "*.dmg"
+          path: ${{ steps.find_dmg.outputs.path }}
 
+      - name: Attach DMG to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          name: "Aerion DAW ${{ github.ref_name }}"
+          files: ${{ steps.find_dmg.outputs.path }}
