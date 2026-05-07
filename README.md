@@ -4,15 +4,6 @@
 
 **A modern Digital Audio Workstation built with C++20, JUCE 8, and the Tracktion Engine.**
 
-
----
-
-## Current Status: v0.1.0 (pre-Alpha)
-
-Aerion DAW is currently in its pre-alpha development stage. **Milestone 1 (Core Foundation)** is fully complete, and we are deep into **Milestone 2 (Advanced Workflows & Cloud Sync)**. 
-
-The application is stable on Windows 11 and features a high-performance audio engine with advanced UI capabilities already implemented.
-
 ---
 
 ## Why Aerion DAW?
