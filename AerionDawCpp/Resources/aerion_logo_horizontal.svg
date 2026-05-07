@@ -79,12 +79,13 @@
     <tspan dx="10" font-size="64" font-weight="300" fill="#3182CE" letter-spacing="4"> DAW</tspan>
   </text>
 
-  <!-- Typography: By Aethos Studio (Monospace Technical Spec Vibe) -->
+  <!-- Typography: By Aethos Studio (Cinzel Regular Style from Splash) -->
   <text x="485" y="260"
         font-family="'Cinzel', serif"
-        font-size="22"
-        font-weight="bold"
-        fill="#8A99A8"
-        letter-spacing="8"
+        font-size="37"
+        font-weight="normal"
+        fill="#63B3ED"
+        fill-opacity="0.6"
+        letter-spacing="8.14"
         text-anchor="start">BY AETHOS STUDIO</text>
 </svg>

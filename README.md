@@ -1,7 +1,8 @@
+<p align="center">
+  <img src="AerionDawCpp/Resources/aerion_logo_horizontal.svg" alt="Aerion DAW Logo" width="800">
+</p>
 
-
-  **A modern Digital Audio Workstation built with C++20, JUCE 8, and the Tracktion Engine.**
-
+**A modern Digital Audio Workstation built with C++20, JUCE 8, and the Tracktion Engine.**
 
 
 ---
@@ -31,12 +32,9 @@ Aerion is designed to bridge the gap between high-end professional production an
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | **Audio Engine** | Multi-track audio/folder support, automation lanes (vol/pan), 24-bit/32-bit float support, and VST3/AU plugin hosting. |
 | **Timeline**     | Studio One-style drag & drop with ghost previews, multi-file consecutive placement, and grid-snapping clip editing.    |
-| **Piano Roll**   | Comprehensive MIDI editor with note quantization, snap-to-grid, and high-performance scrolling.                        |
-| **Cloud Sync**   | Integrated Google Drive client for OAuth2/PKCE login and background file synchronization.                              |
+| **Piano Roll**   | Comprehensive MIDI editor with note quantization, snap-to-grid, and high-performance scrolling.                        |                             |
 | **Mixer**        | Real-time level meters, detachable mixer window, and per-track fader/pan control with branded JUCE-rendered windowing. |
 | **Browser**      | Waveform previews for local files, plugin category browsing, and a dedicated "Cloud" tab for remote projects.          |
-| **Branding**     | Custom "Spectre from the fog" animated splash screen.                                                                  |
-
 
 ---
 
@@ -94,7 +92,7 @@ cmake --build --preset win-msvc-debug
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 
 # Build
-cmake --build build --config Debug
+cmake --build build --config *your target (i.e. Debug or Release)*
 ```
 
 The executable will be located at:

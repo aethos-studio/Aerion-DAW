@@ -160,6 +160,13 @@ AudioEngineManager::AudioEngineManager()
 AudioEngineManager::~AudioEngineManager()
 {
     closing.store (true);
+
+    // Join the plugin scan thread first so any in-flight callAsync that wins the
+    // WeakReference race finds null callbacks instead of a half-destructed engine.
+    cancelScan();
+    onScanProgress = nullptr;
+    onScanFinished = nullptr;
+
     stopTimer();
 
     if (audioDevicesConnected)
@@ -974,37 +981,66 @@ void AudioEngineManager::broadcastChange()
     listeners.call ([] (Listener& l) { l.editStateChanged(); });
 }
 
-void AudioEngineManager::scanPlugins()
+void AudioEngineManager::notifyScanFinished (bool finishedNormally)
 {
-    if (scanInFlight.exchange (true))
-        return; // Already scanning.
+    scanInFlight.store (false);
 
-    auto& list = engine.getPluginManager().knownPluginList;
+    if (finishedNormally)
+        if (auto* s = appProperties.getUserSettings())
+        {
+            s->setValue ("pluginScanCompleted", true);
+            s->saveIfNeeded();
+        }
+
+    broadcastChange();
+
+    if (onScanFinished)
+        onScanFinished();
+}
+
+bool AudioEngineManager::shouldRunStartupScan()
+{
     auto cacheFile = engine.getPropertyStorage().getAppPrefsFolder().getChildFile ("Plugins.xml");
+    if (! cacheFile.existsAsFile())
+        return true; // First run.
 
-    if (cacheFile.existsAsFile())
-        if (auto xml = juce::XmlDocument::parse (cacheFile))
-            list.recreateFromXml (*xml);
+    if (auto* settings = appProperties.getUserSettings())
+        return settings->getBoolValue ("pluginScanOnStartup", false);
 
-    auto& fm = engine.getPluginManager().pluginFormatManager;
-    if (fm.getNumFormats() == 0)
-        fm.addDefaultFormats();
+    return false;
+}
 
-    if (fm.getNumFormats() == 0) { scanInFlight.store (false); return; }
-
-    // Run every format sequentially on one background thread so writes to
-    // KnownPluginList and the cache file don't race.
-    struct ScanThread : public juce::Thread
+void AudioEngineManager::cancelScan()
+{
+    if (scanThread != nullptr)
     {
-        ScanThread (AudioEngineManager& m, juce::File f) : Thread ("PluginScanner"), owner (m), cache (f) {}
+        scanThread->signalThreadShouldExit();
+        // NOTE: a single misbehaving VST in scanNextFile can outlast this 2s
+        // bound. juce::Thread::stopThread returns regardless; the WeakReference
+        // captures used by the scan thread keep us safe if it leaks past us.
+        // Future work: out-of-process scanning per juce::PluginListComponent.
+        scanThread->stopThread (2000);
+        scanThread.reset();
+    }
+    scanInFlight.store (false);
+}
+
+namespace
+{
+    struct PluginScanThread : public juce::Thread
+    {
+        PluginScanThread (AudioEngineManager& m, juce::File f)
+            : Thread ("PluginScanner"), owner (m), weakOwner (&m), cache (f) {}
 
         void run() override
         {
-            auto& fm   = owner.engine.getPluginManager().pluginFormatManager;
-            auto& list = owner.engine.getPluginManager().knownPluginList;
+            auto& fm   = owner.getEngine().getPluginManager().pluginFormatManager;
+            auto& list = owner.getEngine().getPluginManager().knownPluginList;
 
             for (int i = 0; i < fm.getNumFormats(); ++i)
             {
+                if (threadShouldExit()) break;
+
                 auto* format = fm.getFormat (i);
                 if (format == nullptr) continue;
 
@@ -1029,26 +1065,72 @@ void AudioEngineManager::scanPlugins()
 
                 juce::PluginDirectoryScanner scanner (list, *format, path, /*recursive*/ true, cache);
                 juce::String pluginName;
-                while (! threadShouldExit() && scanner.scanNextFile (true, pluginName)) {}
+                while (! threadShouldExit() && scanner.scanNextFile (true, pluginName))
+                {
+                    juce::WeakReference<AudioEngineManager> weak = weakOwner;
+                    juce::String name = pluginName;
+                    juce::MessageManager::callAsync ([weak, name]
+                    {
+                        if (auto* o = weak.get())
+                            if (o->onScanProgress) o->onScanProgress (name);
+                    });
+                }
             }
 
-            if (auto xml = list.createXml())
-                xml->writeTo (cache);
+            const bool finishedNormally = ! threadShouldExit();
 
-            owner.scanInFlight.store (false);
-            juce::MessageManager::callAsync ([&owner = this->owner] { owner.broadcastChange(); });
+            if (finishedNormally)
+            {
+                if (auto xml = list.createXml())
+                    xml->writeTo (cache);
+            }
+
+            juce::WeakReference<AudioEngineManager> weak = weakOwner;
+            juce::MessageManager::callAsync ([weak, finishedNormally]
+            {
+                if (auto* o = weak.get())
+                    o->notifyScanFinished (finishedNormally);
+            });
         }
 
         AudioEngineManager& owner;
+        juce::WeakReference<AudioEngineManager> weakOwner;
         juce::File cache;
     };
+}
+
+void AudioEngineManager::scanPlugins()
+{
+    if (scanInFlight.exchange (true))
+        return; // Already scanning.
+
+    auto& list = engine.getPluginManager().knownPluginList;
+    auto cacheFile = engine.getPropertyStorage().getAppPrefsFolder().getChildFile ("Plugins.xml");
+
+    if (cacheFile.existsAsFile())
+        if (auto xml = juce::XmlDocument::parse (cacheFile))
+            list.recreateFromXml (*xml);
+
+    auto& fm = engine.getPluginManager().pluginFormatManager;
+    if (fm.getNumFormats() == 0)
+        fm.addDefaultFormats();
+
+    if (fm.getNumFormats() == 0)
+    {
+        scanInFlight.store (false);
+        if (onScanFinished) onScanFinished();
+        return;
+    }
 
     if (scanThread != nullptr)
     {
+        scanThread->signalThreadShouldExit();
         scanThread->stopThread (2000);
         scanThread.reset();
     }
-    scanThread = std::make_unique<ScanThread> (*this, cacheFile);
+
+    auto t = std::make_unique<PluginScanThread> (*this, cacheFile);
+    scanThread = std::unique_ptr<juce::Thread> (t.release());
     scanThread->startThread();
 }
 

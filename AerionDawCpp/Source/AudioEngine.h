@@ -101,7 +101,20 @@ public:
 
     // Plugins
     void scanPlugins();
+    void cancelScan();
     bool isScanningPlugins() const { return scanInFlight.load(); }
+    bool shouldRunStartupScan();
+    bool areAudioDevicesConnected() const { return audioDevicesConnected; }
+
+    // Boot-time scan progress callbacks. Posted on the message thread.
+    std::function<void(juce::String pluginName)> onScanProgress;
+    std::function<void()>                        onScanFinished;
+
+    // Internal: invoked on the message thread by the scan worker once it returns.
+    // Public so the scan thread (defined in the .cpp anon namespace) can dispatch here
+    // via a juce::WeakReference without needing access to private members.
+    void notifyScanFinished (bool finishedNormally);
+
     tracktion::Plugin::Ptr addPluginToTrack (tracktion::Track* track, const juce::PluginDescription& desc);
     void removePlugin (tracktion::Plugin* plugin);
     tracktion::Plugin* getPluginFor (juce::ValueTree& v);
@@ -293,4 +306,6 @@ private:
     bool audioDevicesConnected = false;
 
     void setupInitialEdit();
+
+    JUCE_DECLARE_WEAK_REFERENCEABLE (AudioEngineManager)
 };

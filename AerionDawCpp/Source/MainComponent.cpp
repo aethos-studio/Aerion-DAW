@@ -49,7 +49,9 @@ MainComponent::MainComponent()
     addKeyListener (this);
     setWantsKeyboardFocus (true);
 
-    // Defer plugin scan so the main window can appear before the cache load + disk scan starts.
+    // Defer plugin scan so the main window can appear before the cache load
+    // and disk scan starts. The scan runs on a background thread and fires
+    // onScanFinished / broadcastChange when done.
     juce::MessageManager::callAsync ([this] { audioEngine.scanPlugins(); });
 
     browser.onPluginPicked = [this] (const juce::PluginDescription& desc)

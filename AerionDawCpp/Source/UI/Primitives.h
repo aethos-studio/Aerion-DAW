@@ -143,7 +143,7 @@ inline void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
     float db   = audioEngine.getTrackVolumeDb (track);
     float sPos = AudioEngineManager::getFaderPosFromDb (db);
     int   capY = faderTop + (int) (faderH * (1.0f - sPos));
-    juce::Rectangle<float> cap ((float) (cx - 9), (float) (capY - 24), 18.0f, 48.0f);
+    juce::Rectangle<float> cap ((float) cx - 6.75f, (float) capY - 18.0f, 13.5f, 36.0f);
     if (faderKnobDrawable != nullptr)
         faderKnobDrawable->drawWithin (g, cap, juce::RectanglePlacement::centred, 1.0f);
 

@@ -8,13 +8,7 @@ coverage/
 !.env.example
 # Local project files
 .claude/
-GEMINI.md
-CLAUDE.md
-ARCHITECTURE.md
+Gemini/
 CMAKEPresets.json
-.cursorrules
-testing.md
-UX-redesign.md
-Aerion-DAW-Manual-0.0.1.html
-Aerion-DAW-Manual-0.0.1.pdf
-Aerion-DAW-Setup-0.0.1.exe
+Cursor-AI/
+docs/

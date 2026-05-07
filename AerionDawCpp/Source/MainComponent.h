@@ -27,6 +27,8 @@ public:
     // AudioEngineManager::Listener
     void editStateChanged() override;
 
+    AudioEngineManager& getAudioEngine() { return audioEngine; }
+
     // juce::ValueTree::Listener
     void valueTreePropertyChanged (juce::ValueTree& v, const juce::Identifier& i) override;
     void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override {}
