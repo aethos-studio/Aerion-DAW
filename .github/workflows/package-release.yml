@@ -9,13 +9,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Force HTTPS for GitHub submodules
+      - name: Pre-clone Tracktion Engine with HTTPS submodules
+        shell: pwsh
         run: |
-          git config --global url."https://github.com/".insteadOf "git@github.com:"
-          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git clone --depth 1 --branch v3.2.0 https://github.com/Tracktion/tracktion_engine.git tracktion_engine-src
+          Push-Location tracktion_engine-src
+          git submodule update --init --recursive --depth 1
+          Pop-Location
 
       - name: Configure
-        run: cmake -S AerionDawCpp -B build -G "Visual Studio 17 2022" -A x64
+        run: cmake -S AerionDawCpp -B build -G "Visual Studio 17 2022" -A x64 -DFETCHCONTENT_SOURCE_DIR_TRACKTION_ENGINE="${{ github.workspace }}\\tracktion_engine-src"
 
       - name: Build
         run: cmake --build build --config Debug --target AerionDaw
@@ -34,13 +37,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Force HTTPS for GitHub submodules
+      - name: Pre-clone Tracktion Engine with HTTPS submodules
         run: |
-          git config --global url."https://github.com/".insteadOf "git@github.com:"
-          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          git clone --depth 1 --branch v3.2.0 https://github.com/Tracktion/tracktion_engine.git tracktion_engine-src
+          cd tracktion_engine-src
+          git submodule update --init --recursive --depth 1
 
       - name: Configure
-        run: cmake -S AerionDawCpp -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S AerionDawCpp -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DFETCHCONTENT_SOURCE_DIR_TRACKTION_ENGINE="$GITHUB_WORKSPACE/tracktion_engine-src"
 
       - name: Build
         run: cmake --build build --target AerionDaw
