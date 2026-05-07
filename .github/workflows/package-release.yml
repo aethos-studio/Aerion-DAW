@@ -1,0 +1,46 @@
+name: package
+
+on:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S AerionDawCpp -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build
+        run: cmake --build build --config Debug --target AerionDaw
+
+      - name: Package (NSIS)
+        run: cpack --config build/CPackConfig.cmake -G NSIS -C Debug
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: aerion-windows-installer
+          path: "Aerion DAW-*-win64.exe"
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S AerionDawCpp -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --target AerionDaw
+
+      - name: Package (DMG)
+        run: cpack --config build/CPackConfig.cmake -G DragNDrop -C Release
+
+      - name: Upload dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: aerion-macos-dmg
+          path: "*.dmg"
+

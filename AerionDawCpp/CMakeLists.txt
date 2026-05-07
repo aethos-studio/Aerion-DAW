@@ -144,3 +144,17 @@ if (WIN32)
     
     include(CPack)
 endif()
+
+if (APPLE)
+    # Basic unsigned .dmg packaging for pre-releases.
+    # (Signing/notarization can be added later via CMAKE_OSX_* and codesign/notarytool in CI.)
+    install(TARGETS AerionDaw BUNDLE DESTINATION .)
+
+    set(CPACK_PACKAGE_NAME "Aerion DAW")
+    set(CPACK_PACKAGE_VENDOR "Aethos Studio Ltd.")
+    set(CPACK_PACKAGE_VERSION "0.2.0")
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Aerion DAW Pre-Alpha")
+    set(CPACK_GENERATOR "DragNDrop")
+
+    include(CPack)
+endif()
