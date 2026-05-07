@@ -26,6 +26,15 @@ Aerion is designed to bridge the gap between high-end professional production an
 | **Piano Roll**   | Comprehensive MIDI editor with note quantization, snap-to-grid, and high-performance scrolling.                        |                             |
 | **Mixer**        | Real-time level meters, detachable mixer window, and per-track fader/pan control with branded JUCE-rendered windowing. |
 | **Browser**      | Waveform previews for local files, plugin category browsing, and a dedicated "Cloud" tab for remote projects.          |
+| **Export**       | Professional audio mixdown to WAV/AIFF/FLAC/OGG with bounds selection, format presets, wildcard templates, waveform display with clip detection (Reaper-style), and configurable sample rates/channels. |
+
+---
+
+## Recent Updates
+
+- **Audio Export:** Professional-grade mixdown export supporting WAV, AIFF, FLAC, and OGG formats with real-time waveform preview and clip detection.
+- **UI Polish:** Fully themed export dialogs matching Aerion branding, with ASCII-art waveform placeholders and visual clip indicators.
+- **Stability:** Eliminated render freezes through smart parameter debouncing and eliminated Edit copy creation for preview-only jobs.
 
 ---
 
@@ -41,6 +50,7 @@ AerionDawCpp/
     AudioEngine/     Core Tracktion Engine wrapping and transport.
     UIComponents/    The entire native JUCE UI (Timeline, Mixer, Browser, etc.).
     ProjectData/     ValueTree-backed project model (The "Truth").
+    Export/          Audio mixdown/render to file with format presets and waveform analysis.
     GoogleDrive/     Cloud client and OAuth flow.
     AI/              Scaffolding for ONNX-bound AI tasks.
 ```
