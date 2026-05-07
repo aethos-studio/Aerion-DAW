@@ -24,6 +24,10 @@ jobs:
       - name: Build
         run: cmake --build build --config Debug --target AerionDaw
 
+      - name: Install NSIS (for CPack)
+        shell: pwsh
+        run: choco install nsis -y
+
       - name: Package (NSIS)
         run: cpack --config build/CPackConfig.cmake -G NSIS -C Debug
 
