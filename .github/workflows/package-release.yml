@@ -14,6 +14,7 @@ jobs:
         run: |
           git clone --depth 1 --branch v3.2.0 https://github.com/Tracktion/tracktion_engine.git tracktion_engine-src
           Push-Location tracktion_engine-src
+          git submodule set-url modules/juce https://github.com/juce-framework/JUCE.git
           git submodule update --init --recursive --depth 1
           Pop-Location
 
@@ -41,6 +42,7 @@ jobs:
         run: |
           git clone --depth 1 --branch v3.2.0 https://github.com/Tracktion/tracktion_engine.git tracktion_engine-src
           cd tracktion_engine-src
+          git submodule set-url modules/juce https://github.com/juce-framework/JUCE.git
           git submodule update --init --recursive --depth 1
 
       - name: Configure
