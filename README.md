@@ -40,27 +40,25 @@ Aerion is designed to bridge the gap between high-end professional production an
 
 ## Repository layout
 
-Only a few top-level items stay at the repo root; everything else lives under the app tree.
+Only the items needed to build and ship the app are tracked. Everything else (IDE caches, AI tooling folders, build output, installers, scratch notes) is gitignored so the repo root stays minimal.
 
 ```
 Aerion-DAW/
-  README.md              This file
-  LICENSE                  GPLv3
-  .github/                 CI workflows and community docs (Code of Conduct)
-  AerionDawCpp/            CMake project, C++ sources, assets, bundled docs
+  README.md            This file (the only loose markdown at the root)
+  LICENSE              GPLv3
+  .gitignore
+  .github/             CI workflows and community docs (Code of Conduct)
+  AerionDawCpp/        CMake project, C++ sources, assets, bundled docs
     CMakeLists.txt
-    CMakePresets.json      Windows CMake presets (optional)
-    CMake/                 CPack helper scripts
-    Documentation/         Roadmap, status, release notes, manual test checklist
-    Resources/             SVG assets, fonts, icons
-    External/                Third-party SDKs (e.g. Steinberg ASIO on Windows)
-    Source/                  Application code (Main, AudioEngine, UI, Export, …)
-  dev/                     Optional local scratch (untracked except dev/README.md)
-  build/                   CMake output (gitignored)
-  dist/                    Installers / CPack output (gitignored)
+    CMakePresets.json  Windows CMake presets (optional)
+    CMake/             CPack helper scripts
+    Documentation/     Roadmap, status, release notes, manual test checklist
+    Resources/         SVG assets, fonts, icons
+    External/          Third-party SDKs (e.g. Steinberg ASIO on Windows)
+    Source/            Application code (Main, AudioEngine, UI, Export, …)
 ```
 
-IDE-specific folders (`.cursor`, `.claude`, `Cursor-AI`, etc.) remain **gitignored** if you keep them next to the repo; you can also tuck copies under `dev/` for your own organisation.
+Anything else you see locally (e.g. `build/`, `dist/`, `_CPack_Packages/`, `.cursor/`, `.claude/`, `Cursor-AI/`, `Gemini/`, `.vs/`, etc.) is **gitignored** — see `.gitignore` for the full list.
 
 ---
 
