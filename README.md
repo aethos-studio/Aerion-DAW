@@ -38,22 +38,29 @@ Aerion is designed to bridge the gap between high-end professional production an
 
 ---
 
-## Repository Layout
+## Repository layout
+
+Only a few top-level items stay at the repo root; everything else lives under the app tree.
 
 ```
-AerionDawCpp/
-  CMakeLists.txt
-  Resources/         SVG assets, custom typefaces (Cinzel), and icons.
-  Source/
-    Main.cpp         Application entry point and splash window lifecycle.
-    MainComponent/   Root layout and panel management.
-    AudioEngine/     Core Tracktion Engine wrapping and transport.
-    UIComponents/    The entire native JUCE UI (Timeline, Mixer, Browser, etc.).
-    ProjectData/     ValueTree-backed project model (The "Truth").
-    Export/          Audio mixdown/render to file with format presets and waveform analysis.
-    GoogleDrive/     Cloud client and OAuth flow.
-    AI/              Scaffolding for ONNX-bound AI tasks.
+Aerion-DAW/
+  README.md              This file
+  LICENSE                  GPLv3
+  .github/                 CI workflows and community docs (Code of Conduct)
+  AerionDawCpp/            CMake project, C++ sources, assets, bundled docs
+    CMakeLists.txt
+    CMakePresets.json      Windows CMake presets (optional)
+    CMake/                 CPack helper scripts
+    Documentation/         Roadmap, status, release notes, manual test checklist
+    Resources/             SVG assets, fonts, icons
+    External/                Third-party SDKs (e.g. Steinberg ASIO on Windows)
+    Source/                  Application code (Main, AudioEngine, UI, Export, …)
+  dev/                     Optional local scratch (untracked except dev/README.md)
+  build/                   CMake output (gitignored)
+  dist/                    Installers / CPack output (gitignored)
 ```
+
+IDE-specific folders (`.cursor`, `.claude`, `Cursor-AI`, etc.) remain **gitignored** if you keep them next to the repo; you can also tuck copies under `dev/` for your own organisation.
 
 ---
 
@@ -77,27 +84,27 @@ AerionDawCpp/
 
 - **CMake** 3.20+
 - **Visual Studio 2022** (MSVC)
-- **PowerShell 7** (for build scripts)
+- **PowerShell 7** (optional; any shell works)
 
-### Building (Windows/PowerShell)
+If your IDE only looks for `CMakePresets.json` at the workspace root, either open the **`AerionDawCpp`** folder as the CMake source tree or always pass **`-S AerionDawCpp`** as in the commands below (presets live beside `CMakeLists.txt`).
+
+### Building (Windows / PowerShell)
+
+Presets live next to the CMake project under `AerionDawCpp/`. From the **repository root**:
 
 ```powershell
-# Configure (recommended: presets)
-cmake --preset win-msvc-debug
-
-# Build (recommended: presets)
-cmake --build --preset win-msvc-debug
+# Configure + build (Debug)
+cmake --preset win-msvc-debug -S AerionDawCpp -B build
+cmake --build build --preset win-msvc-debug
 
 # ---- Manual alternative ----
-# Configure
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-
-# Build
-cmake --build build --config *your target (i.e. Debug or Release)*
+cmake -S AerionDawCpp -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Debug --target AerionDaw
 ```
 
-The executable will be located at:
-`.\build\AerionDaw_artefacts\Debug\Aerion DAW.exe`
+The executable is written to:
+
+`build\AerionDaw_artefacts\Debug\Aerion DAW.exe` (or `Release` when you build that configuration).
 
 ---
 
@@ -109,7 +116,7 @@ Aerion DAW follows a strict **Model-View-Controller (MVC)** separation:
 - **Controller:** `AudioEngineManager` wraps the Tracktion `Edit` and manages the real-time audio graph and transport.
 - **View:** Native JUCE components in `UIComponents.h` observe the `ValueTree` and repaint only when the underlying state changes.
 
-See `ARCHITECTURE.md` for codebase guardrails and module map, and `CONTRIBUTING.md` for the development workflow.
+See `AerionDawCpp/Documentation/` for the roadmap, status, release procedure, and manual test checklist.
 
 ---
 

@@ -6,15 +6,15 @@ coverage/
 *.log
 .env*
 !.env.example
-# Local project files
+# Local project files (keep at repo root if you use these tools; they stay untracked)
 .claude/
 Gemini/
-CMAKEPresets.json
 Cursor-AI/
 _CPack_Packages/
 ci-artifacts/
-scripts/
-docs/
+# Optional local scratch (see dev/README.md) — keep repo root uncluttered
+dev/*
+!dev/README.md
 # Steinberg ASIO SDK is bundled in-tree under AerionDawCpp/External/ASIO-SDK_*
 # (GPLv3, redistributable). The SDK is intentionally tracked so a fresh clone
 # gets ASIO support out of the box - do NOT add it back to .gitignore unless

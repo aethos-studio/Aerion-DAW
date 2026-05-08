@@ -10,7 +10,7 @@
       "name": "win-msvc-debug",
       "displayName": "Windows MSVC Debug",
       "generator": "Visual Studio 17 2022",
-      "binaryDir": "${sourceDir}/build",
+      "binaryDir": "${sourceDir}/../build",
       "cacheVariables": {
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "CMAKE_CONFIGURATION_TYPES": "Debug;Release"
