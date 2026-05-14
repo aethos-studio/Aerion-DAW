@@ -15,6 +15,45 @@
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "CMAKE_CONFIGURATION_TYPES": "Debug;Release"
       }
+    },
+    {
+      "name": "mac-clang-debug",
+      "displayName": "macOS Clang Debug (ARM64)",
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/../build",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "11.0",
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++"
+      }
+    },
+    {
+      "name": "mac-clang-release",
+      "displayName": "macOS Clang Release (ARM64)",
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/../build",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "11.0",
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++"
+      }
+    },
+    {
+      "name": "mac-clang-x86",
+      "displayName": "macOS Clang Release (Intel x86_64)",
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/../build-x86",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_OSX_ARCHITECTURES": "x86_64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "10.13",
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++"
+      }
     }
   ],
   "buildPresets": [
@@ -22,6 +61,21 @@
       "name": "win-msvc-debug",
       "configurePreset": "win-msvc-debug",
       "configuration": "Debug"
+    },
+    {
+      "name": "mac-clang-debug",
+      "configurePreset": "mac-clang-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "mac-clang-release",
+      "configurePreset": "mac-clang-release",
+      "configuration": "Release"
+    },
+    {
+      "name": "mac-clang-x86",
+      "configurePreset": "mac-clang-x86",
+      "configuration": "Release"
     }
   ]
 }

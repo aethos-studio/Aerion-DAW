@@ -38,6 +38,26 @@ juce_add_gui_app(AerionDaw
     ICON_SMALL "Resources/aerion_logo.svg"
 )
 
+# macOS-specific bundle and signing configuration
+if (APPLE)
+    set_target_properties(AerionDaw PROPERTIES
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.aethos.aeriondaw"
+        MACOSX_BUNDLE_BUNDLE_NAME "Aerion DAW"
+        MACOSX_BUNDLE_BUNDLE_VERSION "0.2.0"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "0.2.0"
+        MACOSX_BUNDLE_LONG_VERSION_STRING "0.2.0"
+        MACOSX_BUNDLE_COPYRIGHT "Copyright © Aethos Studio Ltd."
+        MACOSX_DEPLOYMENT_TARGET "11.0"
+    )
+
+    # Ad-hoc code signing for local development builds.
+    # For distribution, you'll need a proper signing identity.
+    add_custom_command(TARGET AerionDaw POST_BUILD
+        COMMAND /usr/bin/codesign --force --deep --sign - "$<TARGET_BUNDLE_DIR:AerionDaw>"
+        COMMENT "Ad-hoc code signing for macOS app bundle"
+    )
+endif()
+
 juce_add_binary_data(AerionDawResources
     SOURCES
         Resources/aerion_logo.svg
