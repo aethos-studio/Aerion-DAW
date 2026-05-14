@@ -109,6 +109,7 @@ public:
     bool isScanningPlugins() const { return scanInFlight.load(); }
     bool shouldRunStartupScan();
     bool areAudioDevicesConnected() const { return audioDevicesConnected; }
+    void deletePluginFromBrowserList (const juce::PluginDescription& desc);
 
     // Boot-time scan progress callbacks. Posted on the message thread.
     std::function<void(juce::String pluginName)> onScanProgress;

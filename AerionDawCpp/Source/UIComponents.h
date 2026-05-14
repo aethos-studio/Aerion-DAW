@@ -1998,6 +1998,51 @@ public:
             return;
         }
 
+        if (tab == Tab::plugins && e.mods.isPopupMenu())
+        {
+            for (int i = 0; i < rowBounds.size(); ++i)
+            {
+                if (! rowBounds[i].contains (e.getPosition()))
+                    continue;
+
+                if (i >= rowDescs.size())
+                    return;
+
+                juce::PluginDescription desc = rowDescs.getReference (i);
+
+                juce::PopupMenu m;
+                const bool scanning = audioEngine.isScanningPlugins();
+                m.addItem (1, "Delete from Plugin Browser", ! scanning);
+
+                auto screenPos = juce::Desktop::getMousePosition();
+                m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ screenPos.x, screenPos.y, 1, 1 }),
+                                 [this, desc] (int r)
+                                 {
+                                     if (r != 1)
+                                         return;
+
+                                     auto msg = "This removes the plugin from the browser list only.\n"
+                                                "It will appear again after a manual RESCAN if it still exists on disk.";
+
+                                     juce::Component::SafePointer<Browser> safe (this);
+                                     juce::AlertWindow::showOkCancelBox (juce::AlertWindow::WarningIcon,
+                                                                        "Delete plugin",
+                                                                        msg + juce::String ("\n\n") + desc.name,
+                                                                        "Delete", "Cancel",
+                                                                        this,
+                                                                        juce::ModalCallbackFunction::create ([safe, desc] (int result)
+                                                                        {
+                                                                            if (safe == nullptr || result == 0)
+                                                                                return;
+
+                                                                            safe->audioEngine.deletePluginFromBrowserList (desc);
+                                                                            safe->repaint();
+                                                                        }));
+                                 });
+                return;
+            }
+        }
+
         for (int i = 0; i < rowBounds.size(); ++i)
             if (rowBounds[i].contains (e.getPosition()))
             {

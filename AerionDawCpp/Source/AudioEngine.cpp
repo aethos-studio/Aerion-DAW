@@ -1281,6 +1281,164 @@ void AudioEngineManager::cancelScan()
 
 namespace
 {
+   #if JUCE_WINDOWS
+    /** Program Files folders from env (avoids trusting huge default search trees). */
+    static juce::File windowsProgramFilesNative()
+    {
+        auto s64 = juce::SystemStats::getEnvironmentVariable ("ProgramW6432", {});
+        if (! s64.isEmpty()) return juce::File (s64);
+        return juce::File (juce::SystemStats::getEnvironmentVariable ("ProgramFiles", {}));
+    }
+
+    static juce::File windowsProgramFilesX86()
+    {
+        return juce::File (juce::SystemStats::getEnvironmentVariable ("ProgramFiles(x86)", {}));
+    }
+
+    static void addExistingDirPath (juce::FileSearchPath& out, const juce::File& dir)
+    {
+        if (dir.isDirectory())
+            out.add (dir);
+    }
+
+    static juce::String trimPathSeparators (juce::String s)
+    {
+        while (s.endsWithChar ('\\') || s.endsWithChar ('/'))
+            s = s.dropLastCharacters (1);
+        return s.trimEnd();
+    }
+
+    static bool mentionsTypicalWindowsPluginSubtree (const juce::String& full)
+    {
+        return full.containsIgnoreCase ("VST3") || full.containsIgnoreCase ("VST")
+               || full.containsIgnoreCase ("VstPlugins") || full.containsIgnoreCase ("CLAP")
+               || full.containsIgnoreCase ("LV2") || full.containsIgnoreCase ("Plug-Ins")
+               || full.containsIgnoreCase ("PlugIns");
+    }
+
+    /** JUCE/VST installers sometimes register huge search roots; recursive+VST probing is then enormous. */
+    static bool windowsSearchRootLikelyTooBroad (const juce::File& dir)
+    {
+        if (! dir.isDirectory())
+            return true;
+
+        auto full = trimPathSeparators (dir.getFullPathName());
+        if (full.isEmpty())
+            return true;
+
+        // Bare drive roots — never crawl from here recursively.
+        {
+            auto s = trimPathSeparators (dir.getFullPathName());
+            if (s.length() >= 2 && s[1] == ':')
+            {
+                auto rest = trimPathSeparators (s.substring (2).replaceCharacter ('/', '\\'));
+                if (rest.isEmpty())
+                    return true;
+            }
+        }
+
+        const auto pf64 = windowsProgramFilesNative();
+        const auto pf86 = windowsProgramFilesX86();
+
+        auto sameDir = [](const juce::File& a, const juce::File& b)
+        {
+            return a.exists() && b.exists()
+                   && trimPathSeparators (a.getFullPathName()).equalsIgnoreCase (
+                       trimPathSeparators (b.getFullPathName()));
+        };
+
+        if (pf64.exists() && sameDir (dir, pf64)) return true;
+        if (pf86.exists() && sameDir (dir, pf86)) return true;
+
+        if (pf64.exists() && dir.isAChildOf (pf64))
+            return ! mentionsTypicalWindowsPluginSubtree (full);
+
+        if (pf86.exists() && dir.isAChildOf (pf86))
+            return ! mentionsTypicalWindowsPluginSubtree (full);
+
+        if (full.endsWithIgnoreCase ("\\Users"))
+            return true;
+
+        return false;
+    }
+
+    /** For VST2/VST3 we only crawl standard installer locations plus any user-local VST3 folder Windows uses now. */
+    static juce::FileSearchPath windowsStandardHostFormatPaths (const juce::String& formatName)
+    {
+        juce::FileSearchPath path;
+
+        const auto pf64 = windowsProgramFilesNative();
+        const auto pf86 = windowsProgramFilesX86();
+
+        auto addPfChild = [&](const juce::String& leaf)
+        {
+            if (pf64.exists()) addExistingDirPath (path, pf64.getChildFile (leaf));
+            if (pf86.exists()) addExistingDirPath (path, pf86.getChildFile (leaf));
+        };
+
+        if (formatName == "VST3")
+        {
+            addPfChild ("Common Files/VST3");
+
+            if (auto local = juce::SystemStats::getEnvironmentVariable ("LOCALAPPDATA", {}); local.isNotEmpty())
+                addExistingDirPath (path, juce::File (local).getChildFile ("Programs/Common/VST3"));
+
+            addExistingDirPath (path,
+                                juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+                                    .getChildFile ("Programs/Common/VST3"));
+
+            // Legacy hard-coded fallbacks still seen in broken installers.
+            addExistingDirPath (path, juce::File ("C:\\Program Files\\Common Files\\VST3"));
+            addExistingDirPath (path, juce::File ("C:\\Program Files (x86)\\Common Files\\VST3"));
+        }
+
+        if (formatName == "VST")
+        {
+            addPfChild ("VSTPlugins");
+            addPfChild ("Steinberg/VstPlugins");
+            addExistingDirPath (path, juce::File ("C:\\VSTPlugins"));
+            addExistingDirPath (path, juce::File ("D:\\VSTPlugins"));
+            addExistingDirPath (path, juce::File ("C:\\Program Files\\VSTPlugins"));
+            addExistingDirPath (path, juce::File ("C:\\Program Files\\Steinberg\\VstPlugins"));
+            addExistingDirPath (path, juce::File ("C:\\Program Files (x86)\\VSTPlugins"));
+            addExistingDirPath (path, juce::File ("C:\\Program Files (x86)\\Steinberg\\VstPlugins"));
+        }
+
+        if (formatName == "CLAP")
+            addPfChild ("Common Files/CLAP");
+
+        if (formatName == "LV2")
+            addPfChild ("Common Files/LV2");
+
+        return path;
+    }
+
+    static juce::FileSearchPath sanitizedWindowsFallbackPaths (juce::FileSearchPath raw)
+    {
+        juce::FileSearchPath out;
+        for (int pi = 0; pi < raw.getNumPaths(); ++pi)
+        {
+            auto d = raw[pi];
+
+            juce::String full = trimPathSeparators (d.getFullPathName());
+
+            auto pf64_norm = trimPathSeparators (windowsProgramFilesNative().getFullPathName());
+            auto pf86_norm = trimPathSeparators (windowsProgramFilesX86().getFullPathName());
+
+            if (full.equalsIgnoreCase (pf64_norm) || full.equalsIgnoreCase (pf86_norm))
+                continue;
+
+            if (windowsSearchRootLikelyTooBroad (d))
+                continue;
+
+            addExistingDirPath (out, d);
+        }
+
+        return out;
+    }
+
+   #endif // JUCE_WINDOWS
+
     struct PluginScanThread : public juce::Thread
     {
         PluginScanThread (AudioEngineManager& m, juce::File f)
@@ -1291,42 +1449,52 @@ namespace
             auto& fm   = owner.getEngine().getPluginManager().pluginFormatManager;
             auto& list = owner.getEngine().getPluginManager().knownPluginList;
 
-            for (int i = 0; i < fm.getNumFormats(); ++i)
+            constexpr int scanProgressThrottleMs = 140;
+            int64 lastProgressMs = juce::Time::currentTimeMillis() - scanProgressThrottleMs;
+
+            for (int fi = 0; fi < fm.getNumFormats(); ++fi)
             {
                 if (threadShouldExit()) break;
 
-                auto* format = fm.getFormat (i);
+                auto* format = fm.getFormat (fi);
                 if (format == nullptr) continue;
 
-                juce::FileSearchPath path = format->getDefaultLocationsToSearch();
+                const auto formatName = format->getName();
+                juce::FileSearchPath path;
 
-                // Extra paths for spots installers commonly use that JUCE doesn't return.
                #if JUCE_WINDOWS
-                if (format->getName() == "VST3")
-                {
-                    auto userVst3 = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-                                          .getChildFile ("Programs/Common/VST3");
-                    if (userVst3.isDirectory()) path.add (userVst3);
+                // Known host formats live in predictable folders — avoid blindly merging JUCE's defaults
+                // (those can recurse over entire PF / roaming trees on some setups).
+                if (formatName == "VST3" || formatName == "VST" || formatName == "LV2"
+                    || formatName == "CLAP")
+                    path = windowsStandardHostFormatPaths (formatName);
 
-                    path.add (juce::File ("C:\\Program Files\\Common Files\\VST3"));
-                }
-                if (format->getName() == "VST")
-                {
-                    path.add (juce::File ("C:\\Program Files\\VSTPlugins"));
-                    path.add (juce::File ("C:\\Program Files\\Steinberg\\VstPlugins"));
-                }
+                if (path.getNumPaths() == 0)
+                    path = sanitizedWindowsFallbackPaths (format->getDefaultLocationsToSearch());
+               #else
+                path = format->getDefaultLocationsToSearch();
                #endif
 
-                juce::PluginDirectoryScanner scanner (list, *format, path, /*recursive*/ true, cache);
+                juce::PluginDirectoryScanner scanner (list, *format, path, /*recursive=*/ true, cache);
                 juce::String pluginName;
+
                 while (! threadShouldExit() && scanner.scanNextFile (true, pluginName))
                 {
+                    const auto nowMs = juce::Time::currentTimeMillis();
+
+                    if (nowMs - lastProgressMs < scanProgressThrottleMs && pluginName.isNotEmpty())
+                        continue;
+
+                    lastProgressMs = nowMs;
+
                     juce::WeakReference<AudioEngineManager> weak = weakOwner;
-                    juce::String name = pluginName;
-                    juce::MessageManager::callAsync ([weak, name]
+                    auto nameCopy = pluginName;
+
+                    juce::MessageManager::callAsync ([weak, nameCopy]()
                     {
                         if (auto* o = weak.get())
-                            if (o->onScanProgress) o->onScanProgress (name);
+                            if (o->onScanProgress != nullptr && nameCopy.isNotEmpty())
+                                o->onScanProgress (nameCopy);
                     });
                 }
             }
@@ -1386,6 +1554,22 @@ void AudioEngineManager::scanPlugins()
     auto t = std::make_unique<PluginScanThread> (*this, cacheFile);
     scanThread = std::unique_ptr<juce::Thread> (t.release());
     scanThread->startThread();
+}
+
+void AudioEngineManager::deletePluginFromBrowserList (const juce::PluginDescription& desc)
+{
+    // Avoid racing the background scan thread which is mutating the same list.
+    if (isScanningPlugins())
+        return;
+
+    auto& list = engine.getPluginManager().knownPluginList;
+    list.removeType (desc);
+
+    auto cacheFile = engine.getPropertyStorage().getAppPrefsFolder().getChildFile ("Plugins.xml");
+    if (auto xml = list.createXml())
+        xml->writeTo (cacheFile);
+
+    broadcastChange();
 }
 
 tracktion::Plugin::Ptr AudioEngineManager::addPluginToTrack (te::Track* track, const juce::PluginDescription& desc)
