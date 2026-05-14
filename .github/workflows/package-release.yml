@@ -14,6 +14,9 @@ on:
 permissions:
   contents: write   # needed to create the GitHub Release on tag push
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   windows:
     name: Windows installer (NSIS)
