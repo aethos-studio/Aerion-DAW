@@ -376,6 +376,127 @@ private:
 };
 
 //==============================================================================
+class InsertMultipleMediaDialog : public juce::Component
+{
+public:
+    enum class InsertMode
+    {
+        separateTracks = 0,     // One file per track, same time position
+        sequentialSingleTrack,  // All files on one track, sequential time positions
+        fixedLanes              // All files on one track, same time position (side by side)
+    };
+
+    std::function<void (InsertMode)> onModeSelected;
+
+    InsertMultipleMediaDialog() : selectedMode (InsertMode::separateTracks)
+    {
+        setOpaque (true);
+        setSize (360, 200);
+
+        // Title
+        addAndMakeVisible (titleLabel);
+        titleLabel.setText ("Insert Multiple Media Items", juce::dontSendNotification);
+        titleLabel.setFont (Theme::uiSize (14.0f).boldened());
+        titleLabel.setColour (juce::Label::textColourId, Theme::textMain);
+
+        // Radio buttons
+        addAndMakeVisible (separateTracksButton);
+        separateTracksButton.setButtonText ("Same time position on separate tracks");
+        separateTracksButton.onClick = [this] { selectedMode = InsertMode::separateTracks; updateButtonStates(); };
+
+        addAndMakeVisible (sequentialButton);
+        sequentialButton.setButtonText ("Sequential time positions on a single track");
+        sequentialButton.onClick = [this] { selectedMode = InsertMode::sequentialSingleTrack; updateButtonStates(); };
+
+        addAndMakeVisible (fixedLanesButton);
+        fixedLanesButton.setButtonText ("Same time position in fixed lanes on a single track");
+        fixedLanesButton.onClick = [this] { selectedMode = InsertMode::fixedLanes; updateButtonStates(); };
+
+        // Buttons
+        addAndMakeVisible (okButton);
+        okButton.setButtonText ("OK");
+        okButton.onClick = [this] { if (onModeSelected) onModeSelected (selectedMode); };
+
+        addAndMakeVisible (cancelButton);
+        cancelButton.setButtonText ("Cancel");
+        cancelButton.onClick = [this] {
+            if (auto* window = findParentComponentOfClass<juce::DialogWindow>())
+                window->closeButtonPressed();
+        };
+
+        updateButtonStates();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (Theme::bgPanel);
+    }
+
+    void resized() override
+    {
+        auto b = getLocalBounds().reduced (16);
+
+        auto titleArea = b.removeFromTop (30);
+        titleLabel.setBounds (titleArea);
+        b.removeFromTop (12);
+
+        auto buttonH = 24;
+        auto spacing = 8;
+
+        auto row1 = b.removeFromTop (buttonH);
+        separateTracksButton.setBounds (row1);
+        b.removeFromTop (spacing);
+
+        auto row2 = b.removeFromTop (buttonH);
+        sequentialButton.setBounds (row2);
+        b.removeFromTop (spacing);
+
+        auto row3 = b.removeFromTop (buttonH);
+        fixedLanesButton.setBounds (row3);
+        b.removeFromTop (12);
+
+        auto buttonArea = b.removeFromBottom (32);
+        auto okArea = buttonArea.removeFromRight (80);
+        cancelButton.setBounds (okArea.withX (buttonArea.getRight() - 168));
+        okButton.setBounds (okArea.withX (buttonArea.getRight() - 80));
+    }
+
+    static void launch (std::function<void (InsertMode)> callback)
+    {
+        auto* dialog = new InsertMultipleMediaDialog();
+        dialog->onModeSelected = callback;
+
+        juce::DialogWindow::LaunchOptions opts;
+        opts.content.setOwned (dialog);
+        opts.dialogTitle = "Insert Multiple Media Items";
+        opts.dialogBackgroundColour = Theme::bgPanel;
+        opts.escapeKeyTriggersCloseButton = true;
+        opts.useNativeTitleBar = true;
+        opts.resizable = false;
+        opts.launchAsync();
+    }
+
+private:
+    InsertMode selectedMode;
+
+    juce::Label titleLabel;
+    juce::ToggleButton separateTracksButton { "separateTracks" };
+    juce::ToggleButton sequentialButton { "sequential" };
+    juce::ToggleButton fixedLanesButton { "fixedLanes" };
+    juce::TextButton okButton;
+    juce::TextButton cancelButton;
+
+    void updateButtonStates()
+    {
+        separateTracksButton.setToggleState (selectedMode == InsertMode::separateTracks, juce::dontSendNotification);
+        sequentialButton.setToggleState (selectedMode == InsertMode::sequentialSingleTrack, juce::dontSendNotification);
+        fixedLanesButton.setToggleState (selectedMode == InsertMode::fixedLanes, juce::dontSendNotification);
+    }
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (InsertMultipleMediaDialog)
+};
+
+//==============================================================================
 class DAWMenuBar : public juce::Component
 {
 public:
@@ -399,6 +520,9 @@ public:
     bool   trackSolo        = false;
     juce::String projectTitle = "My Song";
 
+    // === Recent projects ===
+    juce::RecentlyOpenedFilesList*    recentProjects     = nullptr;
+
     // === Callbacks ===
     std::function<void()> onNew, onOpen, onSave, onSaveAs, onImport, onExportMixdown, onSettings;
     std::function<void()> onUndo, onRedo;
@@ -416,6 +540,9 @@ public:
     std::function<void()> onPlay, onStop, onRecord, onGoToStart;
     std::function<void()> onToggleLoop, onTogglePunch;
     std::function<void()> onToggleInspector, onToggleBrowser, onToggleMixerDetach;
+    std::function<void(juce::File)>   onOpenRecent;
+    std::function<void()>             onClearRecent;
+    std::function<void()>             onCollectSaveAs;
     std::function<void()> onBeforeMenuOpen;
 
     DAWMenuBar()
@@ -522,8 +649,25 @@ private:
         juce::PopupMenu m;
         m.addItem (1, "New Project");
         m.addItem (2, "Open Project...");
+
+        // Open Recent submenu
+        juce::PopupMenu recentSub;
+        if (recentProjects != nullptr && recentProjects->getNumFiles() > 0)
+        {
+            for (int i = 0; i < recentProjects->getNumFiles(); ++i)
+            {
+                auto f = recentProjects->getFile (i);
+                bool exists = f.existsAsFile();
+                recentSub.addItem (200 + i, f.getFileName(), exists, false);
+            }
+            recentSub.addSeparator();
+        }
+        recentSub.addItem (299, "Clear Recent");
+        m.addSubMenu ("Open Recent", recentSub);
+
         m.addItem (3, "Save Project");
         m.addItem (6, "Save Project As...");
+        m.addItem (8, "Collect & Save As...");
         m.addSeparator();
         m.addItem (4, "Import Audio File...");
         m.addItem (7, "Export Mixdown...");
@@ -534,9 +678,16 @@ private:
             if (r == 2 && onOpen)     onOpen();
             if (r == 3 && onSave)     onSave();
             if (r == 6 && onSaveAs)   onSaveAs();
+            if (r == 8 && onCollectSaveAs) onCollectSaveAs();
             if (r == 4 && onImport)   onImport();
             if (r == 7 && onExportMixdown) onExportMixdown();
             if (r == 5 && onSettings) onSettings();
+            if (r >= 200 && r < 299 && onOpenRecent && recentProjects != nullptr)
+            {
+                auto f = recentProjects->getFile (r - 200);
+                if (f.existsAsFile()) onOpenRecent (f);
+            }
+            if (r == 299 && onClearRecent) onClearRecent();
         });
     }
 
@@ -831,7 +982,7 @@ public:
         {
             const char* countLabels[] = { "OFF", "1", "2" };
             g.setColour (countInBars > 0 ? Theme::active : Theme::textMuted.withAlpha (0.6f));
-            g.setFont (Theme::uiSize (7.0f).withStyle (juce::Font::bold));
+            g.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
             g.drawText (countLabels[countInBars], countInBtn.getX(), countInBtn.getBottom() - 9,
                         countInBtn.getWidth(), 9, juce::Justification::centred);
         }
@@ -857,7 +1008,7 @@ public:
 
             // Tiny interval sub-label
             g.setColour (snapEnabled ? Theme::active : Theme::textMuted);
-            g.setFont (Theme::uiSize (6.5f).withStyle (juce::Font::bold));
+            g.setFont (Theme::uiSize (8.5f).withStyle (juce::Font::bold));
             g.drawText (getSnapIntervalText (snapInterval),
                         snapBounds.getX(), snapBounds.getBottom() - 8,
                         snapBounds.getWidth(), 8, juce::Justification::centred);
@@ -875,7 +1026,7 @@ public:
                                               : hov ? Theme::border.brighter (0.3f) : Theme::border);
             g.drawRoundedRectangle (bf, 3.0f, 1.0f);
             g.setColour (autoCrossfadeEnabled ? Theme::active : Theme::textMuted);
-            g.setFont (Theme::uiSize (8.0f).withStyle (juce::Font::bold));
+            g.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
             g.drawText ("XF", xfadeBounds, juce::Justification::centred);
         }
     }
@@ -2885,7 +3036,7 @@ private:
                 if (note % 12 == 0)
                 {
                     g.setColour (lastClickedNote == note ? juce::Colours::black : Theme::bgBase.withAlpha (0.75f));
-                    g.setFont (Theme::uiSize (7.5f));
+                    g.setFont (Theme::uiSize (9.0f));
                     g.drawText ("C" + juce::String (note / 12 - 1), 3, y + 2, kKeyW - 8, kRowH - 4, juce::Justification::left);
                 }
             }
@@ -2947,7 +3098,9 @@ public:
     enum class DragMode : int;
 
     static constexpr int kHeaderWidth = 250;
-    static constexpr int kRulerH      = 32;
+    static constexpr int kRulerH      = 48;
+    static constexpr int kRulerTopH   = 24;  // bar.beat labels + ticks
+    static constexpr int kRulerBotH   = 24;  // clock-time labels
     static constexpr int kHeaderBarH  = 32;
     static constexpr int kTrackH      = 80;
     static constexpr int kFooterH     = 28;
@@ -3479,18 +3632,21 @@ public:
         else if (pxPerBeat * 8.0   >= 8.0)  beatStep = 8.0;   // 2 bars
         else                                 beatStep = 16.0;  // 4 bars
 
-        // Estimate pixels per bar (assumes 4/4; good enough for spacing decisions)
-        double pxPerBar = pxPerBeat * 4.0;
+        // Estimate pixels per bar based on actual time signature numerator
+        auto& timeSig = ts.getTimeSigAt (tracktion::TimePosition::fromSeconds (startTime));
+        double pxPerBar = pxPerBeat * timeSig.numerator;
 
         // Bar label step: power-of-2 number of bars between labels so text never overlaps
+        // Larger threshold (70px) matches Reaper's more spacious label layout
         int barLabelStep = 1;
-        while (pxPerBar * barLabelStep < 35.0)
+        while (pxPerBar * barLabelStep < 70.0)
             barLabelStep *= 2;
 
         // Gate beat/sub-beat label visibility
         bool showBeatLabels    = (pxPerBeat >= 40.0);
         bool showSubBeatLabels = (pxPerBeat * 0.25 >= 30.0);
 
+        // Dual-band ruler: top row shows bar.beat, bottom row shows clock time
         for (double b = std::floor (startBeat / beatStep) * beatStep; b <= endBeat; b += beatStep)
         {
             float x = timeToX (ts.toTime (tracktion::BeatPosition::fromBeats (b)).inSeconds());
@@ -3502,31 +3658,57 @@ public:
             bool isBar  = (beatsInBar < 0.001);
             bool isBeat = !isBar && (std::fmod (beatsInBar, 1.0) < 0.001);
 
-            float tickH = isBar ? 14.0f : (isBeat ? 8.0f : 4.0f);
+            // Tick marks in top band only (y from kRulerTopH upward)
+            float tickH = isBar ? (float)kRulerTopH : (isBeat ? 8.0f : 4.0f);
             float alpha  = isBar ? 1.0f  : (isBeat ? 0.5f : 0.25f);
             g.setColour (Theme::border.withAlpha (alpha));
-            g.drawLine (x, (float)kRulerH - tickH, x, (float)kRulerH);
+            g.drawLine (x, (float)kRulerTopH - tickH, x, (float)kRulerTopH);
 
+            // Top-band bar.beat labels
             if (isBar && ((int)bb.bars % barLabelStep == 0))
             {
-                g.setColour (Theme::textMuted);
-                g.drawText (juce::String ((int)bb.bars + 1), (int)x + 4, 4, 40, 18, juce::Justification::left);
+                g.setColour (Theme::textMain.withAlpha (0.9f));
+                g.setFont (Theme::uiSize (10.0f).boldened());
+                g.drawText (juce::String::formatted ("%d.1", (int)bb.bars + 1),
+                            (int)x + 3, 3, 50, kRulerTopH - 4, juce::Justification::left);
             }
             else if (isBeat && showBeatLabels)
             {
                 g.setColour (Theme::textMuted.withAlpha (0.7f));
+                g.setFont (Theme::uiSize (9.0f));
                 g.drawText (juce::String::formatted ("%d.%d", (int)bb.bars + 1, (int)beatsInBar + 1),
-                            (int)x + 4, 4, 40, 18, juce::Justification::left);
+                            (int)x + 3, 3, 40, kRulerTopH - 4, juce::Justification::left);
             }
             else if (!isBeat && showSubBeatLabels)
             {
                 g.setColour (Theme::textMuted.withAlpha (0.5f));
+                g.setFont (Theme::uiSize (9.0f));
                 g.drawText (juce::String::formatted ("%d.%d.%d", (int)bb.bars + 1,
                                                      (int)beatsInBar + 1,
                                                      (int)(std::fmod (beatsInBar, 1.0) * 4.0) + 1),
-                            (int)x + 4, 4, 40, 18, juce::Justification::left);
+                            (int)x + 3, 3, 40, kRulerTopH - 4, juce::Justification::left);
+            }
+
+            // Bottom-band clock-time labels at bar positions only
+            if (isBar && ((int)bb.bars % barLabelStep == 0))
+            {
+                double posSeconds = ts.toTime (tracktion::BeatPosition::fromBeats (b)).inSeconds();
+                int totalMs  = juce::roundToInt (posSeconds * 1000.0);
+                int ms       = totalMs % 1000;
+                int secs     = (totalMs / 1000) % 60;
+                int mins     = (totalMs / 1000) / 60;
+                juce::String timeStr = juce::String::formatted ("%d:%02d.%03d", mins, secs, ms);
+
+                g.setColour (Theme::textMuted.withAlpha (0.6f));
+                g.setFont (Theme::uiSize (8.5f));
+                g.drawText (timeStr, (int)x + 3, kRulerTopH + 3, 70, kRulerBotH - 5,
+                            juce::Justification::left);
             }
         }
+
+        // Separator line between top and bottom bands
+        g.setColour (Theme::border.withAlpha (0.4f));
+        g.drawHorizontalLine (kRulerTopH, (float)kHeaderWidth, (float)getWidth());
 
         auto top = audioEngine.getTopLevelTracks();
 
@@ -3534,6 +3716,18 @@ public:
         {
             juce::Graphics::ScopedSaveState s (g);
             g.reduceClipRegion (0, laneTop(), getWidth() - kVScrollW, laneBottom() - laneTop());
+
+            // Draw vertical bar grid lines through the track lane body
+            g.setColour (Theme::border.withAlpha (0.15f));
+            for (double b = std::floor (startBeat / 1.0) * 1.0; b <= endBeat; b += 1.0)
+            {
+                auto bb2 = ts.toBarsAndBeats (ts.toTime (tracktion::BeatPosition::fromBeats (b)));
+                bool isBarLine = (bb2.beats.inBeats() < 0.001);
+                if (!isBarLine) continue;
+                float gx = timeToX (ts.toTime (tracktion::BeatPosition::fromBeats (b)).inSeconds());
+                if (gx < kHeaderWidth || gx > getWidth()) continue;
+                g.drawVerticalLine ((int)gx, (float)laneTop(), (float)laneBottom());
+            }
 
             int y = laneTop() - scrollY;
             for (int i = 0; i < top.size(); ++i)
@@ -3682,7 +3876,7 @@ public:
         // Draw the tooltip after all other drawing is done
         if (currentTooltip.isValid)
         {
-            juce::Font font (12.0f);
+            juce::Font font = Theme::uiSize (12.0f);
             g.setFont (font);
             g.setColour (Theme::surface);
             g.fillRoundedRectangle (currentTooltip.bounds.toFloat(), 3.0f);
@@ -3871,7 +4065,7 @@ public:
                     g.drawRoundedRectangle (cb, 2.0f, 1.0f);
                     
                     g.setColour (Theme::textMain.withAlpha (clip->isMuted() ? 0.4f : 0.9f));
-                    g.setFont (Theme::uiSize (8.0f));
+                    g.setFont (Theme::uiSize (9.0f));
                     g.drawText (clip->getName(), cb.reduced (4, 1).toNearestInt(), juce::Justification::centredLeft);
                 }
             }
@@ -4344,7 +4538,7 @@ public:
                     else currentTooltip.text = juce::String::formatted ("%+.1f dB", db);
                 }
 
-                juce::Font font (12.0f);
+                juce::Font font = Theme::uiSize (12.0f);
                 int tw = font.getStringWidth (currentTooltip.text) + 10;
                 currentTooltip.bounds = juce::Rectangle<int> ((int)px - tw / 2, (int)py - 24, tw, 18);
                 currentTooltip.isValid = true;
@@ -5630,7 +5824,7 @@ public:
             float db = audioEngine.getTrackVolumeDb (track);
             int lx = panArea.getX() + kPanKnobSize + 5;
             g.setColour (Theme::textMuted.withAlpha (0.8f));
-            g.setFont (Theme::uiSize (8.0f));
+            g.setFont (Theme::uiSize (9.5f));
             g.drawText (juce::String::formatted ("%.2fdB", db),
                         juce::Rectangle<int> (lx, panArea.getBottom() - 12,
                                               panArea.getRight() - lx, 12),
@@ -5731,7 +5925,7 @@ public:
                                            (int) std::round (std::abs (p) * 100.0f));
             int lx = kx + kd + 3;
             g.setColour (Theme::textMuted);
-            g.setFont (Theme::uiSize (8.5f).withStyle (juce::Font::bold));
+            g.setFont (Theme::uiSize (9.5f).withStyle (juce::Font::bold));
             g.drawText (label, juce::Rectangle<int> (lx, ky, b.getRight() - lx, kd),
                         juce::Justification::centredLeft, false);
         }
@@ -6178,7 +6372,7 @@ public:
                                               : Theme::accent;
 
             g.setColour (Theme::textMuted.withAlpha (0.45f));
-            g.setFont (Theme::uiSize (7.5f).withStyle (juce::Font::bold));
+            g.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
             g.drawText ("SR",  10, panelY + 2,  26, 12, juce::Justification::right);
             g.drawText ("BUF", 10, panelY + 18, 26, 12, juce::Justification::right);
             g.setColour (Theme::accent.withAlpha (0.9f));
@@ -6190,7 +6384,7 @@ public:
             g.setColour (cpuCol.withAlpha (0.85f));
             g.fillRoundedRectangle (130.0f, (float)(panelY + 5), 50.0f * cpu, 5.0f, 2.0f);
             g.setColour (Theme::textMuted.withAlpha (0.35f));
-            g.setFont (Theme::uiSize (7.0f).withStyle (juce::Font::bold));
+            g.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
             g.drawText ("CPU", 130, panelY + 14, 50, 10, juce::Justification::centred);
         }
 
@@ -6224,7 +6418,7 @@ public:
             tempoLabel.setText (juce::String::formatted ("%.2f", audioEngine.getTempoAtPosition (pos)),
                                 juce::dontSendNotification);
         g.setColour (Theme::textMuted.withAlpha (0.45f));
-        g.setFont (Theme::uiSize (7.0f).withStyle (juce::Font::bold));
+        g.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
         g.drawText ("TEMPO",
                     tempoBounds.getX(), tempoBounds.getBottom() - 11, tempoBounds.getWidth(), 11,
                     juce::Justification::centred);
@@ -6236,7 +6430,7 @@ public:
         if (! timeSigLabel.isBeingEdited())
             timeSigLabel.setText (audioEngine.getTimeSigAtPosition (pos), juce::dontSendNotification);
         g.setColour (Theme::textMuted.withAlpha (0.45f));
-        g.setFont (Theme::uiSize (7.0f).withStyle (juce::Font::bold));
+        g.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
         g.drawText ("TIME SIG",
                     timeSigBounds.getX(), timeSigBounds.getBottom() - 11, timeSigBounds.getWidth(), 11,
                     juce::Justification::centred);

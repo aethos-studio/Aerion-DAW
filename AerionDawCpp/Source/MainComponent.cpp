@@ -127,8 +127,20 @@ MainComponent::MainComponent()
     toolbar.onPdcChanged     = [this] (bool on)   { audioEngine.setLatencyCompensationEnabled (on); };
     toolbar.onCountInChanged = [this] (int bars)  { audioEngine.setCountInMode (bars); };
 
+    menuBar.recentProjects   = &audioEngine.getRecentProjects();
     menuBar.onNew      = [this] { createNewProject(); };
     menuBar.onOpen     = [this] { openProject(); };
+    menuBar.onOpenRecent = [this] (juce::File f)
+    {
+        audioEngine.loadProject (f);
+        currentProjectFile = f;
+        hasUnsavedChanges  = false;
+        audioEngine.getRecentProjects().addFile (f);
+        updateTitleBar();
+        syncToolbarFromEngine();
+    };
+    menuBar.onClearRecent   = [this] { audioEngine.clearRecentProjects(); };
+    menuBar.onCollectSaveAs = [this] { collectAndSaveAs(); };
     menuBar.onSave     = [this] { saveProject(); };
     menuBar.onSaveAs   = [this] { saveProjectAs(); };
     menuBar.onImport   = [this] { importAudioFile(); };
@@ -341,26 +353,78 @@ MainComponent::MainComponent()
         mixer.repaint();
     };
 
-    // Studio-One-style drop: place at exact position on specified track (or create new)
+    // Multi-file drag-and-drop with insertion mode dialog
     timeline.onImportFiles = [this] (const juce::Array<juce::File>& files,
                                       tracktion::AudioTrack* targetTrack,
                                       double insertTime)
     {
         namespace te = tracktion;
-        double cursor = insertTime;
-        for (auto& f : files)
+
+        // If only one file, just insert it sequentially on the target track
+        if (files.size() == 1)
         {
             if (targetTrack != nullptr)
-                audioEngine.insertAudioClipOnTrack (targetTrack, f, cursor);
+                audioEngine.insertAudioClipOnTrack (targetTrack, files[0], insertTime);
             else
-                targetTrack = audioEngine.importAudioFileAtPosition (f, cursor);
-
-            te::AudioFile af (audioEngine.getEngine(), f);
-            double len = af.getLength();
-            if (len > 0.0) cursor += len;
+                audioEngine.importAudioFileAtPosition (files[0], insertTime);
+            timeline.repaint();
+            mixer.repaint();
+            return;
         }
-        timeline.repaint();
-        mixer.repaint();
+
+        // Multiple files: show insertion mode dialog
+        InsertMultipleMediaDialog::launch ([this, files, targetTrack, insertTime] (InsertMultipleMediaDialog::InsertMode mode) mutable
+        {
+            namespace te = tracktion;
+
+            switch (mode)
+            {
+                case InsertMultipleMediaDialog::InsertMode::separateTracks:
+                {
+                    // One file per track, all at the same time position
+                    te::AudioTrack* currentTrack = targetTrack;
+                    for (auto& f : files)
+                    {
+                        if (currentTrack == nullptr)
+                            currentTrack = audioEngine.addAudioTrack();
+                        audioEngine.insertAudioClipOnTrack (currentTrack, f, insertTime);
+                        currentTrack = nullptr;  // Force creation of new track for next file
+                    }
+                    break;
+                }
+
+                case InsertMultipleMediaDialog::InsertMode::sequentialSingleTrack:
+                {
+                    // All files on one track, sequential time positions
+                    if (targetTrack == nullptr)
+                        targetTrack = audioEngine.addAudioTrack();
+
+                    double cursor = insertTime;
+                    for (auto& f : files)
+                    {
+                        audioEngine.insertAudioClipOnTrack (targetTrack, f, cursor);
+                        te::AudioFile af (audioEngine.getEngine(), f);
+                        double len = af.getLength();
+                        if (len > 0.0) cursor += len;
+                    }
+                    break;
+                }
+
+                case InsertMultipleMediaDialog::InsertMode::fixedLanes:
+                {
+                    // All files on one track, same time position (overlapping)
+                    if (targetTrack == nullptr)
+                        targetTrack = audioEngine.addAudioTrack();
+
+                    for (auto& f : files)
+                        audioEngine.insertAudioClipOnTrack (targetTrack, f, insertTime);
+                    break;
+                }
+            }
+
+            timeline.repaint();
+            mixer.repaint();
+        });
     };
 
     // Plugin dropped on a track header from the Browser Plugins tab
@@ -546,6 +610,8 @@ void MainComponent::createNewProject()
 {
     audioEngine.createNewProject();
     currentProjectFile = juce::File();
+    hasUnsavedChanges = false;
+    updateTitleBar();
     syncToolbarFromEngine();
 }
 
@@ -554,6 +620,8 @@ void MainComponent::updateTitleBar()
     juce::String name = currentProjectFile.existsAsFile()
                         ? currentProjectFile.getFileNameWithoutExtension()
                         : "My Song";
+    if (hasUnsavedChanges)
+        name = "*" + name + "*";
     menuBar.projectTitle = name;
     menuBar.repaint();
 
@@ -611,6 +679,8 @@ void MainComponent::openProject()
                               {
                                   audioEngine.loadProject (file);
                                   currentProjectFile = file;
+                                  hasUnsavedChanges = false;
+                                  audioEngine.getRecentProjects().addFile (file);
                                   updateTitleBar();
                                   syncToolbarFromEngine();
                               }
@@ -622,6 +692,7 @@ void MainComponent::saveProject()
     if (currentProjectFile.existsAsFile())
     {
         audioEngine.saveProject (currentProjectFile);
+        hasUnsavedChanges = false;
         updateTitleBar();
     }
     else
@@ -643,7 +714,39 @@ void MainComponent::saveProjectAs()
                                       file = file.withFileExtension (".aerion");
                                   audioEngine.saveProject (file);
                                   currentProjectFile = file;
+                                  hasUnsavedChanges = false;
+                                  audioEngine.getRecentProjects().addFile (file);
                                   updateTitleBar();
+                              }
+                          });
+}
+
+void MainComponent::collectAndSaveAs()
+{
+    fileChooser = std::make_unique<juce::FileChooser> ("Collect & Save As...", juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Aerion Projects"), "*.aerion");
+    fileChooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
+                          [this] (const juce::FileChooser& fc)
+                          {
+                              auto file = fc.getResult();
+                              if (file != juce::File())
+                              {
+                                  if (file.getFileExtension() != ".aerion")
+                                      file = file.withFileExtension (".aerion");
+                                  auto skipped = audioEngine.collectAndSave (file);
+                                  currentProjectFile = file;
+                                  hasUnsavedChanges = false;
+                                  audioEngine.getRecentProjects().addFile (file);
+                                  updateTitleBar();
+
+                                  if (!skipped.isEmpty())
+                                  {
+                                      juce::String message = "The following audio files could not be collected:\n\n";
+                                      for (const auto& filePath : skipped)
+                                          message += filePath + "\n";
+                                      message += "\nProject saved, but these clips will need to be re-linked.";
+                                      juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
+                                                                               "Missing Audio Files", message);
+                                  }
                               }
                           });
 }
@@ -913,8 +1016,12 @@ void MainComponent::reattachMixer()
 
 void MainComponent::editStateChanged()
 {
+    hasUnsavedChanges = true;
+    updateTitleBar();
     projectData.syncWithEngine (audioEngine.getEdit());
-    browser.repaint(); // Browser doesn't listen to ProjectData yet
+    browser.repaint();
+    mixer.repaint();
+    timeline.repaint();
 }
 
 void MainComponent::valueTreePropertyChanged (juce::ValueTree& v, const juce::Identifier& i)

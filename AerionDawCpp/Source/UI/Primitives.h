@@ -67,7 +67,7 @@ inline void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
     {
         return faderTop + (int) std::lround ((float) faderH * (1.0f - pos01));
     };
-    g.setFont (juce::Font (7.0f));
+    g.setFont (Theme::uiSize (7.0f));
     for (auto& tick : kTicks)
     {
         // Tick labels should reflect the fader scale, not the compressed meter scale.
@@ -95,10 +95,13 @@ inline void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
     }
 
     // Dual meters (same peak for L and R  -  no separate L/R API)
-    float peak = audioEngine.getTrackPeak (track);
+    float measuredPeak = audioEngine.getTrackPeak (track);
+    float faderGainDb = audioEngine.getTrackVolumeDb (track);
+    float peak = measuredPeak + faderGainDb;
     float pPos = meterPosFromDb (peak);
     bool  clip = peak > 0.0f;
-    float maxPeak = audioEngine.getTrackMaxPeak (track);
+    float measuredMaxPeak = audioEngine.getTrackMaxPeak (track);
+    float maxPeak = measuredMaxPeak + faderGainDb;
     bool  clipping = maxPeak > 0.0f;
 
     const float zeroMeterPos = meterPosFromDb (0.0f);
@@ -182,10 +185,10 @@ inline void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
 
     // Peak-hold dB readout
     g.setColour (clipping ? Theme::recordRed : Theme::textMuted);
-    g.setFont (juce::Font (9.0f).withStyle (juce::Font::bold));
+    g.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
     juce::String dbText = (maxPeak > -90.0f)
         ? juce::String::formatted ("%+.1f dB", maxPeak)
-        : juce::String::formatted ("%+.1f dB", db);
+        : juce::String::formatted ("%+.1f dB", peak);
 
     auto readoutArea = area.withY (area.getBottom() - 16).withHeight (14);
     g.drawText (dbText, readoutArea, juce::Justification::centred);

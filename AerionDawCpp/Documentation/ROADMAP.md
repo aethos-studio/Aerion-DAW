@@ -85,10 +85,11 @@ All items below are fully implemented and working in the current build (unless m
 
 ---
 
-## Milestone 2 — DAW Essentials: Mixing (v0.1.0 pre-Alpha)
+## Milestone 2 — DAW Essentials: Mixing (v0.1.0 Pre-Alpha → v0.1.1 hotfix)
 Implementing professional mixing workflows while preserving a clean, beginner-friendly UI through progressive disclosure.
 Keep the Console clean. Put the advanced technical tools in the Inspector.
 
+### Mixing Features (v0.1.0)
 - [x] Phase Invert & Mono/Stereo Summing: `setTrackPhase` / `setTrackMono` in `AudioEngineManager` drive the DSP; the Inspector exposes them as compact toggle pills (only when a track is selected) and the Mixer-strip context menu offers them as items.
 - [x] Channel Strip Filters (HPF/LPF): pre-fader HPF/LPF (`getTrackHPF/LPF`, `setTrackHPF/LPF`) shown as a collapsible "QUICK FILTERS" section in the Inspector above INSERTS. Double-click to reset to bypass (20 Hz / 20 kHz).
 - [x] **Gain Staging & Metering:** Clip flash on meters (`paintFader`); optional **K-14 reference scale** on the Master strip (context menu, persisted as `IDs::masterKMeter`) with a brighter tick at −14 dBFS and softer ticks at −20 / −17 / −11 / −8 dBFS.
@@ -102,6 +103,13 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
 - [x] Insert Logic: Serial DSP processing follows the Tracktion plugin chain ordering; the Inspector supports click-to-edit (opens plugin editor) and right-click to remove. Bypass and drag-to-reorder remain on the polish list.
 - [x] Plugin Preset Browser: Engine API `getPluginNumPrograms` / `getPluginProgramName` / `setPluginProgram` exposed; programs are accessible via the plugin window pop-out and the plugin context menu.
 - [x] **Mix Snapshots (bonus, not on original roadmap):** `saveMixSnapshot` / `recallMixSnapshot` / `getMixSnapshotNames` capture and restore mixer state; surfaced as a "Snapshots" submenu on the Mixer-strip context menu.
+
+### Hotfixes (v0.1.1 — May 2026)
+- [x] **Meter Post-Fader Gain:** Fixed meters showing pre-fader peak instead of post-fader; `Primitives.h::paintFader()` now applies fader gain to both current and max peak readings before display (`peak + faderGainDb`, `maxPeak + faderGainDb`).
+- [x] **Project Reload UI Refresh:** Fixed UI not refreshing when loading a new project without window resize; `MainComponent::editStateChanged()` now explicitly calls `mixer.repaint()` and `timeline.repaint()` alongside the existing `browser.repaint()`.
+- [x] **Typography Polish:** Global font scale increased (`kUiFontScale` 1.14 → 1.25) and targeted micro-label fixes across Transport captions, Console strip, Piano Roll, Arrangement, and Primitives layers for improved readability (7 UIComponents fixes + 2 Primitives fixes + tooltip coupling fix).
+
+---
 
 ## Milestone 3 — DAW Essentials: Recording & Monitoring (v0.2.0)
 *A reliable, low-latency recording experience.*
@@ -181,13 +189,24 @@ In software update module that will check the github repo for new releases and o
 
 ---
 
-## Next up (post Pre-Alpha — May 2026)
+## Next up — Milestone 4: Project & Workflow (v0.3.0)
 
-Picked from what's actually still missing now that M1/M2 scope above (including MIDI CC lanes, submix folders, K-14 on master, and arranger drag gestures) has shipped alongside quantize, velocity, phase/mono, HPF/LPF, inserts/sends/snapshots, metronome, count-in, punch, PDC, multi-channel input, buffer status, and mixdown export.
+Core session-management features so users can confidently work on real projects.
 
-1. **Stems export (M4):** Extend `MixdownExportDialog::sourceBox` and `MixdownExportJob` so users can render each track or bus individually using the existing dialog.
-2. **Bounce / Freeze, Recent Projects, Auto-save & Crash Recovery (M4):** Complete the session-management story so a Pre-Alpha user can safely work on a real project end-to-end.
-3. **Per-track input + monitor persistence:** Inspector input device, MIDI controller pin and monitor mode currently live in in-memory hash maps - round-trip them through `IDs::trackInputDeviceIdx` / `IDs::midiInputDevice` / `IDs::monitorMode` on the track ValueTree so they survive save / load.
+**Priority tier 1 (foundation):**
+1. **Full Project Save / Load (core of M4):** Serialise all tracks, clips, plugin state (parameters, presets), automation, and mixer settings to `.aerion` files. Currently we save/load the edit state via XML but plugin parameter persistence and preset recall need verification. Test round-trip on a multi-plugin session.
+2. **Audio File Management — Collect & Save:** Create a "Save Project As + Collect Audio" dialog that copies all referenced audio files into a project folder. Detect and warn about missing files on open (cross-platform path handling).
+3. **Recent Projects List:** Store up to 10 recently opened `.aerion` files; surface as Menu → File → Open Recent.
+
+**Priority tier 2 (workflow):**
+4. **Stems Export (M4):** Extend `MixdownExportDialog::sourceBox` and `MixdownExportJob` so users can render each track or bus individually using the existing dialog (currently sourceBox only offers "Master mix").
+5. **Bounce / Freeze:** Render a track (with plugins) to a new audio clip in place; frozen track shows waveform and locks plugins to save CPU.
+6. **Auto-save & Crash Recovery:** Auto-save every N minutes to a hidden recovery folder; prompt to restore on next launch if the app crashed. Tie into `ApplicationProperties` + background timer.
+
+**Priority tier 3 (polish for M4 completion):**
+7. **Keyboard Shortcut System:** Fully customisable key bindings panel; ship defaults aligned with professional DAW conventions (Cubase/Logic/Ableton).
+8. **Tempo Map & Time Signature Changes:** Draw a tempo curve or step tempo changes; insert per-bar time signature changes from Transport (currently time-sig display only reads, doesn't edit).
+9. **Per-track Input + Monitor Persistence:** Inspector input device, MIDI controller pin and monitor mode currently live in in-memory hash maps — round-trip them through `IDs::trackInputDeviceIdx` / `IDs::midiInputDevice` / `IDs::monitorMode` on the track ValueTree so they survive save / load.
 
 ---
 

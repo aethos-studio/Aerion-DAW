@@ -55,7 +55,7 @@ namespace Theme
     }
 
     /** Multiply logical point sizes so body copy stays readable (HiDPI + thin themes). */
-    inline constexpr float kUiFontScale = 1.14f;
+    inline constexpr float kUiFontScale = 1.25f;
 
     /** Readable UI body font: system sans at a logical size (scaled). Prefer this over raw
         juce::Font (pt) so menu bars, panels, and timeline stay consistent. */

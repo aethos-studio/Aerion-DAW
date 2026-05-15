@@ -103,6 +103,10 @@ public:
     void loadProject (const juce::File& file);
     void createNewProject();
 
+    juce::StringArray collectAndSave (const juce::File& projectFile);
+    juce::RecentlyOpenedFilesList& getRecentProjects() { return recentProjects; }
+    void clearRecentProjects();
+
     // Plugins
     void scanPlugins();
     void cancelScan();
@@ -314,6 +318,9 @@ private:
     juce::HashMap<juce::String, int>  monitorModeMap;       // trackID -> MonitorMode int
 
     bool punchEnabled = false;
+    juce::RecentlyOpenedFilesList recentProjects;
+    void restoreRuntimeStateFromXml (const juce::XmlElement& runtimeXml);
+
     std::map<uint64_t, std::unique_ptr<tracktion::SmartThumbnail>> thumbnails;
 
     std::atomic<bool> scanInFlight { false };

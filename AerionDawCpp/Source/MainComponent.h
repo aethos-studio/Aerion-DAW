@@ -42,6 +42,7 @@ private:
     void openProject();
     void saveProject();
     void saveProjectAs();
+    void collectAndSaveAs();
     void importAudioFile();
     void exportMixdown();
     void showAudioSettings();
@@ -148,6 +149,7 @@ private:
     std::unique_ptr<juce::FileChooser> fileChooser;
 
     juce::File currentProjectFile;
+    bool hasUnsavedChanges = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };

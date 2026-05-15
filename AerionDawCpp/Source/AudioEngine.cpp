@@ -249,6 +249,10 @@ AudioEngineManager::AudioEngineManager()
     options.folderName          = "AerionDAW";
     appProperties.setStorageParameters (options);
 
+    recentProjects.setMaxNumberOfItems (10);
+    recentProjects.restoreFromString (
+        appProperties.getUserSettings()->getValue ("recentProjects"));
+
     // Session/edit first (cheap vs driver init). Opening devices is deferred to the next
     // message so the main window can show and pump events while the OS loads ASIO/WASAPI.
     setupInitialEdit();
@@ -304,6 +308,12 @@ AudioEngineManager::~AudioEngineManager()
             appProperties.getUserSettings()->setValue ("audioDeviceState", state.get());
             appProperties.getUserSettings()->saveIfNeeded();
         }
+    }
+
+    if (auto* s = appProperties.getUserSettings())
+    {
+        s->setValue ("recentProjects", recentProjects.toString());
+        s->saveIfNeeded();
     }
 
     engine.getDeviceManager().closeDevices();
@@ -1185,29 +1195,212 @@ tracktion::AudioTrack* AudioEngineManager::importAudioFileAtPosition (
 
 void AudioEngineManager::saveProject (const juce::File& file)
 {
-    if (edit != nullptr)
+    if (edit == nullptr) return;
+
+    auto root = std::make_unique<juce::XmlElement> ("AerionProject");
+    root->setAttribute ("version", 1);
+
+    // Serialize runtime state
+    auto runtimeState = std::make_unique<juce::XmlElement> ("RuntimeState");
+
+    auto armedTracksElem = std::make_unique<juce::XmlElement> ("ArmedTracks");
+    for (auto it = armedTracks.begin(); it != armedTracks.end(); ++it)
     {
-        if (auto xml = edit->state.createXml())
-            xml->writeTo (file);
+        if (*it)
+        {
+            auto trackElem = std::make_unique<juce::XmlElement> ("Track");
+            trackElem->setAttribute ("id", it.getKey());
+            armedTracksElem->addChildElement (trackElem.release());
+        }
     }
+    runtimeState->addChildElement (armedTracksElem.release());
+
+    auto inputDevicesElem = std::make_unique<juce::XmlElement> ("InputDevices");
+    for (auto it = inputDeviceMap.begin(); it != inputDeviceMap.end(); ++it)
+    {
+        auto trackElem = std::make_unique<juce::XmlElement> ("Track");
+        trackElem->setAttribute ("id", it.getKey());
+        trackElem->setAttribute ("waveDeviceIdx", *it);
+        inputDevicesElem->addChildElement (trackElem.release());
+    }
+    runtimeState->addChildElement (inputDevicesElem.release());
+
+    auto midiInputDevicesElem = std::make_unique<juce::XmlElement> ("MidiInputDevices");
+    for (auto it = midiInputDeviceMap.begin(); it != midiInputDeviceMap.end(); ++it)
+    {
+        auto trackElem = std::make_unique<juce::XmlElement> ("Track");
+        trackElem->setAttribute ("id", it.getKey());
+        trackElem->setAttribute ("midiDeviceIdx", *it);
+        midiInputDevicesElem->addChildElement (trackElem.release());
+    }
+    runtimeState->addChildElement (midiInputDevicesElem.release());
+
+    auto monitorModesElem = std::make_unique<juce::XmlElement> ("MonitorModes");
+    for (auto it = monitorModeMap.begin(); it != monitorModeMap.end(); ++it)
+    {
+        auto trackElem = std::make_unique<juce::XmlElement> ("Track");
+        trackElem->setAttribute ("id", it.getKey());
+        trackElem->setAttribute ("mode", *it);
+        monitorModesElem->addChildElement (trackElem.release());
+    }
+    runtimeState->addChildElement (monitorModesElem.release());
+
+    auto punchElem = std::make_unique<juce::XmlElement> ("PunchEnabled");
+    punchElem->setAttribute ("value", punchEnabled ? 1 : 0);
+    runtimeState->addChildElement (punchElem.release());
+
+    root->addChildElement (runtimeState.release());
+
+    // Append the EDIT block
+    if (auto editXml = edit->state.createXml())
+        root->addChildElement (editXml.release());
+
+    root->writeTo (file);
 }
 
 void AudioEngineManager::loadProject (const juce::File& file)
 {
-    if (file.existsAsFile())
-    {
-        if (auto xml = juce::XmlDocument::parse (file))
-        {
-            auto vt = juce::ValueTree::fromXml (*xml);
-            edit = te::loadEditFromState (engine, vt, te::Edit::forEditing);
-            edit->addListener (editListener.get());
+    if (!file.existsAsFile()) return;
 
-            armedTracks.clear();
-            thumbnails.clear();
-            syncFolderRouting();
-            broadcastChange();
+    if (auto xml = juce::XmlDocument::parse (file))
+    {
+        juce::XmlElement* editXml = nullptr;
+
+        // Detect format: new wrapper vs legacy
+        if (xml->getTagName() == "AerionProject")
+        {
+            // New format with RuntimeState
+            if (auto* runtimeElem = xml->getChildByName ("RuntimeState"))
+                restoreRuntimeStateFromXml (*runtimeElem);
+
+            editXml = xml->getChildByName ("EDIT");
+        }
+        else
+        {
+            // Legacy format: root is the EDIT
+            editXml = xml.get();
+        }
+
+        if (editXml == nullptr) return;
+
+        auto vt = juce::ValueTree::fromXml (*editXml);
+        edit = te::loadEditFromState (engine, vt, te::Edit::forEditing);
+        edit->addListener (editListener.get());
+
+        thumbnails.clear();
+        syncFolderRouting();
+
+        // Collect missing audio files
+        juce::StringArray missingFiles;
+        for (auto* track : te::getAudioTracks (*edit))
+        {
+            for (auto* clip : track->getClips())
+            {
+                if (auto* waveClip = dynamic_cast<te::WaveAudioClip*> (clip))
+                {
+                    auto srcFile = waveClip->getSourceFileReference().getFile();
+                    if (!srcFile.existsAsFile() && srcFile.getFullPathName().isNotEmpty())
+                    {
+                        if (!missingFiles.contains (srcFile.getFullPathName()))
+                            missingFiles.add (srcFile.getFullPathName());
+                    }
+                }
+            }
+        }
+
+        broadcastChange();
+
+        // Show non-blocking alert for missing files
+        if (!missingFiles.isEmpty())
+        {
+            juce::MessageManager::callAsync ([missingFiles]
+            {
+                juce::String message = "The following audio files could not be found:\n\n";
+                for (const auto& filePath : missingFiles)
+                    message += filePath + "\n";
+                message += "\nProject loaded, but these clips are silent.";
+
+                juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
+                                                       "Missing Audio Files", message);
+            });
         }
     }
+}
+
+void AudioEngineManager::restoreRuntimeStateFromXml (const juce::XmlElement& runtimeXml)
+{
+    armedTracks.clear();
+    inputDeviceMap.clear();
+    midiInputDeviceMap.clear();
+    monitorModeMap.clear();
+    punchEnabled = false;
+
+    // Restore armed tracks
+    if (auto* armedElem = runtimeXml.getChildByName ("ArmedTracks"))
+    {
+        forEachXmlChildElement (*armedElem, trackElem)
+        {
+            if (trackElem->hasTagName ("Track"))
+            {
+                if (auto id = trackElem->getStringAttribute ("id"); id.isNotEmpty())
+                    armedTracks.set (id, true);
+            }
+        }
+    }
+
+    // Restore input devices
+    if (auto* inputElem = runtimeXml.getChildByName ("InputDevices"))
+    {
+        forEachXmlChildElement (*inputElem, trackElem)
+        {
+            if (trackElem->hasTagName ("Track"))
+            {
+                if (auto id = trackElem->getStringAttribute ("id"); id.isNotEmpty())
+                {
+                    int waveDeviceIdx = trackElem->getIntAttribute ("waveDeviceIdx", -1);
+                    if (waveDeviceIdx >= 0)
+                        inputDeviceMap.set (id, waveDeviceIdx);
+                }
+            }
+        }
+    }
+
+    // Restore MIDI input devices
+    if (auto* midiElem = runtimeXml.getChildByName ("MidiInputDevices"))
+    {
+        forEachXmlChildElement (*midiElem, trackElem)
+        {
+            if (trackElem->hasTagName ("Track"))
+            {
+                if (auto id = trackElem->getStringAttribute ("id"); id.isNotEmpty())
+                {
+                    int midiDeviceIdx = trackElem->getIntAttribute ("midiDeviceIdx", -1);
+                    if (midiDeviceIdx >= -1)  // -1 means "all"
+                        midiInputDeviceMap.set (id, midiDeviceIdx);
+                }
+            }
+        }
+    }
+
+    // Restore monitor modes
+    if (auto* monitorElem = runtimeXml.getChildByName ("MonitorModes"))
+    {
+        forEachXmlChildElement (*monitorElem, trackElem)
+        {
+            if (trackElem->hasTagName ("Track"))
+            {
+                if (auto id = trackElem->getStringAttribute ("id"); id.isNotEmpty())
+                {
+                    int mode = trackElem->getIntAttribute ("mode", (int) MonitorMode::Auto);
+                    monitorModeMap.set (id, mode);
+                }
+            }
+        }
+    }
+
+    // Restore punch enabled
+    if (auto* punchElem = runtimeXml.getChildByName ("PunchEnabled"))
+        punchEnabled = punchElem->getIntAttribute ("value", 0) != 0;
 }
 
 te::SmartThumbnail& AudioEngineManager::getThumbnailForClip (te::WaveAudioClip& clip, juce::Component& comp)
@@ -1228,6 +1421,78 @@ void AudioEngineManager::createNewProject()
     armedTracks.clear();
     syncFolderRouting();
     broadcastChange();
+}
+
+juce::StringArray AudioEngineManager::collectAndSave (const juce::File& projectFile)
+{
+    juce::StringArray skipped;
+    if (edit == nullptr || !projectFile.hasFileExtension ("aerion")) return skipped;
+
+    // Create "<ProjectName> Files/" folder beside the .aerion file
+    auto mediaFolder = projectFile.getSiblingFile (projectFile.getFileNameWithoutExtension() + " Files");
+    if (!mediaFolder.createDirectory().wasOk())
+        return skipped;
+
+    // Walk all audio clips and copy files
+    std::map<juce::String, int> fileCountMap;  // for collision detection
+
+    for (auto* track : te::getAudioTracks (*edit))
+    {
+        for (auto* clip : track->getClips())
+        {
+            if (auto* waveClip = dynamic_cast<te::WaveAudioClip*> (clip))
+            {
+                auto srcFile = waveClip->getSourceFileReference().getFile();
+
+                // Skip if file doesn't exist
+                if (!srcFile.existsAsFile())
+                {
+                    if (srcFile.getFullPathName().isNotEmpty())
+                        skipped.addIfNotAlreadyThere (srcFile.getFullPathName());
+                    continue;
+                }
+
+                // Skip if already inside media folder
+                if (srcFile.getParentDirectory() == mediaFolder)
+                    continue;
+
+                // Handle filename collisions with _1, _2, ... counter suffix
+                auto baseName = srcFile.getFileNameWithoutExtension();
+                auto fileExt  = srcFile.getFileExtension();
+                int count = ++fileCountMap[baseName + fileExt];
+
+                juce::String destName = baseName + fileExt;
+                if (count > 1)
+                    destName = baseName + "_" + juce::String (count - 1) + fileExt;
+
+                auto destFile = mediaFolder.getChildFile (destName);
+
+                // Copy file to media folder
+                if (srcFile.copyFileTo (destFile))
+                {
+                    // Update clip to point to new path
+                    waveClip->getSourceFileReference().setToDirectFileReference (destFile, false);
+                }
+            }
+        }
+    }
+
+    // Save the project with updated paths
+    saveProject (projectFile);
+    thumbnails.clear();
+    broadcastChange();
+
+    return skipped;
+}
+
+void AudioEngineManager::clearRecentProjects()
+{
+    recentProjects = juce::RecentlyOpenedFilesList();
+    if (auto* s = appProperties.getUserSettings())
+    {
+        s->setValue ("recentProjects", juce::String());
+        s->saveIfNeeded();
+    }
 }
 
 void AudioEngineManager::broadcastChange()
