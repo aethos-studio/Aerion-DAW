@@ -69,6 +69,24 @@ MixdownExportDialog::MixdownExportDialog (te::Engine& e,
     sourceBox.addItem ("Master mix", 1);
     sourceBox.setSelectedId (1);
     addAndMakeVisible (sourceBox);
+
+    // Populate sourceBox with individual audio tracks
+    auto allTracks = te::getAllTracks (edit);
+    auto audioTracks = te::getAudioTracks (edit);
+    if (audioTracks.size() > 0)
+    {
+        sourceBox.addSeparator();
+        for (auto* at : audioTracks)
+        {
+            int idx = allTracks.indexOf (at);
+            if (idx < 0) continue;
+            auto name = at->getName().isEmpty()
+                      ? "Track " + juce::String (idx + 1)
+                      : at->getName();
+            sourceBox.addItem (name, 100 + idx);
+        }
+    }
+
     juce::Logger::writeToLog ("MixdownExportDialog: sourceBox ok");
 
     boundsBox.addItem (boundsLabel (BoundsMode::SelectionOrLoopOrFull), 1);
@@ -215,6 +233,32 @@ MixdownExportDialog::MixdownExportDialog (te::Engine& e,
     formatBox.onChange = restartPreview;
     sampleRateBox.onChange = restartPreview;
     channelsBox.onChange = restartPreview;
+
+    // sourceBox onChange: update filename and restart preview
+    sourceBox.onChange = [this, restartPreview]
+    {
+        int selId = sourceBox.getSelectedId();
+        if (selId >= 100)
+        {
+            // Track selected: update filename to include track name
+            int idx = selId - 100;
+            auto allTracks = te::getAllTracks (edit);
+            if (idx >= 0 && idx < allTracks.size())
+            {
+                auto trackName = allTracks[idx]->getName().isEmpty()
+                               ? "Track " + juce::String (idx + 1)
+                               : allTracks[idx]->getName();
+                nameEdit.setText ("$project_-_" + trackName + "_$bounds", juce::dontSendNotification);
+            }
+        }
+        else
+        {
+            // Master mix selected: reset to default template
+            nameEdit.setText ("$project_$bounds_$date", juce::dontSendNotification);
+        }
+        restartPreview();
+    };
+
     // Note: dirEdit and nameEdit don't affect the render, only the output file path,
     // so they don't trigger preview restart to avoid blocking during text input.
     juce::Logger::writeToLog ("MixdownExportDialog: change handlers ok");
@@ -468,7 +512,11 @@ void MixdownExportDialog::startPreviewRender()
     double sampleRate = sampleRateBox.getSelectedId();
     int tailMsVal = tailToggle.getToggleState() ? (int) tailMs.getValue() : 0;
 
-    previewJob = std::make_unique<MixdownExportJob> (engine, edit, outfile, bounds, sampleRate, numChannels, tailMsVal, /*useEditCopy*/ false);
+    int trackIndex = (sourceBox.getSelectedId() >= 100)
+                   ? (sourceBox.getSelectedId() - 100)
+                   : -1;
+
+    previewJob = std::make_unique<MixdownExportJob> (engine, edit, outfile, bounds, sampleRate, numChannels, tailMsVal, trackIndex, /*useEditCopy*/ false);
     previewFile = outfile;
 
     if (! previewJob->isValid())
@@ -526,7 +574,11 @@ void MixdownExportDialog::startExportRender()
                              + " ch=" + juce::String (numChannels)
                              + " tailMs=" + juce::String (tailMsVal));
 
-    exportJob = std::make_unique<MixdownExportJob> (engine, edit, outfile, bounds, sampleRate, numChannels, tailMsVal);
+    int trackIndex = (sourceBox.getSelectedId() >= 100)
+                   ? (sourceBox.getSelectedId() - 100)
+                   : -1;
+
+    exportJob = std::make_unique<MixdownExportJob> (engine, edit, outfile, bounds, sampleRate, numChannels, tailMsVal, trackIndex);
     exportJob->addListener (this);
 
     // Check job validity before starting

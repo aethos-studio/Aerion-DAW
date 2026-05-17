@@ -76,10 +76,16 @@ MainComponent::MainComponent()
             targetTrack = dynamic_cast<tracktion::AudioTrack*> (sel[0]);
 
         double pos = audioEngine.getTransportPosition();
-        if (targetTrack != nullptr)
+        if (targetTrack != nullptr) {
+            if (audioEngine.isTrackFrozen(targetTrack)) {
+                juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
+                    "Track Frozen", "Cannot add clips to frozen tracks. Unfreeze the track first.");
+                return;
+            }
             audioEngine.insertAudioClipOnTrack (targetTrack, f, pos);
-        else
+        } else {
             audioEngine.importAudioFileAtPosition (f, pos);
+        }
 
         timeline.repaint();
         mixer.repaint();
@@ -132,12 +138,39 @@ MainComponent::MainComponent()
     menuBar.onOpen     = [this] { openProject(); };
     menuBar.onOpenRecent = [this] (juce::File f)
     {
-        audioEngine.loadProject (f);
-        currentProjectFile = f;
-        hasUnsavedChanges  = false;
-        audioEngine.getRecentProjects().addFile (f);
-        updateTitleBar();
-        syncToolbarFromEngine();
+        auto doOpen = [this, f]()
+        {
+            audioEngine.loadProject (f, &projectData);
+            currentProjectFile = f;
+            hasUnsavedChanges  = false;
+            audioEngine.getRecentProjects().addFile (f);
+            updateTitleBar();
+            syncToolbarFromEngine();
+            projectData.syncWithEngine(audioEngine.getEdit());
+            syncMenuBarState();
+            mixer.repaint();
+            timeline.repaint();
+        };
+
+        if (!hasUnsavedChanges) { doOpen(); return; }
+
+        juce::AlertWindow::showAsync(
+            juce::MessageBoxOptions()
+                .withTitle("Open Recent")
+                .withMessage("Save changes to the current project?")
+                .withButton("Cancel")
+                .withButton("Discard")
+                .withButton("Save"),
+            [this, doOpen](int result) {
+                if (result == 0) return;
+                if (result == 2 && currentProjectFile.existsAsFile())
+                {
+                    audioEngine.saveProject(currentProjectFile, &projectData);
+                    hasUnsavedChanges = false;
+                    updateTitleBar();
+                }
+                if (result != 0) doOpen();
+            });
     };
     menuBar.onClearRecent   = [this] { audioEngine.clearRecentProjects(); };
     menuBar.onCollectSaveAs = [this] { collectAndSaveAs(); };
@@ -168,17 +201,7 @@ MainComponent::MainComponent()
     };
 
     menuBar.onAddAudioTrack  = [this] { audioEngine.addAudioTrack();   timeline.repaint(); mixer.repaint(); };
-    menuBar.onAddMidiTrack   = [this] {
-        auto* track = audioEngine.addAudioTrack();
-        if (track != nullptr)
-        {
-            double pos = audioEngine.getTransportPosition();
-            tracktion::TimeRange range (tracktion::TimePosition::fromSeconds (pos),
-                                        tracktion::TimeDuration::fromSeconds (2.0));
-            track->insertMIDIClip (range, nullptr);
-        }
-        timeline.repaint(); mixer.repaint();
-    };
+    menuBar.onAddMidiTrack   = [this] { audioEngine.addMidiTrack();    timeline.repaint(); mixer.repaint(); };
     menuBar.onAddFolderTrack = [this] { audioEngine.addFolderTrack(); audioEngine.syncFolderRouting(); timeline.repaint(); mixer.repaint(); };
     menuBar.onDeleteTrack    = [this] {
         for (auto* t : timeline.getSelectedTracks()) audioEngine.deleteTrack (t);
@@ -324,7 +347,7 @@ MainComponent::MainComponent()
 
     timeline.onAddMidiTrack = [this]
     {
-        auto* track = audioEngine.addAudioTrack();
+        auto* track = audioEngine.addMidiTrack();
         if (track != nullptr)
         {
             double pos = audioEngine.getTransportPosition();
@@ -468,6 +491,91 @@ MainComponent::MainComponent()
         inspector.repaint();
     };
 
+    // Initialize auto-save interval from settings
+    autoSaveIntervalMs = audioEngine.getAutoSaveIntervalMins() * 60 * 1000;
+
+    // Crash recovery prompt
+    if (audioEngine.hasCrashRecovery())
+    {
+        juce::MessageManager::callAsync ([this]
+        {
+            juce::AlertWindow::showAsync(
+                juce::MessageBoxOptions()
+                    .withTitle("Crash Recovery")
+                    .withMessage("Aerion DAW didn't shut down cleanly. Restore the auto-saved session?")
+                    .withButton("Discard")
+                    .withButton("Restore"),
+                [this](int result)
+                {
+                    if (result == 1)
+                    {
+                        audioEngine.loadProject(audioEngine.getRecoveryFile(), &projectData);
+                        currentProjectFile = juce::File();
+                        hasUnsavedChanges = true;
+                        updateTitleBar();
+                        syncToolbarFromEngine();
+                        syncMenuBarState();
+                        mixer.repaint();
+                        timeline.repaint();
+                    }
+                });
+        });
+    }
+
+    // Tab buttons for bottom panel (Mixer / Piano Roll switcher)
+    addAndMakeVisible (tabMixer);
+    addAndMakeVisible (tabPianoRoll);
+    tabMixer.setColour (juce::TextButton::buttonColourId,    Theme::surface);
+    tabMixer.setColour (juce::TextButton::buttonOnColourId,  Theme::active.withAlpha (0.25f));
+    tabMixer.setColour (juce::TextButton::textColourOnId,    Theme::active);
+    tabMixer.setColour (juce::TextButton::textColourOffId,   Theme::textMuted);
+    tabPianoRoll.setColour (juce::TextButton::buttonColourId,    Theme::surface);
+    tabPianoRoll.setColour (juce::TextButton::buttonOnColourId,  Theme::active.withAlpha (0.25f));
+    tabPianoRoll.setColour (juce::TextButton::textColourOnId,    Theme::active);
+    tabPianoRoll.setColour (juce::TextButton::textColourOffId,   Theme::textMuted);
+
+    tabMixer.onClick = [this] {
+        bottomPanel = BottomPanel::Mixer;
+        resized();
+    };
+    tabPianoRoll.onClick = [this] {
+        if (embeddedPianoRoll != nullptr) { bottomPanel = BottomPanel::PianoRoll; resized(); }
+    };
+
+    // MIDI clip double-click callback for embedded editor
+    timeline.onMidiClipDoubleClicked = [this] (tracktion::MidiClip& clip)
+    {
+        // Same clip already embedded — just switch to it
+        if (embeddedPianoRoll != nullptr && embeddedClip == &clip)
+        {
+            bottomPanel = BottomPanel::PianoRoll;
+            resized();
+            return;
+        }
+
+        // New clip — destroy old editor
+        if (embeddedPianoRoll != nullptr)
+            removeChildComponent (embeddedPianoRoll.get());
+
+        embeddedClip = &clip;
+        embeddedPianoRoll = std::make_unique<PianoRollEditor> (clip, audioEngine.getEdit(), projectData, audioEngine);
+        addAndMakeVisible (*embeddedPianoRoll);
+
+        // Set up detach callback
+        embeddedPianoRoll->onDetachRequested = [this, &clip] {
+            removeChildComponent (embeddedPianoRoll.get());
+            embeddedPianoRoll.reset();
+            embeddedClip = nullptr;
+            bottomPanel = BottomPanel::Mixer;
+            resized();
+            auto* win = new PianoRollWindow (clip, audioEngine.getEdit(), projectData, audioEngine);
+            (void) win;
+        };
+
+        bottomPanel = BottomPanel::PianoRoll;
+        resized();
+    };
+
     setSize (1400, 860);
     // 25 Hz: playhead + meters; avoids piling on top of other ~30 Hz component timers.
     startTimerHz (25);
@@ -606,13 +714,50 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component*)
     return false;
 }
 
-void MainComponent::createNewProject()
+void MainComponent::doCreateNewProject()
 {
     audioEngine.createNewProject();
     currentProjectFile = juce::File();
     hasUnsavedChanges = false;
     updateTitleBar();
     syncToolbarFromEngine();
+    mixer.repaint();
+    timeline.repaint();
+    syncMenuBarState();
+}
+
+void MainComponent::createNewProject()
+{
+    if (!hasUnsavedChanges)
+    {
+        doCreateNewProject();
+        return;
+    }
+
+    juce::AlertWindow::showAsync (
+        juce::MessageBoxOptions()
+            .withTitle ("New Project")
+            .withMessage ("Save changes to the current project?")
+            .withButton ("Cancel")
+            .withButton ("Discard")
+            .withButton ("Save"),
+        [this] (int result) {
+            if (result == 0) return;                // Cancel
+            if (result == 1) { doCreateNewProject(); return; }  // Discard
+            // Save
+            if (currentProjectFile.existsAsFile())
+            {
+                audioEngine.saveProject (currentProjectFile, &projectData);
+                hasUnsavedChanges = false;
+                updateTitleBar();
+                doCreateNewProject();
+            }
+            else
+            {
+                pendingNewProjectAfterSave = true;
+                saveProjectAs();
+            }
+        });
 }
 
 void MainComponent::updateTitleBar()
@@ -668,7 +813,7 @@ void MainComponent::syncMenuBarState()
     }
 }
 
-void MainComponent::openProject()
+void MainComponent::doOpenProjectChooser()
 {
     fileChooser = std::make_unique<juce::FileChooser> ("Open Project...", juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Aerion Projects"), "*.aerion");
     fileChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
@@ -683,15 +828,86 @@ void MainComponent::openProject()
                                   audioEngine.getRecentProjects().addFile (file);
                                   updateTitleBar();
                                   syncToolbarFromEngine();
+                                  projectData.syncWithEngine(audioEngine.getEdit());
+                                  syncMenuBarState();
+                                  mixer.repaint();
+                                  timeline.repaint();
                               }
                           });
+}
+
+void MainComponent::openProject()
+{
+    if (!hasUnsavedChanges)
+    {
+        doOpenProjectChooser();
+        return;
+    }
+
+    juce::AlertWindow::showAsync(
+        juce::MessageBoxOptions()
+            .withTitle("Open Project")
+            .withMessage("Save changes to the current project?")
+            .withButton("Cancel")
+            .withButton("Discard")
+            .withButton("Save"),
+        [this](int result) {
+            if (result == 0) return;                // Cancel
+            if (result == 1) { doOpenProjectChooser(); return; }  // Discard
+            // Save
+            if (currentProjectFile.existsAsFile())
+            {
+                audioEngine.saveProject(currentProjectFile, &projectData);
+                hasUnsavedChanges = false;
+                updateTitleBar();
+                doOpenProjectChooser();
+            }
+            else
+            {
+                saveProjectAs();
+            }
+        });
+}
+
+void MainComponent::requestQuit()
+{
+    if (!hasUnsavedChanges) { juce::JUCEApplication::getInstance()->quit(); return; }
+
+    juce::AlertWindow::showAsync(
+        juce::MessageBoxOptions()
+            .withTitle("Quit Aerion DAW")
+            .withMessage("Save changes before quitting?")
+            .withIconType(juce::AlertWindow::InfoIcon)
+            .withButton("Cancel")
+            .withButton("Discard & Quit")
+            .withButton("Save & Quit"),
+        [this](int result) {
+            if (result == 1) return;   // Cancel (button 1)
+            if (result == 3)           // Save & Quit (button 3)
+            {
+                if (currentProjectFile.existsAsFile())
+                {
+                    audioEngine.saveProject(currentProjectFile, &projectData);
+                    hasUnsavedChanges = false;
+                }
+                else
+                {
+                    // Need to save to a new file first
+                    pendingQuitAfterSave = true;
+                    saveProjectAs();
+                    return;
+                }
+            }
+            // result == 2 is Discard & Quit, fall through to quit
+            juce::JUCEApplication::getInstance()->quit();
+        });
 }
 
 void MainComponent::saveProject()
 {
     if (currentProjectFile.existsAsFile())
     {
-        audioEngine.saveProject (currentProjectFile);
+        audioEngine.saveProject (currentProjectFile, &projectData);
         hasUnsavedChanges = false;
         updateTitleBar();
     }
@@ -712,11 +928,23 @@ void MainComponent::saveProjectAs()
                               {
                                   if (file.getFileExtension() != ".aerion")
                                       file = file.withFileExtension (".aerion");
-                                  audioEngine.saveProject (file);
+                                  audioEngine.saveProject (file, &projectData);
                                   currentProjectFile = file;
                                   hasUnsavedChanges = false;
                                   audioEngine.getRecentProjects().addFile (file);
                                   updateTitleBar();
+
+                                  if (pendingNewProjectAfterSave)
+                                  {
+                                      pendingNewProjectAfterSave = false;
+                                      doCreateNewProject();
+                                  }
+
+                                  if (pendingQuitAfterSave)
+                                  {
+                                      pendingQuitAfterSave = false;
+                                      juce::JUCEApplication::getInstance()->quit();
+                                  }
                               }
                           });
 }
@@ -774,8 +1002,8 @@ void MainComponent::showAudioSettings()
     class AudioSettingsPanel : public juce::Component
     {
     public:
-        AudioSettingsPanel (AudioEngineManager& ae, juce::LookAndFeel& lf)
-            : audioEngine (ae)
+        AudioSettingsPanel (AudioEngineManager& ae, MainComponent& mc, juce::LookAndFeel& lf)
+            : audioEngine (ae), mainComponent (mc)
         {
             selector = std::make_unique<juce::AudioDeviceSelectorComponent> (
                 audioEngine.getEngine().getDeviceManager().deviceManager,
@@ -791,30 +1019,73 @@ void MainComponent::showAudioSettings()
             recommendBtn.onClick = [this] { audioEngine.applyRecommendedAudioDefaults(); };
             addAndMakeVisible (recommendBtn);
 
-            setSize (500, 490);
+            // Auto-save interval combo
+            autoSaveCombo.setLookAndFeel (&lf);
+            autoSaveCombo.addItem ("Auto-save: Off", 1);
+            autoSaveCombo.addItem ("Auto-save: 1 min", 2);
+            autoSaveCombo.addItem ("Auto-save: 2 min", 3);
+            autoSaveCombo.addItem ("Auto-save: 5 min", 4);
+            autoSaveCombo.addItem ("Auto-save: 10 min", 5);
+
+            // Set current value
+            int intervalMins = audioEngine.getAutoSaveIntervalMins();
+            if (intervalMins == 0) autoSaveCombo.setSelectedId (1);
+            else if (intervalMins == 1) autoSaveCombo.setSelectedId (2);
+            else if (intervalMins == 2) autoSaveCombo.setSelectedId (3);
+            else if (intervalMins == 5) autoSaveCombo.setSelectedId (4);
+            else if (intervalMins == 10) autoSaveCombo.setSelectedId (5);
+
+            autoSaveCombo.onChange = [this]
+            {
+                int mins = 0;
+                switch (autoSaveCombo.getSelectedId())
+                {
+                    case 1: mins = 0; break;
+                    case 2: mins = 1; break;
+                    case 3: mins = 2; break;
+                    case 4: mins = 5; break;
+                    case 5: mins = 10; break;
+                }
+                audioEngine.setAutoSaveIntervalMins(mins);
+                mainComponent.autoSaveIntervalMs = mins > 0 ? mins * 60 * 1000 : 0;
+                mainComponent.autoSaveElapsedMs = 0;
+            };
+            addAndMakeVisible (autoSaveCombo);
+
+            setSize (500, 530);
         }
 
         ~AudioSettingsPanel() override
         {
             recommendBtn.setLookAndFeel (nullptr);
+            autoSaveCombo.setLookAndFeel (nullptr);
             if (selector) selector->setLookAndFeel (nullptr);
         }
 
         void resized() override
         {
             auto r = getLocalBounds();
-            auto bottom = r.removeFromBottom (40).reduced (8, 6);
+            auto bottom = r.removeFromBottom (80).reduced (8, 6);
+
+            // Auto-save combo
+            autoSaveCombo.setBounds (bottom.removeFromTop (35));
+            bottom.removeFromTop (4);
+
+            // Reset button
             recommendBtn.setBounds (bottom);
+
             selector->setBounds (r);
         }
 
     private:
         AudioEngineManager& audioEngine;
+        MainComponent& mainComponent;
         std::unique_ptr<juce::AudioDeviceSelectorComponent> selector;
         juce::TextButton recommendBtn;
+        juce::ComboBox autoSaveCombo;
     };
 
-    auto* panel = new AudioSettingsPanel (audioEngine, metalLookAndFeel);
+    auto* panel = new AudioSettingsPanel (audioEngine, *this, metalLookAndFeel);
 
     juce::DialogWindow::LaunchOptions options;
     options.content.setOwned (panel);
@@ -923,6 +1194,17 @@ void MainComponent::timerCallback()
         idleCpuRefreshTick = 0;
         transport.repaint();
     }
+
+    // Auto-save countdown
+    if (autoSaveIntervalMs > 0)
+    {
+        autoSaveElapsedMs += 40;  // 25 Hz = 40 ms per tick
+        if (autoSaveElapsedMs >= autoSaveIntervalMs)
+        {
+            autoSaveElapsedMs = 0;
+            audioEngine.autoSave(&projectData);
+        }
+    }
 }
 
 void MainComponent::paint (juce::Graphics& g)
@@ -957,14 +1239,52 @@ void MainComponent::resized()
     }
 
     auto centerBounds = bounds;
+    static constexpr int kTabH = 22;
+
     if (! mixer.detached)
     {
-        mixer.setBounds (centerBounds.removeFromBottom (mixerHeight));
-        mixerResizer.setBounds (centerBounds.removeFromBottom (4));
+        auto bottomArea = centerBounds.removeFromBottom (mixerHeight + 4 + kTabH);
+
+        // Tab bar strip
+        auto tabStrip = bottomArea.removeFromTop (kTabH);
+        tabMixer.setBounds (tabStrip.removeFromLeft (80));
+        tabPianoRoll.setBounds (tabStrip.removeFromLeft (110));
+        tabMixer.setToggleState (bottomPanel == BottomPanel::Mixer, juce::dontSendNotification);
+        tabPianoRoll.setToggleState (bottomPanel == BottomPanel::PianoRoll, juce::dontSendNotification);
+
+        // Resizer
+        mixerResizer.setBounds (bottomArea.removeFromTop (4));
+
+        // Content: either Mixer or PianoRoll
+        if (bottomPanel == BottomPanel::Mixer || embeddedPianoRoll == nullptr)
+        {
+            mixer.setVisible (true);
+            mixer.setBounds (bottomArea);
+            if (embeddedPianoRoll) { embeddedPianoRoll->setVisible (false); }
+        }
+        else  // PianoRoll
+        {
+            mixer.setVisible (false);
+            embeddedPianoRoll->setVisible (true);
+            embeddedPianoRoll->setBounds (bottomArea);
+        }
     }
     else
     {
+        // Mixer detached
         mixerResizer.setBounds (0, 0, 0, 0);
+        auto tabStrip = centerBounds.removeFromBottom (kTabH);
+        tabMixer.setBounds (tabStrip.removeFromLeft (80));
+        tabPianoRoll.setBounds (tabStrip.removeFromLeft (110));
+
+        if (embeddedPianoRoll && bottomPanel == BottomPanel::PianoRoll)
+        {
+            auto prArea = centerBounds.removeFromBottom (mixerHeight);
+            embeddedPianoRoll->setVisible (true);
+            embeddedPianoRoll->setBounds (prArea);
+        }
+        else if (embeddedPianoRoll)
+            embeddedPianoRoll->setVisible (false);
     }
 
     timeline.setBounds (centerBounds);
@@ -1082,5 +1402,19 @@ void MainComponent::valueTreePropertyChanged (juce::ValueTree& v, const juce::Id
                 }
             }
         }
+    }
+}
+
+void MainComponent::valueTreeChildRemoved (juce::ValueTree& /*parent*/,
+                                           juce::ValueTree& child, int)
+{
+    // If the embedded MIDI clip is deleted, close the Piano Roll and revert to Mixer
+    if (embeddedPianoRoll && embeddedClip && child == embeddedClip->state)
+    {
+        removeChildComponent (embeddedPianoRoll.get());
+        embeddedPianoRoll.reset();
+        embeddedClip = nullptr;
+        bottomPanel = BottomPanel::Mixer;
+        resized();
     }
 }

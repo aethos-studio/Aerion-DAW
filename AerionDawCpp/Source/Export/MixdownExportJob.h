@@ -26,6 +26,7 @@ public:
                       double sampleRate,
                       int numChannels,
                       int tailMs,
+                      int trackIndex = -1,
                       bool useEditCopy = true);
 
     ~MixdownExportJob();
@@ -45,6 +46,7 @@ private:
     tracktion::Engine& engine;
     juce::File destFile;
     juce::String initError;
+    int trackIndex { -1 };
 
     tracktion::Renderer::Parameters cachedParams;
     bool paramsReady = false;

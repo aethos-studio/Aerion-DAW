@@ -121,6 +121,14 @@ public:
 
     void systemRequestedQuit() override
     {
+        if (mainWindow && mainWindow->getContentComponent())
+        {
+            if (auto* mc = dynamic_cast<MainComponent*>(mainWindow->getContentComponent()))
+            {
+                mc->requestQuit();
+                return;
+            }
+        }
         quit();
     }
 

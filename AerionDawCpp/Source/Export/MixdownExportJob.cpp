@@ -8,7 +8,8 @@ static te::Renderer::Parameters makeParamsForMixdown (te::Engine& engine,
                                                      te::TimeRange range,
                                                      double sampleRate,
                                                      int channels,
-                                                     int tailMs)
+                                                     int tailMs,
+                                                     int trackIndex = -1)
 {
     juce::Logger::writeToLog ("makeParamsForMixdown: range=" + juce::String (range.getStart().inSeconds())
                              + "-" + juce::String (range.getEnd().inSeconds())
@@ -20,15 +21,41 @@ static te::Renderer::Parameters makeParamsForMixdown (te::Engine& engine,
     p.edit = &edit;
     p.destFile = dest;
 
-    // Source: master mix
+    // Source: master mix or single track
     p.category = te::ProjectItem::Category::none;
-    p.separateTracks = false;
     p.createMidiFile = false;
 
-    // CRITICAL FIX 1: Set tracksToDo to all tracks. Without this, RenderPass::initialise()
-    // checks tracksToDo.countNumberOfSetBits() > 0 and silently skips rendering if zero bits are set.
-    p.tracksToDo = te::toBitSet (te::getAllTracks (edit));
-    juce::Logger::writeToLog ("makeParamsForMixdown: tracksToDo set");
+    if (trackIndex >= 0)
+    {
+        // Render only the specified track
+        auto allTracks = te::getAllTracks (edit);
+        if (trackIndex < allTracks.size())
+        {
+            juce::BigInteger bits;
+            bits.setBit (trackIndex);
+            p.tracksToDo = bits;
+            p.separateTracks = false;
+            p.useMasterPlugins = false;
+            juce::Logger::writeToLog ("makeParamsForMixdown: rendering track index " + juce::String (trackIndex) + " only");
+        }
+        else
+        {
+            // Fallback to all tracks if index is out of range
+            p.tracksToDo = te::toBitSet (te::getAllTracks (edit));
+            p.separateTracks = false;
+            p.useMasterPlugins = true;
+            juce::Logger::writeToLog ("makeParamsForMixdown: trackIndex out of range, falling back to master mix");
+        }
+    }
+    else
+    {
+        // CRITICAL FIX 1: Set tracksToDo to all tracks. Without this, RenderPass::initialise()
+        // checks tracksToDo.countNumberOfSetBits() > 0 and silently skips rendering if zero bits are set.
+        p.tracksToDo = te::toBitSet (te::getAllTracks (edit));
+        p.separateTracks = false;
+        p.useMasterPlugins = true;
+        juce::Logger::writeToLog ("makeParamsForMixdown: tracksToDo set to master mix");
+    }
 
     // CRITICAL FIX 2: Disable checkNodesForAudio to prevent silent failure when render graph
     // reports no audio nodes. This check was causing renders to appear to finish without error
@@ -39,7 +66,6 @@ static te::Renderer::Parameters makeParamsForMixdown (te::Engine& engine,
     // Re-enable plugins (were disabled as workaround for EditRenderJob pooling crashes).
     // With EditRenderer::render(), each render job is independent and thread-safe.
     p.usePlugins = true;
-    p.useMasterPlugins = true;
     juce::Logger::writeToLog ("makeParamsForMixdown: plugins enabled");
 
     // Bounds
@@ -76,9 +102,11 @@ MixdownExportJob::MixdownExportJob (te::Engine& e,
                                     double sampleRate,
                                     int numChannels,
                                     int tailMs,
+                                    int trackIdx,
                                     bool useEditCopy)
     : engine (e),
       destFile (destination),
+      trackIndex (trackIdx),
       cachedParams (e)
 {
     juce::Logger::writeToLog ("MixdownExportJob: ctor entry, useEditCopy=" + juce::String ((int) useEditCopy));
@@ -132,7 +160,7 @@ MixdownExportJob::MixdownExportJob (te::Engine& e,
     }
 
     juce::Logger::writeToLog ("MixdownExportJob: about to create render params");
-    cachedParams = makeParamsForMixdown (engine, *editPtr, destFile, rangeToRender, sampleRate, numChannels, tailMs);
+    cachedParams = makeParamsForMixdown (engine, *editPtr, destFile, rangeToRender, sampleRate, numChannels, tailMs, trackIndex);
     paramsReady = true;
 
     juce::Logger::writeToLog ("MixdownExportJob: ctor complete, ready to render");

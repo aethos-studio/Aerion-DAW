@@ -53,6 +53,8 @@ notes/
 dev/
 docs/
 scripts/
+build-debug.ps1
+build-debug.sh
 
 # ---- Node (only relevant if a JS sub-tool is added later) ----------------
 node_modules/

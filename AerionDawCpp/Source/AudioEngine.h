@@ -60,6 +60,7 @@ public:
     juce::StringArray getMixSnapshotNames();
 
     tracktion::AudioTrack*  addAudioTrack();
+    tracktion::AudioTrack*  addMidiTrack();
     tracktion::FolderTrack* addFolderTrack();
     tracktion::FolderTrack* groupTracks (const juce::Array<tracktion::Track*>& tracks);
     void deleteTrack (tracktion::Track*);
@@ -98,14 +99,26 @@ public:
     // Waveform Rendering
     tracktion::SmartThumbnail& getThumbnailForClip (tracktion::WaveAudioClip& clip, juce::Component& componentToRepaint);
 
+    // Bounce / Freeze
+    void freezeTrack (tracktion::AudioTrack* track);
+    void unfreezeTrack (tracktion::AudioTrack* track);
+    bool isTrackFrozen (tracktion::AudioTrack* track) const;
+
     // Persistence
-    void saveProject (const juce::File& file);
-    void loadProject (const juce::File& file);
+    void saveProject (const juce::File& file, class ProjectData* projectData = nullptr);
+    void loadProject (const juce::File& file, class ProjectData* projectData = nullptr);
     void createNewProject();
 
     juce::StringArray collectAndSave (const juce::File& projectFile);
     juce::RecentlyOpenedFilesList& getRecentProjects() { return recentProjects; }
     void clearRecentProjects();
+
+    // Auto-save & Crash Recovery
+    bool hasCrashRecovery() const;
+    juce::File getRecoveryFile() const;
+    void autoSave (class ProjectData* pd);
+    int getAutoSaveIntervalMins() const;
+    void setAutoSaveIntervalMins (int mins);
 
     // Plugins
     void scanPlugins();
@@ -298,6 +311,7 @@ private:
     std::unique_ptr<tracktion::Edit> edit;
 
     juce::ApplicationProperties appProperties;
+    bool hadCrash = false;
 
     juce::ListenerList<Listener> listeners;
 

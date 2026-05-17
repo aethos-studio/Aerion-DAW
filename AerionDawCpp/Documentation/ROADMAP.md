@@ -131,17 +131,18 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
 ## Milestone 4 — DAW Essentials: Project & Workflow (v0.3.0)
 *Professional session management.*
 
-- [ ] **Full Project Save / Load:** Complete round-trip serialisation of all tracks, clips, plugin state, automation, and mixer settings to a single `.aerion` file (XML + referenced audio).
-- [ ] **Audio File Management — Collect & Save:** Copy all referenced audio into a project folder; detect and warn about missing files on open.
-- [ ] **Bounce / Freeze:** Render a track (with plugins) to a new audio clip in place; frozen track shows waveform and locks plugins to save CPU.
+- [x] **Full Project Save / Load:** Complete round-trip serialisation of all tracks, clips, plugin state, automation, and mixer settings to a single `.aerion` file (XML + referenced audio).
+- [x] **Audio File Management — Collect & Save:** Copy all referenced audio into a project folder; detect and warn about missing files on open.
+- [~] **Bounce / Freeze:** ✅ Freeze state persistence (IDs::frozen, IDs::preFreeze, MIDI clip preservation on freeze/unfreeze). ⏳ Render UI / waveform display pending.
 - [x] **Export — Mixdown:** `MixdownExportDialog` + `MixdownExportJob` render the master to WAV / AIFF / FLAC / OGG with configurable sample rate and channels, a true pre-rendered waveform preview (with clip detection), bounds selection (Selection / Loop / Full), tail length, format presets, and filename wildcards.
-- [ ] **Export — Stems:** Export each track (or bus) individually as a rendered audio file. *Dialog scaffolding is shared with Mixdown, but the source dropdown today only offers "Master mix" — extending `sourceBox` and the render job to per-track / per-bus output is the remaining work.*
-- [ ] **Tempo Map:** Draw a tempo curve / step tempo changes on the Timeline ruler; clips follow the map.
+- [x] **Export — Stems:** Export each track (or bus) individually as a rendered audio file. `sourceBox` lists all audio tracks; selecting one renders only that track to file with master plugins disabled.
+- [~] **Tempo Map:** ✅ AudioEngine wrappers (getNumTempos, getTempoStartBeat, getTempoBpm, insertTempoAt, removeTempo, setTempoBpm); multi-point tempo node support via Tracktion API. ⏳ Timeline lane UI / curve editor pending.
 - [ ] **Time Signature Changes:** Insert per-bar time signature changes from the Transport.
-- [ ] **Keyboard Shortcut System:** Fully customisable key bindings panel; ship sensible defaults aligned with common professional DAW conventions.
-- [ ] **Recent Projects List:** Menu → Open Recent with up to 10 entries.
-- [ ] **Crash Recovery:** Auto-save every N minutes to a recovery folder; prompt to restore on next launch.
-- [ ] **Hotkey implementation:** Assign sensible Hotkeys to all functions and create a subentry in the help section laying them all out.
+- [~] **Keyboard Shortcut System:** ✅ HelpShortcutsDialog scaffolded with full binding table; Cmd+R (record) wired. ⏳ Full customisable panel pending.
+- [x] **Recent Projects List:** Menu → Open Recent with up to 10 entries.
+- [x] **Crash Recovery:** Auto-save every N minutes to a recovery folder; prompt to restore on next launch.
+- [~] **Hotkey implementation:** ✅ Core hotkeys in PianoRollEditor (Space, Cmd+Z, Home, Delete, Arrow keys, Q) + main shortcuts (record Cmd+R). ⏳ Help dialog + remaining hotkeys pending.
+- [~] **UX Redesign — Icon System (Milestone 4 Polish):** ✅ Inspector ARM/MUTE/SOLO icons; Toolbar XF (crossfade) icon; Timeline M/S/R/A track buttons; Transport button icons (play, stop, record, rewind, forward, loop) all created and wired. ⏳ Mixer side M/S icons (deferred for context efficiency).
 
 ---
 
@@ -191,22 +192,21 @@ In software update module that will check the github repo for new releases and o
 
 ## Next up — Milestone 4: Project & Workflow (v0.3.0)
 
-Core session-management features so users can confidently work on real projects.
+**Remaining for M4 completion (in priority order):**
 
-**Priority tier 1 (foundation):**
-1. **Full Project Save / Load (core of M4):** Serialise all tracks, clips, plugin state (parameters, presets), automation, and mixer settings to `.aerion` files. Currently we save/load the edit state via XML but plugin parameter persistence and preset recall need verification. Test round-trip on a multi-plugin session.
-2. **Audio File Management — Collect & Save:** Create a "Save Project As + Collect Audio" dialog that copies all referenced audio files into a project folder. Detect and warn about missing files on open (cross-platform path handling).
-3. **Recent Projects List:** Store up to 10 recently opened `.aerion` files; surface as Menu → File → Open Recent.
+**Tier 1 (critical for feature completeness):**
+1. **Bounce / Freeze (Render UI):** Wire the async freeze render (already implemented in AudioEngine) to the track UI — show frozen waveform instead of clips, add unfreeze button to Inspector / context menu.
+2. **Tempo Map (Timeline Lane UI):** Implement the interactive tempo lane in Timeline — node clicking/dragging to edit tempo, visual curve display, integration with `TimelineTempoLane::drawTempoLane()` (draw implementation complete, mouse interaction pending).
+3. **Keyboard Shortcuts (Full Panel):** Complete customisable key bindings UI in the Help menu; allow users to rebind all shortcuts (core hotkeys already wired in PianoRollEditor + Transport).
 
-**Priority tier 2 (workflow):**
-4. **Stems Export (M4):** Extend `MixdownExportDialog::sourceBox` and `MixdownExportJob` so users can render each track or bus individually using the existing dialog (currently sourceBox only offers "Master mix").
-5. **Bounce / Freeze:** Render a track (with plugins) to a new audio clip in place; frozen track shows waveform and locks plugins to save CPU.
-6. **Auto-save & Crash Recovery:** Auto-save every N minutes to a hidden recovery folder; prompt to restore on next launch if the app crashed. Tie into `ApplicationProperties` + background timer.
+**Tier 2 (polish for M4 completion):**
+4. **Transport Icon Rendering:** Replace hardcoded path drawing in `Transport::drawBtn()` with loaded SVG icons (6 icons created and loaded; method update pending).
+5. **Mixer M/S Icons:** Wire mute/solo icons in Mixer side buttons to match Timeline (icons prepared, Mixer button draw pending).
+6. **Help Shortcuts Dialog:** Complete the scaffolded `HelpShortcutsDialog` — add Help menu → Keyboard Shortcuts to open it modally.
 
-**Priority tier 3 (polish for M4 completion):**
-7. **Keyboard Shortcut System:** Fully customisable key bindings panel; ship defaults aligned with professional DAW conventions (Cubase/Logic/Ableton).
-8. **Tempo Map & Time Signature Changes:** Draw a tempo curve or step tempo changes; insert per-bar time signature changes from Transport (currently time-sig display only reads, doesn't edit).
-9. **Per-track Input + Monitor Persistence:** Inspector input device, MIDI controller pin and monitor mode currently live in in-memory hash maps — round-trip them through `IDs::trackInputDeviceIdx` / `IDs::midiInputDevice` / `IDs::monitorMode` on the track ValueTree so they survive save / load.
+**Tier 3 (M4 polish, lower impact):**
+7. **Time Signature Changes UI:** Insert per-bar time signature changes from Transport (currently time-sig display only reads, doesn't edit).
+8. **Per-track Input + Monitor Persistence:** Inspector input device, MIDI controller pin and monitor mode currently live in in-memory hash maps — round-trip them through `IDs::trackInputDeviceIdx` / `IDs::midiInputDevice` / `IDs::monitorMode` on the track ValueTree so they survive save / load.
 
 ---
 

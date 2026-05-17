@@ -29,16 +29,19 @@ public:
     void editStateChanged() override;
 
     AudioEngineManager& getAudioEngine() { return audioEngine; }
+    void requestQuit();
 
     // juce::ValueTree::Listener
     void valueTreePropertyChanged (juce::ValueTree& v, const juce::Identifier& i) override;
     void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override {}
-    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override {}
+    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override;
     void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override {}
     void valueTreeParentChanged (juce::ValueTree&) override {}
 
 private:
+    void doCreateNewProject();
     void createNewProject();
+    void doOpenProjectChooser();
     void openProject();
     void saveProject();
     void saveProjectAs();
@@ -131,6 +134,13 @@ private:
     PanelCollapseBtn inspectorToggle { true  };
     PanelCollapseBtn browserToggle   { false };
 
+    enum class BottomPanel { Mixer, PianoRoll };
+    BottomPanel bottomPanel = BottomPanel::Mixer;
+    std::unique_ptr<PianoRollEditor> embeddedPianoRoll;
+    tracktion::MidiClip* embeddedClip = nullptr;
+    juce::TextButton tabMixer     { "MIXER" };
+    juce::TextButton tabPianoRoll { "PIANO ROLL" };
+
     static constexpr int kInspectorW = 260;
     static constexpr int kBrowserW   = 270;
     static constexpr int kToggleW    = 14;
@@ -150,6 +160,11 @@ private:
 
     juce::File currentProjectFile;
     bool hasUnsavedChanges = false;
+    bool pendingNewProjectAfterSave = false;
+    bool pendingQuitAfterSave = false;
+
+    int autoSaveElapsedMs = 0;
+    int autoSaveIntervalMs = 5 * 60 * 1000;  // 5 min default
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };

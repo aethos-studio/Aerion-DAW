@@ -44,6 +44,14 @@ namespace IDs
     DECLARE_ID (pdcEnabled);
     DECLARE_ID (trackInputDeviceIdx);
 
+    DECLARE_ID (isMidiTrack);
+
+    DECLARE_ID (frozen);              // bool: whether track is frozen
+    DECLARE_ID (preFreeze);           // ValueTree child: serialized pre-freeze clip state
+    DECLARE_ID (freezeFile);          // String: path to the freeze WAV
+    DECLARE_ID (preFreezeClipType);   // String: "audio" or "midi" for each saved clip
+    DECLARE_ID (preFreezeClipState);  // ValueTree blob for MIDI sequence
+
     /** Stored on `MidiClip::state` — int controller number (0–127) or -1 for pitch bend. */
     DECLARE_ID (pianoRollCC);
     /** Project-level: show K-14 reference ticks on the master meter in the Console. */
