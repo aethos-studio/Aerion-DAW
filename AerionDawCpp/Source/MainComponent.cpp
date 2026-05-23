@@ -4,6 +4,8 @@ namespace te = tracktion;
 
 MainComponent::MainComponent()
 {
+    const auto ctorStartMs = juce::Time::getMillisecondCounterHiRes();
+
     juce::LookAndFeel::setDefaultLookAndFeel (&metalLookAndFeel);
     tooltipWindow = std::make_unique<AerionTooltipWindow> (this, 500);
 
@@ -45,7 +47,7 @@ MainComponent::MainComponent()
     projectData.getProjectTree().addListener (this);
 
     audioEngine.addListener (this);
-    audioEngine.getEdit().state.addListener (this);
+    attachToCurrentEditState();
     addKeyListener (this);
     setWantsKeyboardFocus (true);
 
@@ -140,7 +142,10 @@ MainComponent::MainComponent()
     {
         auto doOpen = [this, f]()
         {
+            detachFromObservedEditState();
             audioEngine.loadProject (f, &projectData);
+            attachToCurrentEditState();
+            aiManager.setEdit (audioEngine.getEdit());
             currentProjectFile = f;
             hasUnsavedChanges  = false;
             audioEngine.getRecentProjects().addFile (f);
@@ -205,7 +210,7 @@ MainComponent::MainComponent()
     menuBar.onAddFolderTrack = [this] { audioEngine.addFolderTrack(); audioEngine.syncFolderRouting(); timeline.repaint(); mixer.repaint(); };
     menuBar.onDeleteTrack    = [this] {
         for (auto* t : timeline.getSelectedTracks()) audioEngine.deleteTrack (t);
-        timeline.onTrackSelected (-1);
+        syncInspectorToTrack (nullptr);
         timeline.repaint(); mixer.repaint();
     };
     menuBar.onToggleTrackArm  = [this] {
@@ -213,7 +218,7 @@ MainComponent::MainComponent()
         if (sel.isEmpty()) return;
         auto* t = sel[0];
         audioEngine.setTrackArmed (t, ! audioEngine.isTrackArmed (t));
-        timeline.onTrackSelected (timeline.getSelectedIndex());
+        syncInspectorToTrack (t);
         timeline.repaint();
     };
     menuBar.onToggleTrackMute = [this] {
@@ -310,8 +315,11 @@ MainComponent::MainComponent()
     menuBar.onGoToStart = [this] {
         bool wasPlaying = audioEngine.isPlaying();
         audioEngine.setTransportPosition (0.0);
-        if (wasPlaying) audioEngine.play();
-        timeline.repaint(); transport.repaint();
+        timeline.scrollViewToBarOne();
+        if (wasPlaying)
+            audioEngine.play();
+        timeline.repaint();
+        transport.repaint();
     };
     menuBar.onToggleLoop  = [this] { audioEngine.toggleLoop(); transport.repaint(); };
     menuBar.onTogglePunch = [this] {
@@ -334,6 +342,9 @@ MainComponent::MainComponent()
     menuBar.onToggleMixerDetach = [this] {
         if (mixer.detached) reattachMixer();
         else                detachMixer();
+    };
+    menuBar.onShowKeyboardShortcuts = [this] {
+        KeyboardShortcutsDialog::launch (audioEngine.getKeymap(), audioEngine.getUserSettings());
     };
 
     menuBar.onBeforeMenuOpen = [this] { syncMenuBarState(); };
@@ -468,27 +479,9 @@ MainComponent::MainComponent()
         mixer.repaint();
     };
 
-    timeline.onTrackSelected = [this] (int idx)
+    timeline.onTrackSelected = [this] (tracktion::Track* track)
     {
-        auto top = audioEngine.getTopLevelTracks();
-        if (idx >= 0 && idx < top.size())
-        {
-            auto* t = top[idx];
-            inspector.trackIndex   = idx;
-            inspector.trackName    = t->getName();
-            inspector.armed        = audioEngine.isTrackArmed (t);
-            inspector.muted        = t->isMuted (false);
-            inspector.solo         = t->isSolo  (false);
-            inspector.selectedTrack = t;
-        }
-        else
-        {
-            inspector.trackIndex    = -1;
-            inspector.trackName     = "(no selection)";
-            inspector.armed = inspector.muted = inspector.solo = false;
-            inspector.selectedTrack = nullptr;
-        }
-        inspector.repaint();
+        syncInspectorToTrack (track);
     };
 
     // Initialize auto-save interval from settings
@@ -509,11 +502,16 @@ MainComponent::MainComponent()
                 {
                     if (result == 1)
                     {
+                        detachFromObservedEditState();
                         audioEngine.loadProject(audioEngine.getRecoveryFile(), &projectData);
+                        attachToCurrentEditState();
+                        aiManager.setEdit (audioEngine.getEdit());
                         currentProjectFile = juce::File();
                         hasUnsavedChanges = true;
                         updateTitleBar();
                         syncToolbarFromEngine();
+                        projectData.syncWithEngine(audioEngine.getEdit());
+                        syncInspectorToTrack (nullptr);
                         syncMenuBarState();
                         mixer.repaint();
                         timeline.repaint();
@@ -561,15 +559,26 @@ MainComponent::MainComponent()
         embeddedPianoRoll = std::make_unique<PianoRollEditor> (clip, audioEngine.getEdit(), projectData, audioEngine);
         addAndMakeVisible (*embeddedPianoRoll);
 
-        // Set up detach callback
-        embeddedPianoRoll->onDetachRequested = [this, &clip] {
-            removeChildComponent (embeddedPianoRoll.get());
-            embeddedPianoRoll.reset();
-            embeddedClip = nullptr;
-            bottomPanel = BottomPanel::Mixer;
-            resized();
-            auto* win = new PianoRollWindow (clip, audioEngine.getEdit(), projectData, audioEngine);
-            (void) win;
+        // Set up detach callback.
+        // Defer destruction via callAsync: the callback fires from inside the
+        // editor's own button-click handler, so we must not destroy the editor
+        // synchronously while it is still on the call stack.
+        embeddedPianoRoll->onDetachRequested = [this] {
+            auto* clipPtr = embeddedClip;
+            juce::MessageManager::callAsync ([this, clipPtr]
+            {
+                if (embeddedPianoRoll != nullptr)
+                    removeChildComponent (embeddedPianoRoll.get());
+                embeddedPianoRoll.reset();
+                embeddedClip = nullptr;
+                bottomPanel = BottomPanel::Mixer;
+                resized();
+                if (clipPtr != nullptr)
+                {
+                    auto* win = new PianoRollWindow (*clipPtr, audioEngine.getEdit(), projectData, audioEngine);
+                    (void) win;
+                }
+            });
         };
 
         bottomPanel = BottomPanel::PianoRoll;
@@ -579,46 +588,45 @@ MainComponent::MainComponent()
     setSize (1400, 860);
     // 25 Hz: playhead + meters; avoids piling on top of other ~30 Hz component timers.
     startTimerHz (25);
+
+    juce::Logger::writeToLog ("Startup: MainComponent ctor completed in "
+                              + juce::String (juce::Time::getMillisecondCounterHiRes() - ctorStartMs, 1)
+                              + " ms");
 }
 
 MainComponent::~MainComponent()
 {
     stopTimer();
+    detachFromObservedEditState();
+    projectData.getProjectTree().removeListener (this);
     audioEngine.removeListener (this);
     removeKeyListener (this);
 }
 
 bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component*)
 {
-    if (key.getModifiers().isCommandDown())
-    {
-        if (key.getKeyCode() == 'Z')
-        {
-            if (key.getModifiers().isShiftDown()) audioEngine.redo();
-            else                                  audioEngine.undo();
-            return true;
-        }
+    auto& km = audioEngine.getKeymap();
 
-        if (key.getKeyCode() == 's' || key.getKeyCode() == 'S')
-        {
-            saveProject();
-            return true;
-        }
-    }
+    if (km.matches ("edit.undo", key)) { audioEngine.undo(); return true; }
+    if (km.matches ("edit.redo", key)) { audioEngine.redo(); return true; }
+    if (km.matches ("file.save", key)) { saveProject(); return true; }
+    if (km.matches ("file.new",  key)) { if (menuBar.onNew)  menuBar.onNew();  return true; }
+    if (km.matches ("file.open", key)) { if (menuBar.onOpen) menuBar.onOpen(); return true; }
+    if (km.matches ("transport.record", key)) { audioEngine.record(); transport.repaint(); return true; }
 
-    if (key == juce::KeyPress::spaceKey)
+    if (km.matches ("transport.playStop", key))
     {
         if (audioEngine.isPlaying())
             audioEngine.stop();
         else
             audioEngine.play();
-        
+
         transport.repaint();
         return true;
     }
 
     // Force a crossfade on the selected clip with any overlapping neighbor (Studio One-style quick action).
-    if (key.getTextCharacter() == 'x' || key.getTextCharacter() == 'X')
+    if (km.matches ("audio.crossfade", key))
     {
         if ((bool) projectData.getProjectTree().getProperty (IDs::autoCrossfadeEnabled, true))
         {
@@ -632,7 +640,11 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component*)
         }
     }
 
-    if (key.getKeyCode() == juce::KeyPress::leftKey || key.getKeyCode() == juce::KeyPress::rightKey)
+    const bool nudgeL = km.matches ("clip.nudgeLeft",  key);
+    const bool nudgeR = km.matches ("clip.nudgeRight", key);
+    const bool trimL  = km.matches ("clip.trimLeft",   key);
+    const bool trimR  = km.matches ("clip.trimRight",  key);
+    if (nudgeL || nudgeR || trimL || trimR)
     {
         if (auto* clip = timeline.selectedClip)
         {
@@ -640,10 +652,10 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component*)
             if (! (bool) projectData.getProjectTree().getProperty (IDs::snapEnabled))
                 interval = 0.1; // small nudge if snap is off
 
-            double delta = (key.getKeyCode() == juce::KeyPress::leftKey) ? -interval : interval;
-            
+            double delta = (nudgeL || trimL) ? -interval : interval;
+
             auto& ts = audioEngine.getEdit().tempoSequence;
-            if (key.getModifiers().isAltDown())
+            if (trimL || trimR)
             {
                 // Nudge length (trim right)
                 auto start = clip->getPosition().getStart();
@@ -664,20 +676,21 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component*)
         }
     }
 
-    if (key == juce::KeyPress::homeKey)
+    if (km.matches ("transport.goToStart", key))
     {
         bool wasPlaying = audioEngine.isPlaying();
         audioEngine.setTransportPosition (0.0);
-        
+        timeline.scrollViewToBarOne();
+
         if (wasPlaying)
             audioEngine.play();
-            
+
         timeline.repaint();
         transport.repaint();
         return true;
     }
 
-    if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
+    if (km.matches ("clip.delete", key))
     {
         if (timeline.selectedClip != nullptr)
         {
@@ -693,19 +706,19 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component*)
 
     auto* t = selected[0];
 
-    if (key == juce::KeyPress ('m')) { audioEngine.toggleTrackMute (t); timeline.repaint(); return true; }
-    if (key == juce::KeyPress ('s')) { audioEngine.toggleTrackSolo (t); timeline.repaint(); return true; }
-    if (key == juce::KeyPress ('r')) {
+    if (km.matches ("track.mute", key)) { audioEngine.toggleTrackMute (t); timeline.repaint(); return true; }
+    if (km.matches ("track.solo", key)) { audioEngine.toggleTrackSolo (t); timeline.repaint(); return true; }
+    if (km.matches ("track.arm", key)) {
         audioEngine.setTrackArmed (t, ! audioEngine.isTrackArmed (t));
-        timeline.onTrackSelected (timeline.getSelectedIndex()); // updates inspector
+        syncInspectorToTrack (t);
         timeline.repaint();
         return true;
     }
-    if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
+    if (km.matches ("clip.delete", key))
     {
         for (auto* track : selected)
             audioEngine.deleteTrack (track);
-        timeline.onTrackSelected (-1);
+        syncInspectorToTrack (nullptr);
         timeline.repaint();
         mixer.repaint();
         return true;
@@ -716,9 +729,13 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component*)
 
 void MainComponent::doCreateNewProject()
 {
+    detachFromObservedEditState();
     audioEngine.createNewProject();
+    attachToCurrentEditState();
+    aiManager.setEdit (audioEngine.getEdit());
     currentProjectFile = juce::File();
     hasUnsavedChanges = false;
+    syncInspectorToTrack (nullptr);
     updateTitleBar();
     syncToolbarFromEngine();
     mixer.repaint();
@@ -774,6 +791,44 @@ void MainComponent::updateTitleBar()
         dw->setName (name + " - Aerion DAW");
 }
 
+void MainComponent::detachFromObservedEditState()
+{
+    if (observedEditState.isValid())
+    {
+        observedEditState.removeListener (this);
+        observedEditState = {};
+    }
+}
+
+void MainComponent::attachToCurrentEditState()
+{
+    detachFromObservedEditState();
+    observedEditState = audioEngine.getEdit().state;
+    observedEditState.addListener (this);
+}
+
+void MainComponent::syncInspectorToTrack (tracktion::Track* track)
+{
+    if (track != nullptr)
+    {
+        inspector.trackIndex     = -1;
+        inspector.trackName      = track->getName();
+        inspector.armed          = audioEngine.isTrackArmed (track);
+        inspector.muted          = track->isMuted (false);
+        inspector.solo           = track->isSolo  (false);
+        inspector.selectedTrack  = track;
+    }
+    else
+    {
+        inspector.trackIndex     = -1;
+        inspector.trackName      = "(no selection)";
+        inspector.armed = inspector.muted = inspector.solo = false;
+        inspector.selectedTrack  = nullptr;
+    }
+
+    inspector.repaint();
+}
+
 void MainComponent::syncToolbarFromEngine()
 {
     toolbar.punchEnabled = audioEngine.isPunchEnabled();
@@ -822,13 +877,17 @@ void MainComponent::doOpenProjectChooser()
                               auto file = fc.getResult();
                               if (file.existsAsFile())
                               {
-                                  audioEngine.loadProject (file);
+                                  detachFromObservedEditState();
+                                  audioEngine.loadProject (file, &projectData);
+                                  attachToCurrentEditState();
+                                  aiManager.setEdit (audioEngine.getEdit());
                                   currentProjectFile = file;
                                   hasUnsavedChanges = false;
                                   audioEngine.getRecentProjects().addFile (file);
                                   updateTitleBar();
                                   syncToolbarFromEngine();
                                   projectData.syncWithEngine(audioEngine.getEdit());
+                                  syncInspectorToTrack (nullptr);
                                   syncMenuBarState();
                                   mixer.repaint();
                                   timeline.repaint();
@@ -960,7 +1019,7 @@ void MainComponent::collectAndSaveAs()
                               {
                                   if (file.getFileExtension() != ".aerion")
                                       file = file.withFileExtension (".aerion");
-                                  auto skipped = audioEngine.collectAndSave (file);
+                                  auto skipped = audioEngine.collectAndSave (file, &projectData);
                                   currentProjectFile = file;
                                   hasUnsavedChanges = false;
                                   audioEngine.getRecentProjects().addFile (file);
@@ -1181,10 +1240,9 @@ void MainComponent::timerCallback()
 
     if (audioEngine.isRecording())
     {
-        // Recording can change waveforms and clip lengths; repaint fully.
-        mixer.repaint();
-        inspector.repaint();
-        timeline.repaint();
+        // Recording changes waveform data continuously; keep invalidation to live rows/meters.
+        mixer.repaintStripMetersArea();
+        timeline.repaintRecordingRows();
         return;
     }
 
@@ -1202,7 +1260,8 @@ void MainComponent::timerCallback()
         if (autoSaveElapsedMs >= autoSaveIntervalMs)
         {
             autoSaveElapsedMs = 0;
-            audioEngine.autoSave(&projectData);
+            if (! audioEngine.isRecording())
+                audioEngine.autoSave(&projectData);
         }
     }
 }
@@ -1336,12 +1395,26 @@ void MainComponent::reattachMixer()
 
 void MainComponent::editStateChanged()
 {
+    const auto syncStartMs = juce::Time::getMillisecondCounterHiRes();
+
     hasUnsavedChanges = true;
     updateTitleBar();
     projectData.syncWithEngine (audioEngine.getEdit());
+    const auto syncElapsedMs = juce::Time::getMillisecondCounterHiRes() - syncStartMs;
+    if (syncElapsedMs > 8.0)
+        juce::Logger::writeToLog ("Performance: editStateChanged sync/UI took "
+                                  + juce::String (syncElapsedMs, 1) + " ms");
+
+    syncToolbarFromEngine();
+    syncMenuBarState();
+
+    auto selected = timeline.getSelectedTracks();
+    syncInspectorToTrack (selected.isEmpty() ? nullptr : selected[0]);
+
     browser.repaint();
     mixer.repaint();
     timeline.repaint();
+    transport.repaint();
 }
 
 void MainComponent::valueTreePropertyChanged (juce::ValueTree& v, const juce::Identifier& i)

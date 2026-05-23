@@ -2,7 +2,7 @@
 
 namespace te = tracktion;
 
-AIManager::AIManager(te::Edit& e) : juce::Thread("AIManager"), edit(e)
+AIManager::AIManager(te::Edit& e) : juce::Thread("AIManager"), edit(&e)
 {
 }
 
@@ -11,8 +11,18 @@ AIManager::~AIManager()
     stopThread(2000);
 }
 
+void AIManager::setEdit (te::Edit& e)
+{
+    stopThread (2000);
+    edit = &e;
+    clipToProcess = nullptr;
+}
+
 void AIManager::convertAudioToMidi(te::WaveAudioClip& audioClip)
 {
+    if (isThreadRunning())
+        stopThread (2000);
+
     clipToProcess = &audioClip;
     startThread();
 }
@@ -38,10 +48,15 @@ void AIManager::processTranscription()
     notes.addEvent(juce::MidiMessage::noteOff(1, 60), 1.0);
     
     // 4. Update Tracktion Engine on Message Thread
-    juce::MessageManager::callAsync([this, notes]()
+    juce::WeakReference<AIManager> weakThis (this);
+    juce::MessageManager::callAsync([weakThis, notes]()
     {
+        if (weakThis == nullptr || weakThis->edit == nullptr)
+            return;
+
         // Find or create MIDI track
-        if (auto* track = te::getAudioTracks(edit)[0]) // Just use first track for demo
+        auto tracks = te::getAudioTracks (*weakThis->edit);
+        if (! tracks.isEmpty())
         {
             // Insert MIDI clip
             // track->insertMIDIClip("AI Transcription", { 0.0, 4.0 }, &notes);

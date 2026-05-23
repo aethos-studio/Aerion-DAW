@@ -55,6 +55,9 @@ private:
     void updateTitleBar();
     void syncToolbarFromEngine();
     void syncMenuBarState();
+    void attachToCurrentEditState();
+    void detachFromObservedEditState();
+    void syncInspectorToTrack (tracktion::Track* track);
 
     struct MixerResizer : public juce::Component
     {
@@ -159,6 +162,7 @@ private:
     std::unique_ptr<juce::FileChooser> fileChooser;
 
     juce::File currentProjectFile;
+    juce::ValueTree observedEditState;
     bool hasUnsavedChanges = false;
     bool pendingNewProjectAfterSave = false;
     bool pendingQuitAfterSave = false;

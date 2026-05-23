@@ -44,8 +44,9 @@ All items below are fully implemented and working in the current build (unless m
 
 ### Piano Roll
 - 128-note grid, beat ruler, piano keyboard
-- Add (click-drag), move (drag body), resize (drag right edge), delete (right-click)
-- Snap to configurable note length (quarter / 8th / 16th)
+- Add (click-drag), move (drag body), resize (drag right edge), delete (right-click / Delete)
+- Selection-aware editing: single/multi-select, marquee select, copy/cut/paste, duplicate, nudge, transpose, quantize, and Escape-to-clear.
+- Snap to configurable note length with visible dynamic subdivisions; note insertion snaps to the clicked cell start.
 - **MIDI CC / Pitch lane:** switchable lane (Mod, Volume, Pan, Expression, Sustain, Pitch Bend, custom CC) with resizable splitter above the velocity lane; draw/edit via `MidiList::setControllerValueAt` / `removeControllerEvent`; selection persisted per clip (`IDs::pianoRollCC`)
 - Horizontal and vertical scrollbars
 - Opens on double-click of a MIDI clip in the Timeline
@@ -55,8 +56,8 @@ All items below are fully implemented and working in the current build (unless m
 - Mock transcription (2 s delay → hardcoded MIDI note) wired to `processTranscription()`
 
 ### UI & Branding
-- Celtic Metal dark theme (`MetalLookAndFeel`)
-- Animated fog splash screen — short minimum hold; Cinzel for splash title/subtitle only; body UI uses **system sans** at scaled sizes (`Theme::uiSize` / `kUiFontScale`)
+- dark theme (`MetalLookAndFeel`)
+- Animated fog splash screen — full intro hold; Cinzel for splash title/subtitle only; body UI uses **system sans** at scaled sizes (`Theme::uiSize` / `kUiFontScale`)
 - Collapsible Inspector (left) and Browser (right) panels with directional chevron toggles
 - Project title bar updates to `<ProjectName> — Aerion DAW` after save/load
 - Reactive UI state — all components bound to `ProjectData` ValueTree
@@ -133,16 +134,17 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
 
 - [x] **Full Project Save / Load:** Complete round-trip serialisation of all tracks, clips, plugin state, automation, and mixer settings to a single `.aerion` file (XML + referenced audio).
 - [x] **Audio File Management — Collect & Save:** Copy all referenced audio into a project folder; detect and warn about missing files on open.
-- [~] **Bounce / Freeze:** ✅ Freeze state persistence (IDs::frozen, IDs::preFreeze, MIDI clip preservation on freeze/unfreeze). ⏳ Render UI / waveform display pending.
+- [x] **Bounce / Freeze:** Freeze state persistence (`IDs::frozen`, `IDs::preFreeze`, `IDs::freezeFile`), async render/unfreeze workflow, Inspector Freeze / Unfreeze state, Timeline track/clip badges, and context-menu actions.
 - [x] **Export — Mixdown:** `MixdownExportDialog` + `MixdownExportJob` render the master to WAV / AIFF / FLAC / OGG with configurable sample rate and channels, a true pre-rendered waveform preview (with clip detection), bounds selection (Selection / Loop / Full), tail length, format presets, and filename wildcards.
 - [x] **Export — Stems:** Export each track (or bus) individually as a rendered audio file. `sourceBox` lists all audio tracks; selecting one renders only that track to file with master plugins disabled.
-- [~] **Tempo Map:** ✅ AudioEngine wrappers (getNumTempos, getTempoStartBeat, getTempoBpm, insertTempoAt, removeTempo, setTempoBpm); multi-point tempo node support via Tracktion API. ⏳ Timeline lane UI / curve editor pending.
-- [ ] **Time Signature Changes:** Insert per-bar time signature changes from the Transport.
-- [~] **Keyboard Shortcut System:** ✅ HelpShortcutsDialog scaffolded with full binding table; Cmd+R (record) wired. ⏳ Full customisable panel pending.
+- [x] **Tempo Map:** AudioEngine wrappers plus interactive Timeline Tempo Lane with visible BPM nodes, double-click insert, drag to move/change BPM, and right-click delete for non-root nodes.
+- [x] **Time Signature Changes:** Per-bar time signature changes can be inserted from the Transport at the playhead bar or from the Timeline ruler; visible signature flags can be selected, dragged by bar, edited via preset menu, and removed.
+- [x] **Per-track Input + Monitor Persistence:** Inspector audio input, MIDI controller pin, and monitor mode now persist on each track `ValueTree` via `IDs::trackInputDeviceIdx`, `IDs::midiInputDevice`, and `IDs::monitorMode`, with migration from legacy RuntimeState XML.
+- [x] **Keyboard Shortcut System:** `AerionKeymap` + `KeyboardShortcutsPanel` provide editable bindings per action, live conflict detection with reassign/cancel prompt, import/export of `.aerionkeys` files, reset-to-defaults, and persistence via `appProperties`. `MainComponent` and `PianoRollEditor` dispatch through `AerionKeymap::matches()` so every rebindable action picks up custom bindings.
 - [x] **Recent Projects List:** Menu → Open Recent with up to 10 entries.
 - [x] **Crash Recovery:** Auto-save every N minutes to a recovery folder; prompt to restore on next launch.
-- [~] **Hotkey implementation:** ✅ Core hotkeys in PianoRollEditor (Space, Cmd+Z, Home, Delete, Arrow keys, Q) + main shortcuts (record Cmd+R). ⏳ Help dialog + remaining hotkeys pending.
-- [~] **UX Redesign — Icon System (Milestone 4 Polish):** ✅ Inspector ARM/MUTE/SOLO icons; Toolbar XF (crossfade) icon; Timeline M/S/R/A track buttons; Transport button icons (play, stop, record, rewind, forward, loop) all created and wired. ⏳ Mixer side M/S icons (deferred for context efficiency).
+- [x] **Hotkey implementation:** All catalog actions (File new/open/save, Edit undo/redo, Transport play-stop/record/go-to-start, Clip nudge/trim/delete, Audio crossfade, Track mute/solo/arm, Piano Roll select-all/copy/cut/paste/duplicate/delete/nudge/transpose/quantize/clear-selection) now flow through the `AerionKeymap` dispatch layer.
+- [x] **UX Redesign — Icon System (Milestone 4 Polish):** Inspector ARM/MUTE/SOLO icons, Toolbar XF icon, Timeline M/S/R/A track buttons, SVG Transport icons, and Mixer-side M/S icons now render via the shared `drawTrackIconBtn`.
 
 ---
 
@@ -160,9 +162,55 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
 
 ---
 
+## Milestone 6 — Pro Composition & Audio Editing (v0.5.0)
+*Close the Logic / Cubase / Studio One gaps for songwriters, composers, and vocal producers.*
+
+- [ ] **Command Palette + Action Registry:** Centralise every menu item, toolbar action, shortcut, and context command behind a single action registry. This becomes the foundation for custom keymaps, macros, command search, and eventual scripting.
+- [ ] **Custom Key Commands:** Complete the Help / Keyboard Shortcuts panel with editable bindings, import/export keymap files, conflict detection, and a "reset to defaults" path.
+- [ ] **Macro Actions:** Let users chain existing commands into named macros, assign shortcuts, and store them in the project/user settings. This is the REAPER-style productivity bridge before full scripting.
+- [ ] **Chord Track:** Add a global chord lane above the Timeline. Chords should be insertable/editable on the ruler, saved in the `.aerion` project, and exposed to MIDI tools, future Session Players, and AI generation.
+- [ ] **Scale-Aware Piano Roll:** Add global/project scale selection, per-clip scale override, "highlight in scale", "filter to scale", and scale quantize for selected MIDI notes.
+- [ ] **Arrangement Variants / Scratch Pads:** Add alternate arrangement lanes or scratch pads so users can try song structures without duplicating projects. Keep clips linked where possible; allow committing a scratch arrangement back to the main Timeline.
+- [ ] **ARA / Integrated Pitch Workflow — Feasibility Spike:** Evaluate Tracktion Engine/JUCE support for ARA2 hosting and define the save/load/render contract for Melodyne/RePitch-style workflows.
+- [ ] **Pitch + Timing Editor (First Pass):** If ARA is viable, integrate ARA plugin workflows. If not, implement a native analysis cache with transient markers, basic pitch display, and elastic timing handles as a stepping stone.
+- [ ] **Mastering / Project Page:** Add a release workspace for song sequencing, loudness analysis, inter-song spacing, export presets, revision notes, and album/EP delivery exports.
+
+---
+
+## Milestone 7 — Creative Production & Performance (v0.6.0)
+*Close the Ableton / Bitwig / FL Studio gaps for loop-based writing, modulation, and beat production.*
+
+- [ ] **Clip Launcher:** Add a non-linear scene/clip grid beside the Arranger. Clips should launch in sync, support follow actions later, and record performances back into the Timeline.
+- [ ] **Pattern / Step Sequencer:** Add a drum-and-melody pattern editor with per-step velocity, probability, repeat, gate, and resolution. Patterns should appear as Timeline clips and open in a dedicated editor.
+- [ ] **MIDI Operators:** Add note probability, repeats, randomisation, and conditional playback to MIDI clips, inspired by Bitwig Operators and modern generative sequencers.
+- [ ] **Generative MIDI Tools:** Add transform/generate tools for chords, basslines, arpeggios, melodies, rhythms, humanise, strum, density, and variation. These should be deterministic when seeded so results can be recalled.
+- [ ] **Unified Modulation System:** Add track/clip modulators (LFO, envelope follower, step modulator, random, macro controls) assignable to plugin parameters, mixer parameters, and selected clip parameters.
+- [ ] **Macro Controls:** Add per-track and per-project macro knobs that can control multiple destinations with ranges and polarity.
+- [ ] **MPE Editing:** Extend the Piano Roll to display and edit per-note pitch, pressure, slide/timbre, and pan where supported by MIDI data and hosted instruments.
+- [ ] **Sample / Loop Browser Intelligence:** Add tempo/key detection, favourites, tags, "find similar sounds", and one-click preview sync to the project tempo.
+- [ ] **Live Performance Mode:** Add a performance-focused workspace with large transport, launcher scenes, mixer macros, panic/stop-all, and hardware MIDI mapping.
+
+---
+
+## Milestone 8 — AI, Cloud & Collaboration Differentiators (v0.7.0+)
+*Make Aerion feel distinct instead of just feature-complete.*
+
+- [ ] **ONNX Runtime Integration:** Link runtime, manage model loading off the UI thread, and expose a model capability registry to the app.
+- [ ] **Model Manager UI:** Download, update, remove, and select AI models. Keep the base installer lean and make model storage/versioning explicit.
+- [ ] **Real Audio-to-MIDI:** Replace the `AIManager` mock with real transcription, clip selection, preview, correction, and commit-to-MIDI workflow.
+- [ ] **Stem Separation:** Add "Separate Stems" for vocals, drums, bass, and other instruments, with GPU/CPU capability checks and background progress.
+- [ ] **AI-Assisted Mixing:** Add gain staging suggestions, masking warnings, EQ matching, loudness targets, and mix snapshot comparison.
+- [ ] **AI Arrangement Assistant:** Use Chord Track, markers, clip metadata, and arrangement variants to suggest intros, drops, bridges, edits, and alternate structures.
+- [ ] **Cloud Project Sync:** Sync `.aerion` project files plus referenced audio to Google Drive first, then abstract the provider layer for future services.
+- [ ] **Version History:** Browse project snapshots, compare metadata, restore prior versions, and recover individual clips or mix states.
+- [ ] **Collaboration Sessions:** Real-time or near-real-time multi-user project sessions with conflict rules for clips, tracks, mixer state, and comments.
+- [ ] **Mobile Companion App:** Remote transport, marker navigation, recording controls, monitor mix controls, and macro control surface.
+
+---
+
 ## Future — USPs & Differentiators (v1.0+)
 
-These are what make Aerion *Aerion*. They are deliberately deferred until the DAW foundation is solid.
+These are long-horizon expansions after the DAW core, pro workflows, creative tools, AI, and cloud foundations are stable.
 
 ### Linux Support
 Adding support for Linux Systems (Flatpak)
@@ -170,43 +218,26 @@ Adding support for Linux Systems (Flatpak)
 ### Update Mechanism
 In software update module that will check the github repo for new releases and offers to update automatically
 
-### Cloud Sync
-- Automatic background sync of `.aerion` project files and referenced audio to Google Drive
-- Version history — browse and restore previous project snapshots from Drive
-- Real-time collaborative editing — multi-user project sessions via cloud
-
-### AI-Enhanced Workflows
-- **ONNX Runtime Integration:** Link runtime, replace stub in `AIManager`
-- **Real Audio-to-MIDI:** High-accuracy transcription (Basic Pitch or equivalent) wired to the Inspector
-- **Stem Separation:** "Separate Stems" in the Inspector using Demucs / Spleeter models
-- **Model Management UI:** Download, update, and swap AI models; keeps initial binary lean
-- **AI-Assisted Mixing:** Gain staging suggestions, EQ matching, loudness normalisation
-
 ### Expanded Platform
-- **Mobile Companion App:** Remote transport and mixer control from tablet / phone
 - **Video Support:** Video playback track with frame-accurate sync for film scoring
-- **Generative MIDI Tools:** AI-driven melodic and rhythmic generation inside the Piano Roll
 - **AI-Driven Synthesis:** Prompt-to-patch synthesis for built-in virtual instruments
+- **Score / Notation Editor:** Dorico-style notation view for MIDI clips, chord symbols, lyrics, and printable parts.
+- **Surround / Immersive Mixing:** 5.1 / 7.1 / Dolby Atmos-style routing, panners, ADM/BWF export, and monitor calibration.
+- **Scripting SDK:** Lua or JavaScript scripting API for actions, project manipulation, batch editing, and UI extensions.
 
 ---
 
-## Next up — Milestone 4: Project & Workflow (v0.3.0)
+## Milestone 4 — Completion Sprint Closed (v0.3.0)
 
-**Remaining for M4 completion (in priority order):**
+All M4 completion-sprint items shipped:
 
-**Tier 1 (critical for feature completeness):**
-1. **Bounce / Freeze (Render UI):** Wire the async freeze render (already implemented in AudioEngine) to the track UI — show frozen waveform instead of clips, add unfreeze button to Inspector / context menu.
-2. **Tempo Map (Timeline Lane UI):** Implement the interactive tempo lane in Timeline — node clicking/dragging to edit tempo, visual curve display, integration with `TimelineTempoLane::drawTempoLane()` (draw implementation complete, mouse interaction pending).
-3. **Keyboard Shortcuts (Full Panel):** Complete customisable key bindings UI in the Help menu; allow users to rebind all shortcuts (core hotkeys already wired in PianoRollEditor + Transport).
+1. ✅ **Per-track Input + Monitor Persistence** — Inspector audio input, MIDI controller pin, and monitor mode persist on the track `ValueTree`; legacy RuntimeState XML migrated on load.
+2. ✅ **Time Signature Changes UI** — Transport edits insert/update at the playhead bar; Timeline ruler shows selectable/drag-editable signature flags with preset and remove actions.
+3. ✅ **Customisable Keyboard Shortcuts** — `Source/Keymap.h` defines `AerionKeymap` + `AerionActionCatalog`; the new `KeyboardShortcutsPanel` (in `UIComponents.h`) is an editable list with click-to-capture, conflict detection (offers reassign/cancel), reset-to-defaults, and import/export of `.aerionkeys` files; bindings persist via `appProperties` under key `keymap`.
+4. ✅ **Mixer M/S Icons** — `Mixer::drawSideButtonColumn` renders mute/solo via `Timeline::drawTrackIconBtn` using `BinaryData::aerion_mute_svg` / `aerion_Solo_svg`, matching Timeline and Inspector.
+5. ✅ **Freeze/Tempo Polish Pass** — Tempo lane now shows a resize cursor and a brighter highlight on hover (`hoveredTempoNodeIndex`); non-root tempo nodes are clamped between their neighbours during drag so ordering can no longer flip; freeze/unfreeze guards (empty track, already-freezing, missing freeze WAV) verified.
 
-**Tier 2 (polish for M4 completion):**
-4. **Transport Icon Rendering:** Replace hardcoded path drawing in `Transport::drawBtn()` with loaded SVG icons (6 icons created and loaded; method update pending).
-5. **Mixer M/S Icons:** Wire mute/solo icons in Mixer side buttons to match Timeline (icons prepared, Mixer button draw pending).
-6. **Help Shortcuts Dialog:** Complete the scaffolded `HelpShortcutsDialog` — add Help menu → Keyboard Shortcuts to open it modally.
-
-**Tier 3 (M4 polish, lower impact):**
-7. **Time Signature Changes UI:** Insert per-bar time signature changes from Transport (currently time-sig display only reads, doesn't edit).
-8. **Per-track Input + Monitor Persistence:** Inspector input device, MIDI controller pin and monitor mode currently live in in-memory hash maps — round-trip them through `IDs::trackInputDeviceIdx` / `IDs::midiInputDevice` / `IDs::monitorMode` on the track ValueTree so they survive save / load.
+**Next:** Milestone 5 — performance profiling, high-DPI audit, workspace layouts, error reporting, tests/CI, and packaging.
 
 ---
 

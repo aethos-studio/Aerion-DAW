@@ -243,6 +243,8 @@ std::unique_ptr<te::UIBehaviour> AudioEngineManager::makeUIBehaviour()
 
 AudioEngineManager::AudioEngineManager()
 {
+    const auto ctorStartMs = juce::Time::getMillisecondCounterHiRes();
+
     juce::PropertiesFile::Options options;
     options.applicationName     = "Aerion DAW";
     options.filenameSuffix      = ".settings";
@@ -266,14 +268,21 @@ AudioEngineManager::AudioEngineManager()
     recentProjects.restoreFromString (
         appProperties.getUserSettings()->getValue ("recentProjects"));
 
+    keymap.loadFrom (appProperties.getUserSettings());
+
     // Session/edit first (cheap vs driver init). Opening devices is deferred to the next
     // message so the main window can show and pump events while the OS loads ASIO/WASAPI.
     setupInitialEdit();
+    juce::Logger::writeToLog ("Startup: AudioEngineManager setupInitialEdit completed in "
+                              + juce::String (juce::Time::getMillisecondCounterHiRes() - ctorStartMs, 1)
+                              + " ms");
     startTimerHz (30);
 
     juce::MessageManager::callAsync ([this]
     {
         if (closing.load()) return;
+
+        const auto deviceStartMs = juce::Time::getMillisecondCounterHiRes();
 
         std::unique_ptr<juce::XmlElement> savedAudioState (appProperties.getUserSettings()->getXmlValue ("audioDeviceState"));
         const bool firstRun = (savedAudioState == nullptr);
@@ -297,6 +306,9 @@ AudioEngineManager::AudioEngineManager()
         engine.getDeviceManager().enableOutputClipping (true);
         engine.getDeviceManager().deviceManager.addChangeListener (this);
         audioDevicesConnected = true;
+        juce::Logger::writeToLog ("Startup: audio device init completed in "
+                                  + juce::String (juce::Time::getMillisecondCounterHiRes() - deviceStartMs, 1)
+                                  + " ms");
         broadcastChange();
     });
 }
@@ -405,6 +417,7 @@ void AudioEngineManager::setTrackPhase (te::Track* track, bool phaseInverted)
 
 bool AudioEngineManager::getTrackMono (te::Track* track)
 {
+    if (track == nullptr) return false;
     // Use a custom property on the track's state ValueTree for now.
     // In a real implementation, this would toggle a mono-summing plugin.
     return track->state.getProperty ("isMono", false);
@@ -412,7 +425,9 @@ bool AudioEngineManager::getTrackMono (te::Track* track)
 
 void AudioEngineManager::setTrackMono (te::Track* track, bool mono)
 {
+    if (track == nullptr) return;
     track->state.setProperty ("isMono", mono, nullptr);
+    broadcastChange();
     
     // Logic to insert/remove a mono plugin could go here.
 }
@@ -555,12 +570,12 @@ void AudioEngineManager::changeListenerCallback (juce::ChangeBroadcaster*)
 
 void AudioEngineManager::setupInitialEdit()
 {
+    if (edit != nullptr && editListener != nullptr)
+        edit->removeListener (editListener.get());
+
     edit = te::Edit::createSingleTrackEdit (engine);
 
-    if (editListener == nullptr)
-        editListener = std::make_unique<EditListener> (*this);
-    
-    edit->addListener (editListener.get());
+    attachEditListenerToCurrentEdit();
 
     // Set a default recording directory
     auto recDir = engine.getPropertyStorage().getAppPrefsFolder().getChildFile ("Recordings");
@@ -587,6 +602,29 @@ void AudioEngineManager::setupInitialEdit()
         // Studio One-style: default master bus at 0.0 dB (Tracktion often starts lower).
         setTrackVolumeDb (master, 0.0f);
     }
+}
+
+void AudioEngineManager::attachEditListenerToCurrentEdit()
+{
+    if (edit == nullptr)
+        return;
+
+    if (editListener == nullptr)
+        editListener = std::make_unique<EditListener> (*this);
+
+    edit->addListener (editListener.get());
+}
+
+te::Track* AudioEngineManager::findTrackById (const juce::String& id) const
+{
+    if (edit == nullptr || id.isEmpty())
+        return nullptr;
+
+    for (auto* track : te::getAllTracks (*edit))
+        if (track != nullptr && track->itemID.toString() == id)
+            return track;
+
+    return nullptr;
 }
 
 juce::Array<te::AudioTrack*> AudioEngineManager::getAudioTracks()
@@ -713,22 +751,6 @@ float AudioEngineManager::getTrackPeak (te::Track* track)
             break;
         }
 
-    if (meterPlugin == nullptr)
-    {
-        // FolderTracks are organisational by default. Adding any non-VCA / non-Text plugin
-        // (including a level meter) flips Tracktion's isSubmixFolder() to true, which would
-        // silently re-promote folders to submixes on every paint. Only auto-create meters
-        // on tracks where the submix-vs-folder distinction does not apply.
-        if (dynamic_cast<te::FolderTrack*> (track) != nullptr)
-            return -100.0f;
-
-        if (auto p = edit->getPluginCache().createNewPlugin (te::LevelMeterPlugin::xmlTypeName, {}))
-        {
-            track->pluginList.insertPlugin (p, 0, nullptr);
-            meterPlugin = dynamic_cast<te::LevelMeterPlugin*> (p.get());
-        }
-    }
-
     if (meterPlugin == nullptr) return -100.0f;
 
     auto key = track->itemID.toString();
@@ -788,6 +810,7 @@ te::AudioTrack* AudioEngineManager::addAudioTrack()
             at->pluginList.insertPlugin (p, 0, nullptr);
         }
     }
+    broadcastChange();
     return t.get();
 }
 
@@ -800,6 +823,7 @@ te::AudioTrack* AudioEngineManager::addMidiTrack()
         at->state.setProperty(IDs::isMidiTrack, true, nullptr);
         // Don't add a level meter for MIDI tracks - they only carry MIDI data
     }
+    broadcastChange();
     return t.get();
 }
 
@@ -832,14 +856,25 @@ te::FolderTrack* AudioEngineManager::groupTracks (const juce::Array<te::Track*>&
 
 void AudioEngineManager::deleteTrack (te::Track* t)
 {
-    if (t != nullptr)
-        edit->deleteTrack (t);
+    if (t == nullptr)
+        return;
+
+    const auto id = t->itemID.toString();
+    edit->deleteTrack (t);
+    armedTracks.remove (id);
+    inputDeviceMap.remove (id);
+    midiInputDeviceMap.remove (id);
+    monitorModeMap.remove (id);
+    freezingTracks.remove (id);
+    trackMeters.erase (id);
+    broadcastChange();
 }
 
 void AudioEngineManager::moveTrackAfter (te::Track* t, te::Track* preceding, te::FolderTrack* folder)
 {
     if (t == nullptr) return;
     edit->moveTrack (t, te::TrackInsertPoint (folder, preceding));
+    broadcastChange();
 }
 
 namespace
@@ -882,7 +917,6 @@ void AudioEngineManager::setTrackArmed (te::Track* t, bool enabled)
             }
         }
     }
-
     if (enabled)
     {
         // Check if this is a MIDI-only track
@@ -894,9 +928,7 @@ void AudioEngineManager::setTrackArmed (te::Track* t, bool enabled)
             // Ensure the playback context exists  -  this creates InputDeviceInstances.
             edit->getTransport().ensureContextAllocated();
 
-            const auto trackKey = t->itemID.toString();
-            const int preferredMidiIdx = midiInputDeviceMap.contains (trackKey)
-                                             ? midiInputDeviceMap[trackKey] : -1;
+            const int preferredMidiIdx = getTrackMidiInputDeviceIdx (t);
 
             int midiIdx = 0;
             for (auto* in : edit->getAllInputDevices())
@@ -925,14 +957,10 @@ void AudioEngineManager::setTrackArmed (te::Track* t, bool enabled)
             // Ensure the playback context exists  -  this creates InputDeviceInstances.
             edit->getTransport().ensureContextAllocated();
 
-            const auto trackKey = t->itemID.toString();
-
             // Target each wave input to this track and enable recording.
             // If the track has a preferred device index, route only that device; otherwise route all.
-            const int preferredWaveIdx = inputDeviceMap.contains (trackKey)
-                                             ? inputDeviceMap[trackKey] : -1;
-            const int preferredMidiIdx = midiInputDeviceMap.contains (trackKey)
-                                             ? midiInputDeviceMap[trackKey] : -1;
+            const int preferredWaveIdx = getTrackInputDeviceIdx (t);
+            const int preferredMidiIdx = getTrackMidiInputDeviceIdx (t);
 
             int waveIdx = 0, midiIdx = 0;
             for (auto* in : edit->getAllInputDevices())
@@ -965,11 +993,8 @@ void AudioEngineManager::setTrackArmed (te::Track* t, bool enabled)
         // wins" rule applies when several armed tracks share an input - which
         // matches every other Tracktion-based DAW.
         const auto teMode = toTeMonitorMode (getTrackMonitorMode (t));
-        const auto trackKey = t->itemID.toString();
-        const int preferredMidiIdx2 = midiInputDeviceMap.contains (trackKey)
-                                           ? midiInputDeviceMap[trackKey] : -1;
-        const int preferredWaveIdx2 = inputDeviceMap.contains (trackKey)
-                                           ? inputDeviceMap[trackKey] : -1;
+        const int preferredMidiIdx2 = getTrackMidiInputDeviceIdx (t);
+        const int preferredWaveIdx2 = getTrackInputDeviceIdx (t);
         int waveIdx2 = 0, midiIdx2 = 0;
         for (auto* in : edit->getAllInputDevices())
         {
@@ -999,6 +1024,8 @@ void AudioEngineManager::setTrackArmed (te::Track* t, bool enabled)
                 in->getInputDevice().setMonitorMode (te::InputDevice::MonitorMode::off);
         }
     }
+
+    broadcastChange();
 }
 
 bool AudioEngineManager::isTrackArmed (te::Track* t) const
@@ -1050,10 +1077,12 @@ void AudioEngineManager::toggleTrackMute (te::Track* t)
     if (t == nullptr) return;
     bool newState = ! t->isMuted (false);
     t->setMute (newState);
-    
+
     if (auto* f = dynamic_cast<te::FolderTrack*> (t))
         for (auto* child : f->getAllAudioSubTracks (true))
             child->setMute (newState);
+
+    broadcastChange();
 }
 
 void AudioEngineManager::removePlugin (te::Plugin* plugin)
@@ -1142,10 +1171,12 @@ void AudioEngineManager::toggleTrackSolo (te::Track* t)
     if (t == nullptr) return;
     bool newState = ! t->isSolo (false);
     t->setSolo (newState);
-    
+
     if (auto* f = dynamic_cast<te::FolderTrack*> (t))
         for (auto* child : f->getAllAudioSubTracks (true))
             child->setSolo (newState);
+
+    broadcastChange();
 }
 
 double AudioEngineManager::getTempoAtPosition (double seconds)
@@ -1173,8 +1204,165 @@ void AudioEngineManager::setTimeSig (int numerator, int denominator)
 {
     if (edit == nullptr) return;
     auto& ts = edit->tempoSequence;
-    ts.getTimeSigAt (te::TimePosition()).setStringTimeSig (juce::String::formatted ("%d/%d", numerator, denominator));
+    ts.getTimeSigAt (te::TimePosition()).setStringTimeSig (juce::String::formatted ("%d/%d",
+                                                                                    juce::jlimit (1, 32, numerator),
+                                                                                    juce::jlimit (1, 32, denominator)));
     broadcastChange();
+}
+
+int AudioEngineManager::getNumTimeSigs() const
+{
+    return edit != nullptr ? edit->tempoSequence.getNumTimeSigs() : 0;
+}
+
+double AudioEngineManager::getTimeSigStartBeat (int index) const
+{
+    if (edit == nullptr || index < 0 || index >= edit->tempoSequence.getNumTimeSigs())
+        return 0.0;
+
+    if (auto* timeSig = edit->tempoSequence.getTimeSig (index))
+        return timeSig->getStartBeat().inBeats();
+
+    return 0.0;
+}
+
+juce::String AudioEngineManager::getTimeSigAtIndex (int index) const
+{
+    if (edit == nullptr || index < 0 || index >= edit->tempoSequence.getNumTimeSigs())
+        return "4/4";
+
+    if (auto* timeSig = edit->tempoSequence.getTimeSig (index))
+        return timeSig->getStringTimeSig();
+
+    return "4/4";
+}
+
+void AudioEngineManager::setTimeSigAtBeat (double beat, int numerator, int denominator)
+{
+    if (edit == nullptr)
+        return;
+
+    numerator = juce::jlimit (1, 32, numerator);
+    denominator = juce::jlimit (1, 32, denominator);
+
+    auto& ts = edit->tempoSequence;
+    const auto targetBeat = tracktion::BeatPosition::fromBeats (juce::jmax (0.0, beat));
+    auto& existing = ts.getTimeSigAt (targetBeat);
+
+    tracktion::TimeSigSetting* target = &existing;
+    if (std::abs (existing.getStartBeat().inBeats() - targetBeat.inBeats()) > 0.0001)
+        target = ts.insertTimeSig (targetBeat).get();
+
+    if (target != nullptr)
+    {
+        target->setStringTimeSig (juce::String::formatted ("%d/%d", numerator, denominator));
+        broadcastChange();
+    }
+}
+
+void AudioEngineManager::setTimeSigAtPosition (double seconds, int numerator, int denominator)
+{
+    if (edit == nullptr)
+        return;
+
+    auto& ts = edit->tempoSequence;
+    auto barsAndBeats = ts.toBarsAndBeats (tracktion::TimePosition::fromSeconds (juce::jmax (0.0, seconds)));
+    barsAndBeats.beats = tracktion::BeatDuration();
+    const auto beat = ts.toBeats (ts.toTime (barsAndBeats));
+    setTimeSigAtBeat (beat.inBeats(), numerator, denominator);
+}
+
+void AudioEngineManager::removeTimeSigAtIndex (int index)
+{
+    if (edit == nullptr || index <= 0 || index >= edit->tempoSequence.getNumTimeSigs())
+        return;
+
+    edit->tempoSequence.removeTimeSig (index);
+    broadcastChange();
+}
+
+void AudioEngineManager::moveTimeSigAtIndexToBeat (int index, double beat)
+{
+    if (edit == nullptr || index <= 0 || index >= edit->tempoSequence.getNumTimeSigs())
+        return;
+
+    if (auto* timeSig = edit->tempoSequence.getTimeSig (index))
+    {
+        const auto delta = tracktion::BeatDuration::fromBeats (juce::jmax (0.0, beat) - timeSig->getStartBeat().inBeats());
+        edit->tempoSequence.moveTimeSigStart (index, delta, true);
+        broadcastChange();
+    }
+}
+
+int AudioEngineManager::getNumTempos() const
+{
+    return edit != nullptr ? edit->tempoSequence.getNumTempos() : 0;
+}
+
+double AudioEngineManager::getTempoStartBeat (int index) const
+{
+    if (edit == nullptr || index < 0 || index >= edit->tempoSequence.getNumTempos())
+        return 0.0;
+
+    if (auto* tempo = edit->tempoSequence.getTempo (index))
+        return tempo->getStartBeat().inBeats();
+
+    return 0.0;
+}
+
+double AudioEngineManager::getTempoBpm (int index) const
+{
+    if (edit == nullptr || index < 0 || index >= edit->tempoSequence.getNumTempos())
+        return 120.0;
+
+    if (auto* tempo = edit->tempoSequence.getTempo (index))
+        return tempo->getBpm();
+
+    return 120.0;
+}
+
+void AudioEngineManager::insertTempoAtBeat (double beat, double bpm)
+{
+    if (edit == nullptr)
+        return;
+
+    auto& ts = edit->tempoSequence;
+    bpm = juce::jlimit (te::TempoSetting::minBPM, te::TempoSetting::maxBPM, bpm);
+    ts.insertTempo (te::BeatPosition::fromBeats (juce::jmax (0.0, beat)), bpm, 0.0f);
+    broadcastChange();
+}
+
+void AudioEngineManager::removeTempoAtIndex (int index)
+{
+    if (edit == nullptr || index <= 0 || index >= edit->tempoSequence.getNumTempos())
+        return;
+
+    edit->tempoSequence.removeTempo (index, true);
+    broadcastChange();
+}
+
+void AudioEngineManager::setTempoBpmAtIndex (int index, double bpm)
+{
+    if (edit == nullptr || index < 0 || index >= edit->tempoSequence.getNumTempos())
+        return;
+
+    if (auto* tempo = edit->tempoSequence.getTempo (index))
+    {
+        tempo->setBpm (juce::jlimit (te::TempoSetting::minBPM, te::TempoSetting::maxBPM, bpm));
+        broadcastChange();
+    }
+}
+
+void AudioEngineManager::moveTempoAtIndexToBeat (int index, double beat)
+{
+    if (edit == nullptr || index <= 0 || index >= edit->tempoSequence.getNumTempos())
+        return;
+
+    if (auto* tempo = edit->tempoSequence.getTempo (index))
+    {
+        tempo->setStartBeat (te::BeatPosition::fromBeats (juce::jmax (0.0, beat)));
+        broadcastChange();
+    }
 }
 
 bool AudioEngineManager::isMetronomeEnabled() const
@@ -1186,7 +1374,9 @@ bool AudioEngineManager::isMetronomeEnabled() const
 void AudioEngineManager::setMetronomeEnabled (bool enabled)
 {
     if (edit == nullptr) return;
+    if ((bool) edit->clickTrackEnabled == enabled) return;
     edit->clickTrackEnabled = enabled;
+    broadcastChange();
 }
 
 void AudioEngineManager::toggleMetronome()
@@ -1209,6 +1399,7 @@ void AudioEngineManager::setMetronomeVolumeDb (float db)
     static constexpr float kMaxGain = 31.623f; // +30 dB
     float gain = juce::jlimit (0.0f, kMaxGain, std::pow (10.0f, db / 20.0f));
     edit->clickTrackGain = gain;
+    broadcastChange();
 }
 
 juce::String AudioEngineManager::getBarsBeatsString (double seconds)
@@ -1243,6 +1434,7 @@ void AudioEngineManager::importAudioFile (const juce::File& file)
         track->insertWaveClip (file.getFileNameWithoutExtension(), file,
                                { { te::TimePosition::fromSeconds (0.0), te::TimeDuration::fromSeconds (len) }, te::TimeDuration::fromSeconds (0.0) },
                                false);
+        broadcastChange();
     }
 }
 
@@ -1262,7 +1454,10 @@ tracktion::WaveAudioClip* AudioEngineManager::insertAudioClipOnTrack (
           te::TimeDuration::fromSeconds (0.0) },
         false);
 
-    return dynamic_cast<tracktion::WaveAudioClip*> (clip.get());
+    auto* waveClip = dynamic_cast<tracktion::WaveAudioClip*> (clip.get());
+    if (waveClip != nullptr)
+        broadcastChange();
+    return waveClip;
 }
 
 tracktion::AudioTrack* AudioEngineManager::importAudioFileAtPosition (
@@ -1358,6 +1553,8 @@ void AudioEngineManager::loadProject (const juce::File& file, class ProjectData*
 {
     if (!file.existsAsFile()) return;
 
+    const auto loadStartMs = juce::Time::getMillisecondCounterHiRes();
+
     if (auto xml = juce::XmlDocument::parse (file))
     {
         juce::XmlElement* editXml = nullptr;
@@ -1368,23 +1565,55 @@ void AudioEngineManager::loadProject (const juce::File& file, class ProjectData*
             // New format with RuntimeState
             if (auto* runtimeElem = xml->getChildByName ("RuntimeState"))
                 restoreRuntimeStateFromXml (*runtimeElem);
+            else
+            {
+                armedTracks.clear();
+                inputDeviceMap.clear();
+                midiInputDeviceMap.clear();
+                monitorModeMap.clear();
+                punchEnabled = false;
+            }
 
             editXml = xml->getChildByName ("EDIT");
         }
         else
         {
             // Legacy format: root is the EDIT
+            armedTracks.clear();
+            inputDeviceMap.clear();
+            midiInputDeviceMap.clear();
+            monitorModeMap.clear();
+            punchEnabled = false;
             editXml = xml.get();
         }
 
         if (editXml == nullptr) return;
 
+        if (edit != nullptr && editListener != nullptr)
+            edit->removeListener (editListener.get());
+
         auto vt = juce::ValueTree::fromXml (*editXml);
         edit = te::loadEditFromState (engine, vt, te::Edit::forEditing);
-        edit->addListener (editListener.get());
+        attachEditListenerToCurrentEdit();
 
         thumbnails.clear();
+        trackMeters.clear();
+        freezingTracks.clear();
         syncFolderRouting();
+
+        for (auto* track : te::getAudioTracks (*edit))
+        {
+            const bool isMidiTrack = (bool) track->state.getProperty(IDs::isMidiTrack, false);
+            if (! isMidiTrack
+                && dynamic_cast<te::FolderTrack*> (track) == nullptr
+                && track->getLevelMeterPlugin() == nullptr)
+            {
+                if (auto p = edit->getPluginCache().createNewPlugin (te::LevelMeterPlugin::xmlTypeName, {}))
+                    track->pluginList.insertPlugin (p, 0, nullptr);
+            }
+        }
+
+        applyRestoredRuntimeStateToEdit();
 
         // Collect missing audio files
         juce::StringArray missingFiles;
@@ -1432,6 +1661,10 @@ void AudioEngineManager::loadProject (const juce::File& file, class ProjectData*
                                                        "Missing Audio Files", message);
             });
         }
+
+        juce::Logger::writeToLog ("Project: loaded " + file.getFileName()
+                                  + " in " + juce::String (juce::Time::getMillisecondCounterHiRes() - loadStartMs, 1)
+                                  + " ms");
     }
 }
 
@@ -1511,6 +1744,55 @@ void AudioEngineManager::restoreRuntimeStateFromXml (const juce::XmlElement& run
         punchEnabled = punchElem->getIntAttribute ("value", 0) != 0;
 }
 
+void AudioEngineManager::applyRestoredRuntimeStateToEdit()
+{
+    if (edit == nullptr)
+        return;
+
+    for (auto* track : te::getAllTracks (*edit))
+    {
+        if (track == nullptr)
+            continue;
+
+        const auto id = track->itemID.toString();
+
+        if (inputDeviceMap.contains (id))
+            track->state.setProperty (IDs::trackInputDeviceIdx, inputDeviceMap[id], nullptr);
+        else if (track->state.hasProperty (IDs::trackInputDeviceIdx))
+            inputDeviceMap.set (id, (int) track->state.getProperty (IDs::trackInputDeviceIdx, -1));
+
+        if (midiInputDeviceMap.contains (id))
+            track->state.setProperty (IDs::midiInputDevice, midiInputDeviceMap[id], nullptr);
+        else if (track->state.hasProperty (IDs::midiInputDevice))
+            midiInputDeviceMap.set (id, (int) track->state.getProperty (IDs::midiInputDevice, -1));
+
+        if (monitorModeMap.contains (id))
+        {
+            auto mode = static_cast<MonitorMode> (monitorModeMap[id]);
+            if (mode != MonitorMode::Auto && mode != MonitorMode::On && mode != MonitorMode::Off)
+            {
+                mode = MonitorMode::Auto;
+                monitorModeMap.set (id, static_cast<int> (mode));
+            }
+
+            track->state.setProperty (IDs::monitorMode, static_cast<int> (mode), nullptr);
+        }
+        else if (track->state.hasProperty (IDs::monitorMode))
+        {
+            auto mode = static_cast<MonitorMode> ((int) track->state.getProperty (IDs::monitorMode,
+                                                                                  static_cast<int> (MonitorMode::Auto)));
+            if (mode != MonitorMode::Auto && mode != MonitorMode::On && mode != MonitorMode::Off)
+                mode = MonitorMode::Auto;
+
+            monitorModeMap.set (id, static_cast<int> (mode));
+            track->state.setProperty (IDs::monitorMode, static_cast<int> (mode), nullptr);
+        }
+
+        if (armedTracks.contains (id) && armedTracks[id])
+            setTrackArmed (track, true);
+    }
+}
+
 te::SmartThumbnail& AudioEngineManager::getThumbnailForClip (te::WaveAudioClip& clip, juce::Component& comp)
 {
     auto it = thumbnails.find (clip.itemID.getRawID());
@@ -1529,40 +1811,72 @@ bool AudioEngineManager::isTrackFrozen (te::AudioTrack* track) const
     return (bool) track->state.getProperty(IDs::frozen, false);
 }
 
+bool AudioEngineManager::isTrackFreezing (te::Track* track) const
+{
+    if (track == nullptr)
+        return false;
+
+    const auto id = track->itemID.toString();
+    return freezingTracks.contains (id) && freezingTracks[id];
+}
+
 struct FreezeListener : public MixdownExportJob::Listener {
-    te::AudioTrack*     track;
+    juce::WeakReference<AudioEngineManager> owner;
+    juce::String        trackId;
+    juce::ValueTree     preFreeze;
     juce::File          destFile;
     double              insertAt;
-    AudioEngineManager* owner;
 
-    FreezeListener(AudioEngineManager* o, te::AudioTrack* t, juce::File f, double at)
-        : track(t), destFile(f), insertAt(at), owner(o) {}
+    FreezeListener(AudioEngineManager* o, juce::String id, juce::ValueTree state, juce::File f, double at)
+        : owner(o), trackId(std::move(id)), preFreeze(std::move(state)), destFile(f), insertAt(at) {}
 
     void exportProgress(float) override {}
 
     void exportFinished(const MixdownExportJob::Result& result) override {
-        if (result.ok && owner && track) {
-            juce::MessageManager::callAsync([this, result]() {
-                if (!owner || !track) return;
+        auto ownerRef = owner;
+        auto id = trackId;
+        auto state = preFreeze;
+        auto file = destFile;
+        auto at = insertAt;
 
-                // Remove original clips
-                auto clips = track->getClips();
-                for (auto* c : clips)
-                    c->removeFromParent();
+        juce::MessageManager::callAsync([ownerRef, id, state, file, at, result]() mutable {
+            if (ownerRef == nullptr)
+                return;
 
-                // Insert rendered WAV
-                owner->insertAudioClipOnTrack(track, result.outputFile, insertAt);
+            ownerRef->freezingTracks.remove (id);
 
-                // Bypass external plugins
-                for (auto* p : track->getAllPlugins())
-                    if (dynamic_cast<te::ExternalPlugin*>(p))
-                        p->setEnabled(false);
+            if (! result.ok)
+            {
+                ownerRef->broadcastChange();
+                return;
+            }
 
-                // Mark frozen
-                track->state.setProperty(IDs::frozen, true, nullptr);
-                track->state.setProperty(IDs::freezeFile, destFile.getFullPathName(), nullptr);
-            });
-        }
+            auto* track = dynamic_cast<te::AudioTrack*> (ownerRef->findTrackById (id));
+            if (track == nullptr)
+            {
+                ownerRef->broadcastChange();
+                return;
+            }
+
+            auto oldPreFreeze = track->state.getChildWithName(IDs::preFreeze);
+            if (oldPreFreeze.isValid())
+                track->state.removeChild(oldPreFreeze, nullptr);
+            track->state.addChild(state, -1, nullptr);
+
+            auto clips = track->getClips();
+            for (auto* c : clips)
+                c->removeFromParent();
+
+            ownerRef->insertAudioClipOnTrack(track, result.outputFile, at);
+
+            for (auto* p : track->getAllPlugins())
+                if (dynamic_cast<te::ExternalPlugin*>(p))
+                    p->setEnabled(false);
+
+            track->state.setProperty(IDs::frozen, true, nullptr);
+            track->state.setProperty(IDs::freezeFile, file.getFullPathName(), nullptr);
+            ownerRef->broadcastChange();
+        });
         delete this;
     }
 };
@@ -1570,6 +1884,10 @@ struct FreezeListener : public MixdownExportJob::Listener {
 void AudioEngineManager::freezeTrack (te::AudioTrack* track)
 {
     if (track == nullptr || isTrackFrozen(track)) return;
+
+    const auto trackId = track->itemID.toString();
+    if (freezingTracks.contains (trackId) && freezingTracks[trackId])
+        return;
 
     auto clips = track->getClips();
     if (clips.isEmpty()) return;
@@ -1597,12 +1915,6 @@ void AudioEngineManager::freezeTrack (te::AudioTrack* track)
         preFreeze.addChild(cs, -1, nullptr);
     }
 
-    // Clear any existing preFreeze and add new one
-    auto oldPreFreeze = track->state.getChildWithName(IDs::preFreeze);
-    if (oldPreFreeze.isValid())
-        track->state.removeChild(oldPreFreeze, nullptr);
-    track->state.addChild(preFreeze, -1, nullptr);
-
     // Build destination WAV path
     auto freezeDir = engine.getPropertyStorage().getAppPrefsFolder().getChildFile("Recovery");
     if (!freezeDir.createDirectory().wasOk()) return;
@@ -1620,7 +1932,10 @@ void AudioEngineManager::freezeTrack (te::AudioTrack* track)
 
     if (!job->isValid()) return;
 
-    job->addListener(new FreezeListener(this, track, destFile, rangeStart));
+    freezingTracks.set (trackId, true);
+    broadcastChange();
+
+    job->addListener(new FreezeListener(this, trackId, preFreeze, destFile, rangeStart));
     job->start();
 }
 
@@ -1728,7 +2043,7 @@ void AudioEngineManager::setAutoSaveIntervalMins (int mins)
     }
 }
 
-juce::StringArray AudioEngineManager::collectAndSave (const juce::File& projectFile)
+juce::StringArray AudioEngineManager::collectAndSave (const juce::File& projectFile, class ProjectData* projectData)
 {
     juce::StringArray skipped;
     if (edit == nullptr || !projectFile.hasFileExtension ("aerion")) return skipped;
@@ -1783,7 +2098,7 @@ juce::StringArray AudioEngineManager::collectAndSave (const juce::File& projectF
     }
 
     // Save the project with updated paths
-    saveProject (projectFile);
+    saveProject (projectFile, projectData);
     thumbnails.clear();
     broadcastChange();
 
@@ -2016,6 +2331,7 @@ namespace
 
         void run() override
         {
+            const auto scanStartMs = juce::Time::getMillisecondCounterHiRes();
             auto& fm   = owner.getEngine().getPluginManager().pluginFormatManager;
             auto& list = owner.getEngine().getPluginManager().knownPluginList;
 
@@ -2078,11 +2394,15 @@ namespace
             }
 
             juce::WeakReference<AudioEngineManager> weak = weakOwner;
+            const auto elapsedMs = juce::Time::getMillisecondCounterHiRes() - scanStartMs;
             juce::MessageManager::callAsync ([weak, finishedNormally]
             {
                 if (auto* o = weak.get())
                     o->notifyScanFinished (finishedNormally);
             });
+            juce::Logger::writeToLog ("Startup: plugin scan "
+                                      + juce::String (finishedNormally ? "finished" : "cancelled")
+                                      + " in " + juce::String (elapsedMs, 1) + " ms");
         }
 
         AudioEngineManager& owner;
@@ -2096,6 +2416,7 @@ void AudioEngineManager::scanPlugins()
     if (scanInFlight.exchange (true))
         return; // Already scanning.
 
+    const auto scanSetupStartMs = juce::Time::getMillisecondCounterHiRes();
     auto& list = engine.getPluginManager().knownPluginList;
     auto cacheFile = engine.getPropertyStorage().getAppPrefsFolder().getChildFile ("Plugins.xml");
 
@@ -2124,6 +2445,9 @@ void AudioEngineManager::scanPlugins()
     auto t = std::make_unique<PluginScanThread> (*this, cacheFile);
     scanThread = std::unique_ptr<juce::Thread> (t.release());
     scanThread->startThread();
+    juce::Logger::writeToLog ("Startup: plugin scan setup completed in "
+                              + juce::String (juce::Time::getMillisecondCounterHiRes() - scanSetupStartMs, 1)
+                              + " ms");
 }
 
 void AudioEngineManager::deletePluginFromBrowserList (const juce::PluginDescription& desc)
@@ -2177,7 +2501,9 @@ void AudioEngineManager::timerCallback()
 
 void AudioEngineManager::setMetronomeAccentEnabled (bool on)
 {
+    if ((bool) edit->clickTrackEmphasiseBars == on) return;
     edit->clickTrackEmphasiseBars = on;
+    broadcastChange();
 }
 
 bool AudioEngineManager::isMetronomeAccentEnabled() const
@@ -2188,7 +2514,10 @@ bool AudioEngineManager::isMetronomeAccentEnabled() const
 void AudioEngineManager::setCountInMode (int bars)
 {
     using CI = te::Edit::CountIn;
+    const auto oldMode = edit->getCountInMode();
     edit->setCountInMode (bars == 1 ? CI::oneBar : bars == 2 ? CI::twoBar : CI::none);
+    if (edit->getCountInMode() != oldMode)
+        broadcastChange();
 }
 
 int AudioEngineManager::getCountInBars() const
@@ -2204,12 +2533,16 @@ int AudioEngineManager::getCountInBars() const
 
 void AudioEngineManager::setPunchEnabled (bool on)
 {
+    if (punchEnabled == on) return;
     punchEnabled = on;
+    broadcastChange();
 }
 
 void AudioEngineManager::setLatencyCompensationEnabled (bool on)
 {
+    if (edit->isLatencyCompensationEnabled() == on) return;
     edit->setLatencyCompensationEnabled (on);
+    broadcastChange();
 }
 
 bool AudioEngineManager::isLatencyCompensationEnabled() const
@@ -2231,17 +2564,23 @@ void AudioEngineManager::setTrackInputDevice (te::Track* track, int waveDeviceId
 {
     if (track == nullptr) return;
     inputDeviceMap.set (track->itemID.toString(), waveDeviceIdx);
+    track->state.setProperty (IDs::trackInputDeviceIdx, waveDeviceIdx, nullptr);
 
     // If currently armed, re-arm with the new device selection.
     if (isTrackArmed (track))
         setTrackArmed (track, true);
+    else
+        broadcastChange();
 }
 
 int AudioEngineManager::getTrackInputDeviceIdx (te::Track* track) const
 {
     if (track == nullptr) return -1;
     auto key = track->itemID.toString();
-    return inputDeviceMap.contains (key) ? inputDeviceMap[key] : -1;
+    if (inputDeviceMap.contains (key))
+        return inputDeviceMap[key];
+
+    return (int) track->state.getProperty (IDs::trackInputDeviceIdx, -1);
 }
 
 juce::StringArray AudioEngineManager::getMidiInputDeviceNames() const
@@ -2258,36 +2597,52 @@ void AudioEngineManager::setTrackMidiInputDevice (te::Track* track, int midiDevi
 {
     if (track == nullptr) return;
     midiInputDeviceMap.set (track->itemID.toString(), midiDeviceIdx);
+    track->state.setProperty (IDs::midiInputDevice, midiDeviceIdx, nullptr);
 
     // If currently armed, re-arm with the new MIDI device selection.
     if (isTrackArmed (track))
         setTrackArmed (track, true);
+    else
+        broadcastChange();
 }
 
 int AudioEngineManager::getTrackMidiInputDeviceIdx (te::Track* track) const
 {
     if (track == nullptr) return -1;
     auto key = track->itemID.toString();
-    return midiInputDeviceMap.contains (key) ? midiInputDeviceMap[key] : -1;
+    if (midiInputDeviceMap.contains (key))
+        return midiInputDeviceMap[key];
+
+    return (int) track->state.getProperty (IDs::midiInputDevice, -1);
 }
 
 void AudioEngineManager::setTrackMonitorMode (te::Track* track, MonitorMode mode)
 {
     if (track == nullptr) return;
     monitorModeMap.set (track->itemID.toString(), static_cast<int> (mode));
+    track->state.setProperty (IDs::monitorMode, static_cast<int> (mode), nullptr);
 
     // If the track is currently armed, push the new mode through immediately
     // so the user hears the change without having to disarm/re-arm.
     if (isTrackArmed (track))
         setTrackArmed (track, true);
+    else
+        broadcastChange();
 }
 
 AudioEngineManager::MonitorMode AudioEngineManager::getTrackMonitorMode (te::Track* track) const
 {
     if (track == nullptr) return MonitorMode::Auto;
     auto key = track->itemID.toString();
-    if (! monitorModeMap.contains (key)) return MonitorMode::Auto;
-    return static_cast<MonitorMode> (monitorModeMap[key]);
+    const auto rawMode = monitorModeMap.contains (key)
+        ? monitorModeMap[key]
+        : (int) track->state.getProperty (IDs::monitorMode, static_cast<int> (MonitorMode::Auto));
+
+    auto mode = static_cast<MonitorMode> (rawMode);
+    if (mode != MonitorMode::Auto && mode != MonitorMode::On && mode != MonitorMode::Off)
+        return MonitorMode::Auto;
+
+    return mode;
 }
 
 AudioEngineManager::BufferInfo AudioEngineManager::getBufferInfo() const

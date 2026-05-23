@@ -43,6 +43,8 @@ namespace IDs
     DECLARE_ID (punchEnabled);
     DECLARE_ID (pdcEnabled);
     DECLARE_ID (trackInputDeviceIdx);
+    DECLARE_ID (midiInputDevice);
+    DECLARE_ID (monitorMode);
 
     DECLARE_ID (isMidiTrack);
 
@@ -73,7 +75,7 @@ public:
     // Syncs the ProjectData tree with the live Tracktion Engine state
     void syncWithEngine (tracktion::Edit& edit);
 
-    // Creates the initial mock data representing src/data.ts
+    // Legacy design/demo seed data. Runtime startup uses an empty tree and syncs from the engine.
     void createMockData();
 
 private:

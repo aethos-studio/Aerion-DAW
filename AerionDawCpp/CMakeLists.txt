@@ -103,6 +103,7 @@ target_sources(AerionDaw PRIVATE
     Source/ProjectData.cpp
     Source/AudioEngine.h
     Source/AudioEngine.cpp
+    Source/Keymap.h
     Source/LogoComponent.h
     Source/GoogleDriveClient.h
     Source/GoogleDriveClient.cpp

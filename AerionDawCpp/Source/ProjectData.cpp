@@ -1,8 +1,18 @@
 #include "ProjectData.h"
+#include <map>
 
 ProjectData::ProjectData()
 {
-    createMockData();
+    auto tracksTree = juce::ValueTree (IDs::Tracks);
+    auto auxTracksTree = juce::ValueTree (IDs::AuxTracks);
+
+    projectTree.addChild (tracksTree, -1, nullptr);
+    projectTree.addChild (auxTracksTree, -1, nullptr);
+
+    projectTree.setProperty (IDs::snapEnabled, true, nullptr);
+    projectTree.setProperty (IDs::snapInterval, 1.0, nullptr);
+    projectTree.setProperty (IDs::autoCrossfadeEnabled, true, nullptr);
+    projectTree.setProperty (IDs::autoCrossfadeMaxMs, 120, nullptr);
 }
 
 juce::ValueTree ProjectData::getTrackTree (int id) const
@@ -38,14 +48,48 @@ void ProjectData::syncWithEngine (tracktion::Edit& edit)
         projectTree.addChild (tracksTree, -1, nullptr);
     }
 
-    auto topLevel = tracktion::getTopLevelTracks (edit);
+    juce::Array<tracktion::Track*> visibleTracks;
+
+    auto isVisibleTrack = [] (tracktion::Track* t)
+    {
+        return t != nullptr
+            && ! t->isMasterTrack()
+            && ! t->isTempoTrack()
+            && ! t->isMarkerTrack()
+            && ! t->isChordTrack()
+            && ! t->isArrangerTrack()
+            && (dynamic_cast<tracktion::AudioTrack*> (t) != nullptr
+                || dynamic_cast<tracktion::FolderTrack*> (t) != nullptr);
+    };
+
+    std::function<void(tracktion::Track*)> addRecursive = [&] (tracktion::Track* t)
+    {
+        if (! isVisibleTrack (t))
+            return;
+
+        visibleTracks.add (t);
+
+        if (auto* folder = dynamic_cast<tracktion::FolderTrack*> (t))
+            for (auto* child : folder->getAllAudioSubTracks (false))
+                addRecursive (child);
+    };
+
+    for (auto* t : tracktion::getTopLevelTracks (edit))
+        addRecursive (t);
+
+    std::map<juce::String, juce::ValueTree> existingTracks;
+    for (int i = 0; i < tracksTree.getNumChildren(); ++i)
+    {
+        auto track = tracksTree.getChild (i);
+        existingTracks[track.getProperty (IDs::id).toString()] = track;
+    }
 
     // 1. Remove tracks not in edit
     for (int i = tracksTree.getNumChildren(); --i >= 0;)
     {
         auto id = tracksTree.getChild (i).getProperty (IDs::id).toString();
         bool found = false;
-        for (auto* t : topLevel)
+        for (auto* t : visibleTracks)
             if (t->itemID.toString() == id) { found = true; break; }
         if (! found)
             tracksTree.removeChild (i, nullptr);
@@ -53,19 +97,18 @@ void ProjectData::syncWithEngine (tracktion::Edit& edit)
 
     // 2. Add or update tracks
     int desiredIndex = 0;
-    for (auto* t : topLevel)
+    for (auto* t : visibleTracks)
     {
-        if (t->isMasterTrack() || t->isTempoTrack() || t->isMarkerTrack() || t->isChordTrack() || t->isArrangerTrack())
-            continue; // Only show our filtered audio/folder tracks
-
         juce::String id = t->itemID.toString();
-        auto track = getTrackTree (id);
+        auto found = existingTracks.find (id);
+        auto track = found != existingTracks.end() ? found->second : juce::ValueTree();
 
         if (! track.isValid())
         {
             track = juce::ValueTree (IDs::Track);
             track.setProperty (IDs::id, id, nullptr);
             tracksTree.addChild (track, desiredIndex, nullptr);
+            existingTracks[id] = track;
         }
         else
         {
@@ -104,6 +147,16 @@ void ProjectData::syncWithEngine (tracktion::Edit& edit)
 
         if ((float)track.getProperty (IDs::level, 0.0f) != vol) track.setProperty (IDs::level, vol, nullptr);
         if ((float)track.getProperty (IDs::pan, 0.0f) != pan) track.setProperty (IDs::pan, pan, nullptr);
+
+        const int inputDeviceIdx = (int) t->state.getProperty (IDs::trackInputDeviceIdx, -1);
+        const int midiInputIdx   = (int) t->state.getProperty (IDs::midiInputDevice, -1);
+        const int monitorMode    = (int) t->state.getProperty (IDs::monitorMode, 0);
+        if ((int) track.getProperty (IDs::trackInputDeviceIdx, -1) != inputDeviceIdx)
+            track.setProperty (IDs::trackInputDeviceIdx, inputDeviceIdx, nullptr);
+        if ((int) track.getProperty (IDs::midiInputDevice, -1) != midiInputIdx)
+            track.setProperty (IDs::midiInputDevice, midiInputIdx, nullptr);
+        if ((int) track.getProperty (IDs::monitorMode, 0) != monitorMode)
+            track.setProperty (IDs::monitorMode, monitorMode, nullptr);
 
         desiredIndex++;
     }

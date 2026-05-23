@@ -7,6 +7,7 @@
 #include "UI/Primitives.h"
 #include "UI/LookAndFeel.h"
 #include "UI/ThemeTypefaces.h"
+#include <limits>
 
 enum class EditTool { select, razor, comp };
 
@@ -397,6 +398,295 @@ private:
 };
 
 //==============================================================================
+// Editable keyboard-shortcut editor. Lists every catalog action, lets the user
+// click a row to capture a new key, detects conflicts, and supports
+// reset-to-defaults plus import/export of keymap files.
+class KeyboardShortcutsPanel : public juce::Component,
+                               public juce::ListBoxModel
+{
+public:
+    KeyboardShortcutsPanel (AerionKeymap& km, juce::PropertiesFile* settings)
+        : keymap (km), props (settings)
+    {
+        rebuildRows();
+
+        list.setModel (this);
+        list.setRowHeight (26);
+        list.setWantsKeyboardFocus (false);
+        list.setColour (juce::ListBox::backgroundColourId, Theme::bgPanel);
+        addAndMakeVisible (list);
+
+        auto initBtn = [this] (juce::TextButton& b, const juce::String& text)
+        {
+            b.setButtonText (text);
+            addAndMakeVisible (b);
+        };
+        initBtn (resetBtn,  "Reset to Defaults");
+        initBtn (importBtn, "Import...");
+        initBtn (exportBtn, "Export...");
+        initBtn (closeBtn,  "Close");
+
+        resetBtn.onClick  = [this]
+        {
+            keymap.resetToDefaults();
+            persist();
+            cancelCapture();
+        };
+        importBtn.onClick = [this] { runImport(); };
+        exportBtn.onClick = [this] { runExport(); };
+        closeBtn.onClick  = [this]
+        {
+            if (auto* dw = findParentComponentOfClass<juce::DialogWindow>())
+                dw->closeButtonPressed();
+        };
+
+        setWantsKeyboardFocus (true);
+        setSize (460, 540);
+    }
+
+    void resized() override
+    {
+        auto r = getLocalBounds().reduced (10);
+        auto footer = r.removeFromBottom (34);
+        r.removeFromBottom (8);
+        list.setBounds (r);
+
+        const int gap = 6;
+        const int w = (footer.getWidth() - gap * 3) / 4;
+        resetBtn .setBounds (footer.removeFromLeft (w + 24)); footer.removeFromLeft (gap);
+        importBtn.setBounds (footer.removeFromLeft (w - 8));  footer.removeFromLeft (gap);
+        exportBtn.setBounds (footer.removeFromLeft (w - 8));  footer.removeFromLeft (gap);
+        closeBtn .setBounds (footer);
+    }
+
+    void paint (juce::Graphics& g) override { g.fillAll (Theme::bgPanel); }
+
+    //== ListBoxModel ==========================================================
+    int getNumRows() override { return (int) rows.size(); }
+
+    void paintListBoxItem (int rowNumber, juce::Graphics& g,
+                           int width, int height, bool) override
+    {
+        if (! juce::isPositiveAndBelow (rowNumber, (int) rows.size()))
+            return;
+
+        const auto& row = rows[(size_t) rowNumber];
+        auto b = juce::Rectangle<int> (0, 0, width, height);
+
+        if (row.isHeader)
+        {
+            g.setColour (Theme::surface);
+            g.fillRect (b);
+            g.setColour (Theme::accent);
+            g.setFont (Theme::uiSize (10.5f).withStyle (juce::Font::bold));
+            g.drawText (row.text.toUpperCase(), b.reduced (8, 0),
+                        juce::Justification::centredLeft, false);
+            return;
+        }
+
+        const bool capturing = (capturingId == row.id);
+        if (capturing)
+        {
+            g.setColour (Theme::accent.withAlpha (0.18f));
+            g.fillRect (b);
+        }
+
+        g.setColour (Theme::textMuted);
+        g.setFont (Theme::uiSize (11.5f));
+        g.drawText (row.name, b.reduced (16, 0).removeFromLeft (width - 170),
+                    juce::Justification::centredLeft, true);
+
+        auto keyArea = b.removeFromRight (160).reduced (4, 4);
+        juce::String keyText;
+        juce::Colour keyColour;
+
+        if (capturing)
+        {
+            keyText   = "Press a key (Esc cancels)";
+            keyColour = Theme::accent;
+        }
+        else if (! row.rebindable)
+        {
+            keyText   = row.defaultKey;
+            keyColour = Theme::textMuted.withAlpha (0.6f);
+        }
+        else
+        {
+            keyText   = AerionKeymap::describe (keymap.get (row.id));
+            keyColour = keymap.get (row.id).isValid() ? Theme::textMain : Theme::meterYellow;
+        }
+
+        g.setColour (row.rebindable ? Theme::surface : Theme::bgPanel);
+        g.fillRoundedRectangle (keyArea.toFloat(), 3.0f);
+        g.setColour (keyColour);
+        g.setFont (Theme::uiSize (10.5f).withStyle (juce::Font::bold));
+        g.drawText (keyText, keyArea, juce::Justification::centred, true);
+    }
+
+    void listBoxItemClicked (int rowNumber, const juce::MouseEvent&) override
+    {
+        if (! juce::isPositiveAndBelow (rowNumber, (int) rows.size()))
+            return;
+
+        const auto& row = rows[(size_t) rowNumber];
+        if (row.isHeader || ! row.rebindable)
+            return;
+
+        capturingId = row.id;
+        list.repaint();
+        grabKeyboardFocus();
+    }
+
+    //== key capture ===========================================================
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        if (capturingId.isEmpty())
+            return false;
+
+        if (key == juce::KeyPress::escapeKey)
+        {
+            cancelCapture();
+            return true;
+        }
+
+        const auto id = capturingId;
+        auto conflictIds = keymap.conflicts (key, id);
+
+        if (conflictIds.isEmpty())
+        {
+            keymap.set (id, key);
+            persist();
+            cancelCapture();
+            return true;
+        }
+
+        juce::StringArray names;
+        for (auto& cid : conflictIds)
+            names.add (actionName (cid));
+
+        juce::AlertWindow::showOkCancelBox (
+            juce::MessageBoxIconType::QuestionIcon,
+            "Shortcut Conflict",
+            juce::String (key.getTextDescription())
+                + " is already used by: " + names.joinIntoString (", ")
+                + ".\n\nReassign it? The other action(s) will be left unassigned.",
+            "Reassign", "Cancel", this,
+            juce::ModalCallbackFunction::create ([this, key, id, conflictIds] (int result)
+            {
+                if (result == 1)
+                {
+                    for (auto& cid : conflictIds)
+                        keymap.set (cid, juce::KeyPress());
+                    keymap.set (id, key);
+                    persist();
+                }
+                cancelCapture();
+            }));
+        return true;
+    }
+
+private:
+    struct Row
+    {
+        bool isHeader = false;
+        juce::String text;        // header label
+        juce::String id, name, defaultKey;
+        bool rebindable = true;
+    };
+
+    void rebuildRows()
+    {
+        rows.clear();
+        juce::String section;
+        for (auto& a : AerionActionCatalog::actions())
+        {
+            if (a.section != section)
+            {
+                section = a.section;
+                rows.push_back ({ true, section, {}, {}, {}, false });
+            }
+            rows.push_back ({ false, {}, a.id, a.name, a.defaultKey, a.rebindable });
+        }
+        list.updateContent();
+    }
+
+    void cancelCapture()
+    {
+        capturingId = {};
+        rebuildRows();
+        repaint();
+    }
+
+    void persist() { keymap.saveTo (props); }
+
+    static juce::String actionName (const juce::String& id)
+    {
+        for (auto& a : AerionActionCatalog::actions())
+            if (a.id == id)
+                return a.name;
+        return id;
+    }
+
+    void runExport()
+    {
+        chooser = std::make_unique<juce::FileChooser> (
+            "Export Keymap", juce::File(), "*.aerionkeys");
+        chooser->launchAsync (juce::FileBrowserComponent::saveMode
+                                | juce::FileBrowserComponent::warnAboutOverwriting,
+            [this] (const juce::FileChooser& fc)
+            {
+                auto f = fc.getResult();
+                if (f != juce::File())
+                    keymap.exportToFile (f.withFileExtension ("aerionkeys"));
+            });
+    }
+
+    void runImport()
+    {
+        chooser = std::make_unique<juce::FileChooser> (
+            "Import Keymap", juce::File(), "*.aerionkeys");
+        chooser->launchAsync (juce::FileBrowserComponent::openMode
+                                | juce::FileBrowserComponent::canSelectFiles,
+            [this] (const juce::FileChooser& fc)
+            {
+                auto f = fc.getResult();
+                if (f.existsAsFile() && keymap.importFromFile (f))
+                {
+                    persist();
+                    cancelCapture();
+                }
+            });
+    }
+
+    AerionKeymap& keymap;
+    juce::PropertiesFile* props = nullptr;
+    std::vector<Row> rows;
+    juce::String capturingId;
+
+    juce::ListBox list;
+    juce::TextButton resetBtn, importBtn, exportBtn, closeBtn;
+    std::unique_ptr<juce::FileChooser> chooser;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KeyboardShortcutsPanel)
+};
+
+class KeyboardShortcutsDialog
+{
+public:
+    static void launch (AerionKeymap& keymap, juce::PropertiesFile* settings)
+    {
+        juce::DialogWindow::LaunchOptions o;
+        o.content.setOwned (new KeyboardShortcutsPanel (keymap, settings));
+        o.dialogTitle                  = "Keyboard Shortcuts";
+        o.dialogBackgroundColour       = Theme::bgPanel;
+        o.escapeKeyTriggersCloseButton = true;
+        o.useNativeTitleBar            = true;
+        o.resizable                    = false;
+        o.launchAsync();
+    }
+};
+
+//==============================================================================
 class InsertMultipleMediaDialog : public juce::Component
 {
 public:
@@ -564,6 +854,7 @@ public:
     std::function<void(juce::File)>   onOpenRecent;
     std::function<void()>             onClearRecent;
     std::function<void()>             onCollectSaveAs;
+    std::function<void()>             onShowKeyboardShortcuts;
     std::function<void()> onBeforeMenuOpen;
 
     DAWMenuBar()
@@ -870,9 +1161,13 @@ private:
     void showHelpMenu()
     {
         juce::PopupMenu m;
-        m.addItem (1, "About Aerion DAW");
-        m.showMenuAsync (anchoredMenuOptions(), [] (int r) {
-            if (r == 1)
+        m.addItem (1, "Keyboard Shortcuts...");
+        m.addSeparator();
+        m.addItem (2, "About Aerion DAW");
+        m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
+            if (r == 1 && onShowKeyboardShortcuts)
+                onShowKeyboardShortcuts();
+            if (r == 2)
                 AboutDialog::launch();
         });
     }
@@ -1231,6 +1526,7 @@ private:
 //==============================================================================
 class Inspector : public DAWPanel,
                   public juce::ValueTree::Listener,
+                  public AudioEngineManager::Listener,
                   private juce::Timer
 {
 public:
@@ -1238,6 +1534,7 @@ public:
         : DAWPanel ("Inspector"), audioEngine (ae), projectData (pd)
     {
         projectData.getProjectTree().addListener (this);
+        audioEngine.addListener (this);
         startTimerHz (20); // fader/meter animation (avoid stacking multiple 30 Hz surfaces)
 
         auto loadIcon = [] (const char* data, int size) -> std::unique_ptr<juce::Drawable>
@@ -1255,12 +1552,18 @@ public:
         iconSolo = loadIcon (BinaryData::aerion_Solo_svg,  BinaryData::aerion_Solo_svgSize);
     }
 
-    ~Inspector() override { projectData.getProjectTree().removeListener (this); }
+    ~Inspector() override
+    {
+        projectData.getProjectTree().removeListener (this);
+        audioEngine.removeListener (this);
+    }
 
     void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override { repaint(); }
     void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { repaint(); }
     void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { repaint(); }
     void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override { repaint(); }
+
+    void editStateChanged() override { repaint(); }
 
     void timerCallback() override { if (selectedTrack != nullptr) repaint (faderArea); }
 
@@ -1382,7 +1685,11 @@ public:
             if (auto* at = dynamic_cast<tracktion::AudioTrack*>(selectedTrack))
             {
                 bool isFrozen = audioEngine.isTrackFrozen(at);
-                drawPill (g, freezeBounds, "FREEZE", isFrozen, juce::Colours::skyblue);
+                bool isFreezing = audioEngine.isTrackFreezing(at);
+                drawPill (g, freezeBounds,
+                          isFreezing ? "..." : (isFrozen ? "UNFRZ" : "FREEZE"),
+                          isFrozen || isFreezing,
+                          isFreezing ? Theme::meterYellow : juce::Colours::skyblue);
             }
         }
 
@@ -1566,6 +1873,9 @@ public:
             {
                 if (auto* at = dynamic_cast<tracktion::AudioTrack*>(selectedTrack))
                 {
+                    if (audioEngine.isTrackFreezing(at))
+                        return;
+
                     if (audioEngine.isTrackFrozen(at))
                         audioEngine.unfreezeTrack(at);
                     else
@@ -1843,6 +2153,7 @@ public:
             currentDir = juce::File::getSpecialLocation (juce::File::userMusicDirectory);
         if (! currentDir.isDirectory())
             currentDir = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
+        refreshFileCache();
     }
 
     ~Browser() override { thumb.removeChangeListener (this); }
@@ -2066,20 +2377,8 @@ public:
             y += 22;
         }
 
-        juce::Array<juce::File> children;
-        currentDir.findChildFiles (children, juce::File::findFilesAndDirectories | juce::File::ignoreHiddenFiles, false);
-
-        // Directories first, then audio files, alphabetised.
-        std::sort (children.begin(), children.end(), [] (const juce::File& a, const juce::File& b) {
-            if (a.isDirectory() != b.isDirectory()) return a.isDirectory();
-            return a.getFileName().compareIgnoreCase (b.getFileName()) < 0;
-        });
-
-        for (auto& f : children)
+        for (auto& f : cachedFileChildren)
         {
-            bool isAudio = f.hasFileExtension ("wav;mp3;aif;aiff;flac;ogg");
-            if (! f.isDirectory() && ! isAudio) continue;
-
             juce::Rectangle<int> r (8, y, getWidth() - 16, 22);
             rowBounds.add (r);
             rowFiles.add (f);
@@ -2228,6 +2527,7 @@ public:
                     if (f.isDirectory()) {
                         currentDir = f;
                         selectedFile = juce::File();
+                        refreshFileCache();
                         repaint();
                     } else {
                         if (f != selectedFile) {
@@ -2267,9 +2567,27 @@ public:
 private:
     static constexpr int kPreviewH = 80;
 
+    void refreshFileCache()
+    {
+        cachedFileChildren.clearQuick();
+
+        juce::Array<juce::File> children;
+        currentDir.findChildFiles (children, juce::File::findFilesAndDirectories | juce::File::ignoreHiddenFiles, false);
+
+        std::sort (children.begin(), children.end(), [] (const juce::File& a, const juce::File& b) {
+            if (a.isDirectory() != b.isDirectory()) return a.isDirectory();
+            return a.getFileName().compareIgnoreCase (b.getFileName()) < 0;
+        });
+
+        for (auto& f : children)
+            if (f.isDirectory() || f.hasFileExtension ("wav;mp3;aif;aiff;flac;ogg"))
+                cachedFileChildren.add (f);
+    }
+
     AudioEngineManager& audioEngine;
     Tab                  tab { Tab::plugins };
     juce::File           currentDir;
+    juce::Array<juce::File> cachedFileChildren;
     juce::File           selectedFile;
 
     juce::AudioFormatManager  formatManager;
@@ -2292,12 +2610,30 @@ private:
 //==============================================================================
 // Piano Roll editor  -  opens when the user double-clicks an existing MIDI clip.
 class PianoRollEditor : public juce::Component,
-                        public juce::Timer,
                         public juce::ScrollBar::Listener,
                         public juce::ComboBox::Listener,
                         public juce::ValueTree::Listener
 {
 public:
+    enum class PRDragMode { none, notes, velocity, ccLane, laneSplitter, marquee };
+
+    struct DragNoteState
+    {
+        tracktion::MidiNote* note = nullptr;
+        double start = 0.0;
+        double length = 0.0;
+        int noteNumber = 0;
+    };
+
+    struct CopiedNote
+    {
+        int note = 0;
+        double start = 0.0;
+        double length = 0.0;
+        int velocity = 100;
+        int colour = 0;
+    };
+
     std::function<void()> onDetachRequested;
 
     PianoRollEditor (tracktion::MidiClip& clip, tracktion::Edit& edit,
@@ -2315,7 +2651,7 @@ public:
         vScroll.setAutoHide (false);
         hScroll.addListener (this);
         vScroll.addListener (this);
-        scrollY = (127 - 72) * kRowH;   // open near C4
+        scrollY = (127 - 24) * kRowH;   // open near C1 by default
 
         ccTypeCombo.addItem ("Pitch Bend", 1);
         ccTypeCombo.addItem ("CC1 Mod Wheel", 2);
@@ -2362,14 +2698,13 @@ public:
         detachBtn.onClick = [this] { if (onDetachRequested) onDetachRequested(); };
         addAndMakeVisible (detachBtn);
 
-        startTimerHz (30);
+        setMouseCursor (juce::MouseCursor::NormalCursor);
     }
 
     ~PianoRollEditor() override
     {
         projectData.getProjectTree().removeListener (this);
         midiClip.state.removeListener (this);
-        stopTimer();
     }
 
     void comboBoxChanged (juce::ComboBox* box) override
@@ -2394,7 +2729,11 @@ public:
                 // (triplets are odd divisions that don't create clean grid lines)
                 bool isTriplet = (idx % 2 == 1);  // odd indices are triplets
                 if (!isTriplet)
+                {
+                    snapInterval = defaultNoteLength;
                     projectData.getProjectTree().setProperty (IDs::snapInterval, defaultNoteLength, nullptr);
+                    repaint();
+                }
             }
             return;
         }
@@ -2509,26 +2848,48 @@ public:
         repaint();
     }
 
-    void timerCallback() override { repaint(); }
+    juce::MouseCursor getMouseCursor() override
+    {
+        const auto pos = getMouseXYRelative();
+        auto ga = gridArea();
+
+        if (laneSplitterArea().contains (pos))
+            return juce::MouseCursor::UpDownResizeCursor;
+
+        if (ccLaneArea().contains (pos) || velocityArea().contains (pos))
+            return juce::MouseCursor::PointingHandCursor;
+
+        if (ga.contains (pos))
+        {
+            if (auto* note = getNoteAt (pos))
+            {
+                auto r = noteRect (note, ga);
+                if (pos.x > r.getRight() - 6.0f)
+                    return juce::MouseCursor::LeftRightResizeCursor;
+
+                return juce::MouseCursor::DraggingHandCursor;
+            }
+
+            return juce::MouseCursor::NormalCursor;
+        }
+
+        return juce::MouseCursor::NormalCursor;
+    }
 
     bool keyPressed (const juce::KeyPress& key) override
     {
-        // Undo/Redo
-        if (key.getModifiers().isCommandDown())
-        {
-            if (key.getKeyCode() == 'Z')
-            {
-                if (key.getModifiers().isShiftDown())
-                    edit.getUndoManager().redo();
-                else
-                    edit.getUndoManager().undo();
-                repaint();
-                return true;
-            }
-        }
+        auto& km = audioEngine.getKeymap();
 
-        // Space: Play/Stop
-        if (key == juce::KeyPress::spaceKey)
+        if (km.matches ("edit.undo", key)) { edit.getUndoManager().undo(); repaint(); return true; }
+        if (km.matches ("edit.redo", key)) { edit.getUndoManager().redo(); repaint(); return true; }
+
+        if (km.matches ("pianoRoll.selectAll", key)) { selectAllNotes();    return true; }
+        if (km.matches ("pianoRoll.copy",      key)) { copySelection();     return true; }
+        if (km.matches ("pianoRoll.cut",       key)) { cutSelection();      return true; }
+        if (km.matches ("pianoRoll.paste",     key)) { pasteClipboard();    return true; }
+        if (km.matches ("pianoRoll.duplicate", key)) { duplicateSelection(); return true; }
+
+        if (km.matches ("transport.playStop", key))
         {
             if (audioEngine.isPlaying())
                 audioEngine.stop();
@@ -2538,8 +2899,7 @@ public:
             return true;
         }
 
-        // Home: Go to start
-        if (key == juce::KeyPress::homeKey)
+        if (km.matches ("transport.goToStart", key))
         {
             bool wasPlaying = audioEngine.isPlaying();
             audioEngine.setTransportPosition (0.0);
@@ -2549,55 +2909,37 @@ public:
             return true;
         }
 
-        // Delete/Backspace: Delete all notes on selected row
-        if (key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey)
+        if (km.matches ("pianoRoll.clearSel", key)) { clearSelection(); return true; }
+
+        if (km.matches ("pianoRoll.delete", key))
         {
-            if (lastClickedNote >= 0)
-            {
-                juce::Array<tracktion::MidiNote*> toDelete;
-                for (auto* n : midiClip.getSequence().getNotes())
-                    if (n->getNoteNumber() == lastClickedNote)
-                        toDelete.add (n);
-
-                for (auto* n : toDelete)
-                    midiClip.getSequence().removeNote (*n, &edit.getUndoManager());
-
-                lastClickedNote = -1;
-                repaint();
-                return true;
-            }
+            deleteSelectedNotes ("Delete MIDI notes");
+            return true;
         }
 
-        // Left/Right arrows: Nudge notes on selected row
-        if (key.getKeyCode() == juce::KeyPress::leftKey || key.getKeyCode() == juce::KeyPress::rightKey)
+        const bool nudgeL = km.matches ("pianoRoll.nudgeLeft",  key);
+        const bool nudgeR = km.matches ("pianoRoll.nudgeRight", key);
+        if (nudgeL || nudgeR)
         {
-            if (lastClickedNote >= 0)
-            {
-                double delta = (key.getKeyCode() == juce::KeyPress::leftKey) ? -snapInterval : snapInterval;
-                if (! snapEnabled)
-                    delta *= 0.1;
+            double delta = nudgeL ? -snapInterval : snapInterval;
+            if (! snapEnabled)
+                delta *= 0.1;
 
-                for (auto* n : midiClip.getSequence().getNotes())
-                {
-                    if (n->getNoteNumber() == lastClickedNote)
-                    {
-                        double start = n->getStartBeat().inBeats();
-                        double len = n->getLengthBeats().inBeats();
-                        double newStart = juce::jmax (0.0, start + delta);
-                        n->setStartAndLength (tracktion::BeatPosition::fromBeats (newStart),
-                                             tracktion::BeatDuration::fromBeats (len),
-                                             &edit.getUndoManager());
-                    }
-                }
-                repaint();
-                return true;
-            }
+            nudgeSelectedNotes (delta);
+            return true;
         }
 
-        // Quantize
-        if (key.getKeyCode() == 'q' || key.getKeyCode() == 'Q')
+        const bool transUp = km.matches ("pianoRoll.transposeUp",   key);
+        const bool transDn = km.matches ("pianoRoll.transposeDown", key);
+        if (transUp || transDn)
         {
-            quantize();
+            transposeSelectedNotes (transUp ? 1 : -1);
+            return true;
+        }
+
+        if (km.matches ("pianoRoll.quantize", key))
+        {
+            quantizeSelectedNotes();
             return true;
         }
 
@@ -2606,16 +2948,187 @@ public:
 
     void quantize()
     {
-        for (auto* n : midiClip.getSequence().getNotes())
+        quantizeSelectedNotes();
+    }
+
+    void notifyMidiContentChanged()
+    {
+        audioEngine.notifyEditContentChanged();
+    }
+
+    void deleteSelectedNotes (const juce::String& transactionName)
+    {
+        auto notes = getSelectedNotes();
+        if (notes.isEmpty())
+            return;
+
+        beginUndo (transactionName);
+        for (auto* n : notes)
+            midiClip.getSequence().removeNote (*n, &edit.getUndoManager());
+
+        selectedNotes.clearQuick();
+        updateScrollRanges();
+        notifyMidiContentChanged();
+        repaint();
+    }
+
+    void nudgeSelectedNotes (double delta)
+    {
+        auto notes = getSelectedNotes();
+        if (notes.isEmpty())
+            return;
+
+        beginUndo ("Nudge MIDI notes");
+        for (auto* n : notes)
         {
-            double s = n->getStartBeat().inBeats();
-            double l = n->getLengthBeats().inBeats();
-            double ns = std::floor (s / snapInterval + 0.5) * snapInterval;
-            double ne = std::floor ((s + l) / snapInterval + 0.5) * snapInterval;
+            const double start = n->getStartBeat().inBeats();
+            const double len = n->getLengthBeats().inBeats();
+            n->setStartAndLength (tracktion::BeatPosition::fromBeats (juce::jmax (0.0, start + delta)),
+                                  tracktion::BeatDuration::fromBeats (len),
+                                  &edit.getUndoManager());
+        }
+        updateScrollRanges();
+        notifyMidiContentChanged();
+        repaint();
+    }
+
+    void transposeSelectedNotes (int delta)
+    {
+        auto notes = getSelectedNotes();
+        if (notes.isEmpty())
+            return;
+
+        beginUndo ("Transpose MIDI notes");
+        for (auto* n : notes)
+            n->setNoteNumber (juce::jlimit (0, 127, n->getNoteNumber() + delta), &edit.getUndoManager());
+
+        if (auto* first = notes.getFirst())
+            setAuditionNote (first->getNoteNumber());
+        notifyMidiContentChanged();
+        repaint();
+    }
+
+    void quantizeSelectedNotes()
+    {
+        auto notes = getSelectedNotes();
+        if (notes.isEmpty())
+            return;
+
+        beginUndo ("Quantize MIDI notes");
+        for (auto* n : notes)
+        {
+            const double s = n->getStartBeat().inBeats();
+            const double l = n->getLengthBeats().inBeats();
+            const double ns = std::floor (s / snapInterval + 0.5) * snapInterval;
+            const double ne = std::floor ((s + l) / snapInterval + 0.5) * snapInterval;
             n->setStartAndLength (tracktion::BeatPosition::fromBeats (ns),
                                   tracktion::BeatDuration::fromBeats (juce::jmax (snapInterval, ne - ns)),
                                   &edit.getUndoManager());
         }
+        updateScrollRanges();
+        notifyMidiContentChanged();
+        repaint();
+    }
+
+    void copySelection()
+    {
+        auto notes = getSelectedNotes();
+        noteClipboard.clearQuick();
+
+        if (notes.isEmpty())
+            return;
+
+        double earliest = std::numeric_limits<double>::max();
+        for (auto* n : notes)
+            earliest = juce::jmin (earliest, n->getStartBeat().inBeats());
+
+        for (auto* n : notes)
+        {
+            noteClipboard.add ({ n->getNoteNumber(),
+                                 n->getStartBeat().inBeats() - earliest,
+                                 n->getLengthBeats().inBeats(),
+                                 (int) n->getVelocity(),
+                                 0 });
+        }
+    }
+
+    void cutSelection()
+    {
+        copySelection();
+        deleteSelectedNotes ("Cut MIDI notes");
+    }
+
+    tracktion::MidiNote* insertCopiedNote (const CopiedNote& copied, double baseBeat)
+    {
+        auto before = midiClip.getSequence().getNotes();
+        const double start = juce::jmax (0.0, baseBeat + copied.start);
+
+        midiClip.getSequence().addNote (juce::jlimit (0, 127, copied.note),
+            tracktion::BeatPosition::fromBeats (start),
+            tracktion::BeatDuration::fromBeats (juce::jmax (0.03125, copied.length)),
+            juce::jlimit (1, 127, copied.velocity), copied.colour, &edit.getUndoManager());
+
+        for (auto* n : midiClip.getSequence().getNotes())
+            if (! before.contains (n)
+                && n->getNoteNumber() == copied.note
+                && std::abs (n->getStartBeat().inBeats() - start) < 0.0001)
+                return n;
+
+        return findRecentlyAddedNote (copied.note, start, copied.length);
+    }
+
+    void pasteClipboard()
+    {
+        if (noteClipboard.isEmpty())
+            return;
+
+        beginUndo ("Paste MIDI notes");
+        selectedNotes.clearQuick();
+
+        const double pasteBeat = snapBeat (viewBeat);
+        for (auto& copied : noteClipboard)
+            if (auto* inserted = insertCopiedNote (copied, pasteBeat))
+                selectedNotes.addIfNotAlreadyThere (inserted);
+
+        updateScrollRanges();
+        notifyMidiContentChanged();
+        repaint();
+    }
+
+    void duplicateSelection()
+    {
+        auto notes = getSelectedNotes();
+        if (notes.isEmpty())
+            return;
+
+        juce::Array<CopiedNote> duplicateNotes;
+        double earliest = std::numeric_limits<double>::max();
+        double latest = 0.0;
+
+        for (auto* n : notes)
+        {
+            const double start = n->getStartBeat().inBeats();
+            const double end = start + n->getLengthBeats().inBeats();
+            earliest = juce::jmin (earliest, start);
+            latest = juce::jmax (latest, end);
+        }
+
+        for (auto* n : notes)
+            duplicateNotes.add ({ n->getNoteNumber(),
+                                  n->getStartBeat().inBeats() - earliest,
+                                  n->getLengthBeats().inBeats(),
+                                  (int) n->getVelocity(),
+                                  0 });
+
+        beginUndo ("Duplicate MIDI notes");
+        selectedNotes.clearQuick();
+        for (auto& copied : duplicateNotes)
+            if (auto* inserted = insertCopiedNote (copied, latest))
+                selectedNotes.addIfNotAlreadyThere (inserted);
+
+        noteClipboard = duplicateNotes;
+        updateScrollRanges();
+        notifyMidiContentChanged();
         repaint();
     }
 
@@ -2638,8 +3151,7 @@ public:
 
         if (e.x < kKeyW)
         {
-            lastClickedNote = yToNote (e.y);
-            repaint();
+            setAuditionNote (yToNote (e.y));
             return;
         }
 
@@ -2671,42 +3183,65 @@ public:
 
         if (e.y < kGridTop) return;
 
-        float beat = xToBeat (e.x);
-        int   note = yToNote (e.y);
-
         if (e.mods.isRightButtonDown())
         {
-            for (auto* n : midiClip.getSequence().getNotes())
-                if (noteRect (n, ga).contains (e.position))
-                    { midiClip.getSequence().removeNote (*n, &edit.getUndoManager()); repaint(); return; }
+            if (auto* n = getNoteAt (e.getPosition()))
+            {
+                beginUndo ("Delete MIDI note");
+                midiClip.getSequence().removeNote (*n, &edit.getUndoManager());
+                selectedNotes.removeFirstMatchingValue (n);
+                updateScrollRanges();
+                notifyMidiContentChanged();
+                repaint();
+            }
             return;
         }
 
-        for (auto* n : midiClip.getSequence().getNotes())
+        if (auto* n = getNoteAt (e.getPosition()))
         {
-            if (noteRect (n, ga).contains (e.position))
+            if (e.mods.isShiftDown())
             {
-                draggingNote = n;
-                dragBeat0 = beat;
-                dragNote0 = note;
-                origStart = n->getStartBeat().inBeats();
-                origNote  = n->getNoteNumber();
-                origLen   = n->getLengthBeats().inBeats();
-                // Check if near the right edge for resize
-                auto r = noteRect (n, ga);
-                resizing = (e.x > r.getRight() - 6);
-                dragMode = PRDragMode::notes;
+                toggleSelected (n);
+                setAuditionNote (n->getNoteNumber());
                 return;
             }
+
+            if (! selectedNotes.contains (n))
+                selectOnly (n);
+
+            draggingNote = n;
+            dragBeat0 = xToBeat (e.x);
+            dragNote0 = yToNote (e.y);
+            origStart = n->getStartBeat().inBeats();
+            origNote  = n->getNoteNumber();
+            origLen   = n->getLengthBeats().inBeats();
+            resizing = (e.x > noteRect (n, ga).getRight() - 6);
+            dragMode = PRDragMode::notes;
+            dragNoteStates.clearQuick();
+
+            juce::Array<tracktion::MidiNote*> notesToDrag;
+            if (resizing)
+                notesToDrag.add (n);
+            else
+                notesToDrag = getSelectedNotes();
+            for (auto* selected : notesToDrag)
+                dragNoteStates.add ({ selected,
+                                      selected->getStartBeat().inBeats(),
+                                      selected->getLengthBeats().inBeats(),
+                                      selected->getNoteNumber() });
+
+            beginUndo (resizing ? "Resize MIDI note" : "Move MIDI notes");
+            setAuditionNote (n->getNoteNumber());
+            return;
         }
 
-        // Add note
-        double snapped = snapBeat (beat);
-        midiClip.getSequence().addNote (note,
-            tracktion::BeatPosition::fromBeats (snapped),
-            tracktion::BeatDuration::fromBeats (defaultNoteLength),
-            100, 0, &edit.getUndoManager());
-        updateScrollRanges();
+        dragMode = PRDragMode::marquee;
+        marqueeAnchor = e.getPosition();
+        marqueeBounds = {};
+        marqueeAdditive = e.mods.isShiftDown();
+        marqueeBaseSelection = marqueeAdditive ? getSelectedNotes() : juce::Array<tracktion::MidiNote*>();
+        if (! marqueeAdditive)
+            selectedNotes.clearQuick();
         repaint();
     }
 
@@ -2745,6 +3280,17 @@ public:
             return;
         }
 
+        if (dragMode == PRDragMode::marquee)
+        {
+            marqueeBounds = juce::Rectangle<int>::leftTopRightBottom (
+                juce::jmin (marqueeAnchor.x, e.x), juce::jmin (marqueeAnchor.y, e.y),
+                juce::jmax (marqueeAnchor.x, e.x), juce::jmax (marqueeAnchor.y, e.y));
+
+            updateMarqueeSelection();
+            repaint();
+            return;
+        }
+
         if (draggingNote == nullptr) return;
         float beat = xToBeat (e.x);
         int   note = yToNote (e.y);
@@ -2760,25 +3306,47 @@ public:
         }
         else
         {
-            double newStart = juce::jmax (0.0, origStart + (beat - dragBeat0));
-            int    newNote  = juce::jlimit (0, 127, origNote + (note - dragNote0));
-            draggingNote->setStartAndLength (
-                tracktion::BeatPosition::fromBeats (snapBeat (newStart)),
-                tracktion::BeatDuration::fromBeats (origLen),
-                &edit.getUndoManager());
-            draggingNote->setNoteNumber (newNote, &edit.getUndoManager());
+            const double dBeat = snapBeat (beat - dragBeat0);
+            const int dNote = note - dragNote0;
+
+            for (auto& state : dragNoteStates)
+            {
+                if (state.note == nullptr)
+                    continue;
+
+                state.note->setStartAndLength (
+                    tracktion::BeatPosition::fromBeats (juce::jmax (0.0, state.start + dBeat)),
+                    tracktion::BeatDuration::fromBeats (state.length),
+                    &edit.getUndoManager());
+                state.note->setNoteNumber (juce::jlimit (0, 127, state.noteNumber + dNote), &edit.getUndoManager());
+            }
         }
+        setAuditionNote (note);
         updateScrollRanges();
         repaint();
     }
 
     void mouseUp (const juce::MouseEvent&) override
     {
+        const bool didMoveOrResizeNotes = (dragMode == PRDragMode::notes && draggingNote != nullptr);
+
+        if (dragMode == PRDragMode::marquee)
+        {
+            if (marqueeBounds.getWidth() < 4 && marqueeBounds.getHeight() < 4 && ! marqueeAdditive)
+                addNoteAt (marqueeAnchor);
+
+            marqueeBounds = {};
+            marqueeBaseSelection.clearQuick();
+            marqueeAdditive = false;
+        }
+
         draggingNote = nullptr;
         resizing = false;
         dragMode = PRDragMode::none;
-        lastClickedNote = -1;
+        dragNoteStates.clearQuick();
         lastCCPaintBeat = -1.0e9;
+        if (didMoveOrResizeNotes)
+            notifyMidiContentChanged();
         repaint();
     }
 
@@ -2850,15 +3418,23 @@ private:
     int    scrollY  = 0;
     double pxPerBeat = 80.0;
 
-    enum class PRDragMode { none, notes, velocity, ccLane, laneSplitter };
     PRDragMode dragMode = PRDragMode::none;
     tracktion::MidiNote* draggingNote  = nullptr;
-    int    lastClickedNote = -1;
+    juce::Array<tracktion::MidiNote*> selectedNotes;
+    juce::Array<tracktion::MidiNote*> marqueeBaseSelection;
+    juce::Rectangle<int> marqueeBounds;
+    juce::Point<int> marqueeAnchor;
+    bool marqueeAdditive = false;
+    int    auditionNote = -1;
     bool resizing = false;
     float  dragBeat0 = 0;
     int    dragNote0 = 0;
     double origStart = 0, origLen = 0;
     int    origNote  = 0;
+
+    juce::Array<DragNoteState> dragNoteStates;
+
+    juce::Array<CopiedNote> noteClipboard;
 
     int    splitterDragStartY = 0;
     int    splitterStartCcH = 80;
@@ -3098,12 +3674,178 @@ private:
         return std::round (b / snapInterval) * snapInterval;
     }
 
+    double snapBeatForInsert (double b) const
+    {
+        if (! snapEnabled || snapInterval <= 0.0)
+            return b;
+
+        constexpr double epsilon = 1.0e-6;
+        return std::floor ((b + epsilon) / snapInterval) * snapInterval;
+    }
+
     juce::Rectangle<float> noteRect (tracktion::MidiNote* n, juce::Rectangle<int>) const
     {
         float x = beatToX (n->getStartBeat().inBeats());
         float y = (float) noteToY (n->getNoteNumber());
         float w = juce::jmax (3.0f, (float)(n->getLengthBeats().inBeats() * pxPerBeat) - 1.0f);
         return { x, y + 1.0f, w, (float) kRowH - 2.0f };
+    }
+
+    tracktion::MidiNote* getNoteAt (juce::Point<int> p) const
+    {
+        auto ga = gridArea();
+        for (auto* n : midiClip.getSequence().getNotes())
+            if (noteRect (n, ga).contains (p.toFloat()))
+                return n;
+
+        return nullptr;
+    }
+
+    juce::Array<tracktion::MidiNote*> getSelectedNotes()
+    {
+        juce::Array<tracktion::MidiNote*> valid;
+        auto notes = midiClip.getSequence().getNotes();
+
+        for (auto* selected : selectedNotes)
+            if (selected != nullptr && notes.contains (selected))
+                valid.addIfNotAlreadyThere (selected);
+
+        selectedNotes = valid;
+        return valid;
+    }
+
+    bool isSelected (tracktion::MidiNote* note)
+    {
+        if (note == nullptr)
+            return false;
+
+        return getSelectedNotes().contains (note);
+    }
+
+    void clearSelection()
+    {
+        if (selectedNotes.isEmpty())
+            return;
+
+        selectedNotes.clearQuick();
+        repaint();
+    }
+
+    void selectOnly (tracktion::MidiNote* note)
+    {
+        selectedNotes.clearQuick();
+        if (note != nullptr)
+            selectedNotes.add (note);
+        repaint();
+    }
+
+    void addToSelection (tracktion::MidiNote* note)
+    {
+        if (note != nullptr)
+            selectedNotes.addIfNotAlreadyThere (note);
+        repaint();
+    }
+
+    void toggleSelected (tracktion::MidiNote* note)
+    {
+        if (note == nullptr)
+            return;
+
+        if (selectedNotes.contains (note))
+            selectedNotes.removeFirstMatchingValue (note);
+        else
+            selectedNotes.add (note);
+
+        repaint();
+    }
+
+    void selectAllNotes()
+    {
+        selectedNotes.clearQuick();
+        for (auto* n : midiClip.getSequence().getNotes())
+            selectedNotes.addIfNotAlreadyThere (n);
+        repaint();
+    }
+
+    void beginUndo (const juce::String& name)
+    {
+        edit.getUndoManager().beginNewTransaction (name);
+    }
+
+    void setAuditionNote (int note)
+    {
+        auditionNote = juce::jlimit (0, 127, note);
+        repaint();
+
+        juce::Component::SafePointer<PianoRollEditor> safe (this);
+        juce::Timer::callAfterDelay (140, [safe, note]
+        {
+            if (safe != nullptr && safe->auditionNote == note)
+            {
+                safe->auditionNote = -1;
+                safe->repaint();
+            }
+        });
+    }
+
+    tracktion::MidiNote* findRecentlyAddedNote (int note, double start, double length)
+    {
+        tracktion::MidiNote* best = nullptr;
+        double bestDelta = 1.0e9;
+
+        for (auto* n : midiClip.getSequence().getNotes())
+        {
+            if (n == nullptr || n->getNoteNumber() != note)
+                continue;
+
+            const double delta = std::abs (n->getStartBeat().inBeats() - start)
+                               + std::abs (n->getLengthBeats().inBeats() - length);
+            if (delta < bestDelta)
+            {
+                best = n;
+                bestDelta = delta;
+            }
+        }
+
+        return best;
+    }
+
+    tracktion::MidiNote* addNoteAt (juce::Point<int> pos)
+    {
+        if (! gridArea().contains (pos))
+            return nullptr;
+
+        const int note = yToNote (pos.y);
+        const double snapped = snapBeatForInsert (xToBeat (pos.x));
+
+        beginUndo ("Add MIDI note");
+        midiClip.getSequence().addNote (note,
+            tracktion::BeatPosition::fromBeats (snapped),
+            tracktion::BeatDuration::fromBeats (defaultNoteLength),
+            100, 0, &edit.getUndoManager());
+
+        auto* added = findRecentlyAddedNote (note, snapped, defaultNoteLength);
+        selectOnly (added);
+        setAuditionNote (note);
+        updateScrollRanges();
+        notifyMidiContentChanged();
+        return added;
+    }
+
+    void updateMarqueeSelection()
+    {
+        const auto selectionRect = marqueeBounds.getIntersection (gridArea()).toFloat();
+        selectedNotes = marqueeBaseSelection;
+
+        if (selectionRect.isEmpty())
+            return;
+
+        auto ga = gridArea();
+        for (auto* n : midiClip.getSequence().getNotes())
+            if (n != nullptr && noteRect (n, ga).intersects (selectionRect))
+                selectedNotes.addIfNotAlreadyThere (n);
+
+        getSelectedNotes();
     }
 
     void updateScrollRanges()
@@ -3141,6 +3883,7 @@ private:
         ::drawPill (g, prRecBounds,  "REC",  recording, Theme::recordRed);
 
         // Row backgrounds
+        auto currentSelection = getSelectedNotes();
         for (int note = 0; note <= 127; ++note)
         {
             int y = noteToY (note);
@@ -3148,6 +3891,22 @@ private:
             bool black = isBlackKey (note);
             g.setColour (black ? Theme::bgBase.darker (0.25f) : Theme::bgPanel.withAlpha (0.35f));
             g.fillRect (ga.getX(), y, ga.getWidth(), kRowH - 1);
+
+            bool highlightedPitch = (note == auditionNote);
+            if (! highlightedPitch)
+                for (auto* selected : currentSelection)
+                    if (selected != nullptr && selected->getNoteNumber() == note)
+                    {
+                        highlightedPitch = true;
+                        break;
+                    }
+
+            if (highlightedPitch)
+            {
+                g.setColour (Theme::active.withAlpha (0.10f));
+                g.fillRect (ga.getX(), y, ga.getWidth(), kRowH - 1);
+            }
+
             if (note % 12 == 0)
             {
                 g.setColour (Theme::border.withAlpha (0.6f));
@@ -3159,15 +3918,36 @@ private:
         g.setColour (Theme::bgPanel.darker (0.3f));
         g.fillRect (kKeyW, kToolbarH, getWidth() - kKeyW, kHdrH);
 
-        double firstBeat = std::floor (viewBeat);
-        double lastBeat  = viewBeat + visibleBeats() + 1.0;
-        
-        // Show lines at snap grid subdivisions if not too dense
-        double step = snapEnabled ? snapInterval : 1.0;
-        if (step * pxPerBeat < 10.0) step = 1.0;
-        if (step * pxPerBeat < 10.0) step = 4.0;
+        const double firstBeat = std::floor (viewBeat);
+        const double lastBeat  = viewBeat + visibleBeats() + 1.0;
 
-        for (double b = std::floor (firstBeat / step) * step; b <= lastBeat; b += step)
+        if (snapEnabled && snapInterval > 0.0)
+        {
+            // Draw the active snap grid separately from beat/bar lines. If a value
+            // such as 1/128 is too dense at the current zoom, draw the closest
+            // visible multiple and let zoom reveal the exact smaller divisions.
+            double visibleSnapStep = snapInterval;
+            while (visibleSnapStep * pxPerBeat < 4.0)
+                visibleSnapStep *= 2.0;
+
+            const double firstSnap = std::floor (viewBeat / visibleSnapStep) * visibleSnapStep;
+            for (double b = firstSnap; b <= lastBeat; b += visibleSnapStep)
+            {
+                const float x = beatToX (b);
+                if (x < ga.getX() || x > ga.getRight())
+                    continue;
+
+                const bool isBeat = std::abs (b - std::round (b)) < 0.0001;
+                if (isBeat)
+                    continue; // Beat lines are drawn stronger below.
+
+                g.setColour (Theme::border.brighter (0.35f)
+                                 .withAlpha (visibleSnapStep == snapInterval ? 0.34f : 0.24f));
+                g.drawLine (x, (float) kGridTop, x, (float) ga.getBottom(), 1.0f);
+            }
+        }
+
+        for (double b = std::floor (firstBeat); b <= lastBeat; b += 1.0)
         {
             float x = beatToX (b);
             if (x < ga.getX() || x > ga.getRight()) continue;
@@ -3213,22 +3993,35 @@ private:
 
     void drawNotes (juce::Graphics& g, juce::Rectangle<int> ga)
     {
+        getSelectedNotes();
+
         for (auto* n : midiClip.getSequence().getNotes())
         {
             auto r = noteRect (n, ga);
             if (r.getRight() < (float) ga.getX() || r.getX() > (float) ga.getRight()) continue;
             if (r.getBottom() < (float) ga.getY() || r.getY() > (float) ga.getBottom()) continue;
-            auto col = (n == draggingNote) ? Theme::active.brighter (0.3f) : Theme::active;
+            const bool selected = selectedNotes.contains (n);
+            auto col = selected ? Theme::active.brighter (0.45f)
+                                : (n == draggingNote) ? Theme::active.brighter (0.3f) : Theme::active;
             g.setColour (col);
             g.fillRoundedRectangle (r, 2.0f);
-            g.setColour (col.darker (0.4f));
-            g.drawRoundedRectangle (r, 2.0f, 1.0f);
+            g.setColour (selected ? juce::Colours::white.withAlpha (0.85f) : col.darker (0.4f));
+            g.drawRoundedRectangle (r, 2.0f, selected ? 1.6f : 1.0f);
             if (r.getWidth() > 18.0f)
             {
                 g.setColour (juce::Colours::black.withAlpha (0.75f));
                 g.setFont (Theme::uiSize (8.5f));
                 g.drawText (noteName (n->getNoteNumber()), r.getX() + 3, r.getY(), (int) r.getWidth(), kRowH, juce::Justification::centredLeft);
             }
+        }
+
+        if (dragMode == PRDragMode::marquee && ! marqueeBounds.isEmpty())
+        {
+            auto r = marqueeBounds.getIntersection (ga).toFloat();
+            g.setColour (Theme::active.withAlpha (0.12f));
+            g.fillRect (r);
+            g.setColour (Theme::active.withAlpha (0.75f));
+            g.drawRect (r, 1.0f);
         }
     }
 
@@ -3242,22 +4035,31 @@ private:
             int y = noteToY (note);
             if (y + kRowH < 0 || y > getHeight()) continue;
             bool black = isBlackKey (note);
+            bool selectedPitch = (note == auditionNote);
+            if (! selectedPitch)
+                for (auto* selected : getSelectedNotes())
+                    if (selected != nullptr && selected->getNoteNumber() == note)
+                    {
+                        selectedPitch = true;
+                        break;
+                    }
+
             if (!black)
             {
-                g.setColour (lastClickedNote == note ? Theme::active : juce::Colours::white.withAlpha (0.88f));
+                g.setColour (selectedPitch ? Theme::active : juce::Colours::white.withAlpha (0.88f));
                 g.fillRect (1, y + 1, kKeyW - 3, kRowH - 2);
                 g.setColour (Theme::border.withAlpha (0.4f));
                 g.drawRect (1, y + 1, kKeyW - 3, kRowH - 2);
                 if (note % 12 == 0)
                 {
-                    g.setColour (lastClickedNote == note ? juce::Colours::black : Theme::bgBase.withAlpha (0.75f));
+                    g.setColour (selectedPitch ? juce::Colours::black : Theme::bgBase.withAlpha (0.75f));
                     g.setFont (Theme::uiSize (9.0f));
                     g.drawText ("C" + juce::String (note / 12 - 1), 3, y + 2, kKeyW - 8, kRowH - 4, juce::Justification::left);
                 }
             }
             else
             {
-                g.setColour (lastClickedNote == note ? Theme::active : juce::Colour (0xff1a1a1a));
+                g.setColour (selectedPitch ? Theme::active : juce::Colour (0xff1a1a1a));
                 g.fillRect (1, y + 1, kKeyW * 2 / 3, kRowH - 1);
             }
         }
@@ -3308,21 +4110,27 @@ class Timeline : public juce::Component,
                  public juce::FileDragAndDropTarget,
                  public juce::DragAndDropTarget,
                  public juce::ScrollBar::Listener,
-                 public juce::ValueTree::Listener
+                 public juce::ValueTree::Listener,
+                 public AudioEngineManager::Listener,
+                 private juce::AsyncUpdater
 {
 public:
     enum class DragMode : int;
 
     static constexpr int kHeaderWidth = 250;
-    static constexpr int kRulerH      = 48;
-    static constexpr int kRulerTopH   = 24;  // bar.beat labels + ticks
-    static constexpr int kRulerBotH   = 24;  // clock-time labels
+    static constexpr int kRulerSigH        = 18;  // time signature flags
+    static constexpr int kRulerBeatH       = 24;  // bar.beat labels + ticks
+    static constexpr int kRulerBotH        = 24;  // tempo lane + clock-time labels
+    static constexpr int kRulerLaneLabelW  = 72; // left gutter for SIG / TEMPO lane labels
+    static constexpr int kRulerTopH        = kRulerSigH + kRulerBeatH;
+    static constexpr int kRulerH           = kRulerTopH + kRulerBotH;
+    static constexpr int kRulerContentX    = kHeaderWidth + kRulerLaneLabelW;
     static constexpr int kHeaderBarH  = 32;
     static constexpr int kTrackH      = 80;
     static constexpr int kFooterH     = 28;
     static constexpr int kVScrollW    = 12;
 
-    std::function<void(int)> onTrackSelected;
+    std::function<void(tracktion::Track*)> onTrackSelected;
     std::function<void(juce::Array<tracktion::Track*>)> onSelectionChanged;
     std::function<void()> onAddTrack;
     std::function<void()> onAddMidiTrack;
@@ -3340,6 +4148,7 @@ public:
     Timeline(AudioEngineManager& ae, ProjectData& pd) : audioEngine(ae), projectData(pd)
     {
         projectData.getProjectTree().addListener (this);
+        audioEngine.addListener (this);
         snapEnabled = projectData.getProjectTree().getProperty (IDs::snapEnabled);
         snapInterval = projectData.getProjectTree().getProperty (IDs::snapInterval);
 
@@ -3367,6 +4176,16 @@ public:
         trackNameEditor.onFocusLost = [this] { commitTrackRename(); };
         trackNameEditor.onEscapeKey = [this] { trackNameEditor.setVisible (false); };
 
+        addChildComponent (rulerValueEditor);
+        rulerValueEditor.setColour (juce::TextEditor::backgroundColourId, Theme::surface);
+        rulerValueEditor.setColour (juce::TextEditor::outlineColourId, Theme::active);
+        rulerValueEditor.setColour (juce::TextEditor::textColourId, Theme::textMain);
+        rulerValueEditor.setJustification (juce::Justification::centred);
+        rulerValueEditor.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
+        rulerValueEditor.onReturnKey = [this] { commitRulerValueEdit(); };
+        rulerValueEditor.onFocusLost = [this] { commitRulerValueEdit(); };
+        rulerValueEditor.onEscapeKey = [this] { cancelRulerValueEdit(); };
+
         auto loadIcon = [] (const char* d, int s) -> std::unique_ptr<juce::Drawable> {
             if (auto xml = juce::XmlDocument::parse (juce::String::fromUTF8 (d, s)))
                 return juce::Drawable::createFromSVG (*xml);
@@ -3381,8 +4200,25 @@ public:
         setMouseCursor (juce::MouseCursor::NormalCursor);
     }
 
+    ~Timeline() override
+    {
+        cancelPendingUpdate();
+        projectData.getProjectTree().removeListener (this);
+        audioEngine.removeListener (this);
+    }
+
+    /** Scroll the timeline so bar 1 aligns with the start of the content area. */
+    void scrollViewToBarOne()
+    {
+        startTime = 0.0;
+        updateScrollBar();
+        requestTimelineRefresh (false);
+    }
+
     juce::MouseCursor getMouseCursor() override
     {
+        if (hoveredTempoNodeIndex >= 0)
+            return juce::MouseCursor::UpDownLeftRightResizeCursor;
         if (activeTool == EditTool::razor)
             return juce::MouseCursor::CrosshairCursor;
         if (hoverDragMode == DragMode::trimLeft || hoverDragMode == DragMode::trimRight)
@@ -3397,6 +4233,17 @@ public:
 
     void mouseMove (const juce::MouseEvent& e) override
     {
+        // Tempo-node hover feedback (resize cursor + node highlight).
+        {
+            const int th = getTempoNodeAt (e.getPosition());
+            if (th != hoveredTempoNodeIndex)
+            {
+                hoveredTempoNodeIndex = th;
+                setMouseCursor (getMouseCursor());
+                repaint (tempoLaneArea());
+            }
+        }
+
         if (activeTool == EditTool::razor)
         {
             int oldX = lastMouseX;
@@ -3445,12 +4292,85 @@ public:
         repaint();
     }
 
-    enum class DragMode : int { none, move, trimLeft, trimRight, fadeLeft, fadeRight, loopStart, loopEnd, marker };
+    void commitRulerValueEdit()
+    {
+        if (! rulerValueEditor.isVisible())
+            return;
+
+        if (editingTempoIndex >= 0)
+        {
+            const double bpm = rulerValueEditor.getText().getDoubleValue();
+            if (bpm >= 20.0 && bpm <= 300.0)
+                audioEngine.setTempoBpmAtIndex (editingTempoIndex, bpm);
+        }
+        else if (editingTimeSigIndex >= 0)
+        {
+            const juce::String sig = rulerValueEditor.getText().trim();
+            const int numerator = sig.upToFirstOccurrenceOf ("/", false, false).getIntValue();
+            const int denominator = sig.fromFirstOccurrenceOf ("/", false, false).getIntValue();
+            if (numerator > 0 && denominator > 0)
+            {
+                const double beat = audioEngine.getTimeSigStartBeat (editingTimeSigIndex);
+                audioEngine.setTimeSigAtBeat (beat, numerator, denominator);
+            }
+        }
+
+        cancelRulerValueEdit();
+        repaint();
+    }
+
+    void cancelRulerValueEdit()
+    {
+        rulerValueEditor.setVisible (false);
+        editingTempoIndex = -1;
+        editingTimeSigIndex = -1;
+    }
+
+    void beginTempoBpmEdit (int index, juce::Rectangle<int> bounds)
+    {
+        if (index < 0 || index >= audioEngine.getNumTempos())
+            return;
+
+        trackNameEditor.setVisible (false);
+        editingTempoIndex = index;
+        editingTimeSigIndex = -1;
+        rulerValueEditor.setInputRestrictions (0, "0123456789.");
+        rulerValueEditor.setText (juce::String (audioEngine.getTempoBpm (index), 0), false);
+        rulerValueEditor.setBounds (bounds.expanded (2, 1));
+        rulerValueEditor.setVisible (true);
+        rulerValueEditor.grabKeyboardFocus();
+        rulerValueEditor.selectAll();
+    }
+
+    void beginTimeSigEdit (int index, juce::Rectangle<int> bounds)
+    {
+        if (index < 0 || index >= audioEngine.getNumTimeSigs())
+            return;
+
+        trackNameEditor.setVisible (false);
+        editingTimeSigIndex = index;
+        editingTempoIndex = -1;
+        rulerValueEditor.setInputRestrictions (0, "0123456789/");
+        rulerValueEditor.setText (audioEngine.getTimeSigAtIndex (index), false);
+        rulerValueEditor.setBounds (bounds.expanded (2, 1));
+        rulerValueEditor.setVisible (true);
+        rulerValueEditor.grabKeyboardFocus();
+        rulerValueEditor.selectAll();
+    }
+
+    enum class DragMode : int { none, move, trimLeft, trimRight, fadeLeft, fadeRight, loopStart, loopEnd, marker, tempoNode, timeSigNode };
     DragMode dragMode = DragMode::none;
     DragMode hoverDragMode = DragMode::none;
     tracktion::MarkerClip* draggingMarker = nullptr;
     double dragOffset = 0;
     double dragStartVal = 0;
+    int selectedTempoIndex = -1;
+    int selectedTimeSigIndex = -1;
+    int editingTempoIndex = -1;
+    int editingTimeSigIndex = -1;
+    double tempoDragStartBpm = 120.0;
+    int tempoDragStartY = 0;
+    int hoveredTempoNodeIndex = -1;
 
     DragMode getSmartToolDragModeFor (tracktion::Clip& clip, juce::Point<int> pos) const
     {
@@ -3671,8 +4591,25 @@ public:
 
     void scrollBarMoved (juce::ScrollBar* bar, double newRangeStart) override
     {
-        if (bar == &horizontalScrollBar) { startTime = newRangeStart; repaint(); }
-        else if (bar == &verticalScrollBar) { scrollY = (int) newRangeStart; repaint(); }
+        if (bar == &horizontalScrollBar) { startTime = newRangeStart; requestTimelineRefresh (false); }
+        else if (bar == &verticalScrollBar) { scrollY = (int) newRangeStart; requestTimelineRefresh (false); }
+    }
+
+    void repaintRecordingRows()
+    {
+        bool repaintedAny = false;
+        auto rows = getVisibleRows();
+        for (auto& row : rows)
+        {
+            if (row.track != nullptr && audioEngine.isTrackArmed (row.track))
+            {
+                repaint (0, kRulerH + row.y - scrollY, getWidth(), row.height);
+                repaintedAny = true;
+            }
+        }
+
+        if (! repaintedAny)
+            requestTimelineRefresh (false);
     }
 
     int contentHeight() const
@@ -3696,6 +4633,369 @@ public:
 
     int laneTop()    const { return kRulerH; }
     int laneBottom() const { return getHeight() - kFooterH; }
+
+    juce::Rectangle<int> tempoLaneArea() const
+    {
+        return { kHeaderWidth, kRulerTopH, juce::jmax (0, getWidth() - kHeaderWidth - kVScrollW), kRulerBotH };
+    }
+
+    juce::Rectangle<int> beatRulerArea() const
+    {
+        return { kHeaderWidth, kRulerSigH, juce::jmax (0, getWidth() - kHeaderWidth - kVScrollW), kRulerBeatH };
+    }
+
+    juce::Rectangle<int> timeSigLaneArea() const
+    {
+        return { kHeaderWidth, 0, juce::jmax (0, getWidth() - kHeaderWidth - kVScrollW), kRulerSigH };
+    }
+
+    int getTimeSigNodeAt (juce::Point<int> p) const
+    {
+        if (! timeSigLaneArea().contains (p))
+            return -1;
+
+        if (audioEngine.getNumTimeSigs() > 0
+            && audioEngine.getTimeSigStartBeat (0) <= 0.0001)
+        {
+            auto rootArea = timeSigLaneArea().withWidth (kRulerLaneLabelW).withTrimmedLeft (20);
+            if (rootArea.contains (p))
+                return 0;
+        }
+
+        for (int i = audioEngine.getNumTimeSigs(); --i >= 0;)
+        {
+            if (i == 0 && audioEngine.getTimeSigStartBeat (0) <= 0.0001)
+                continue;
+
+            const double beat = audioEngine.getTimeSigStartBeat (i);
+            const float x = timeToX (audioEngine.getEdit().tempoSequence.toTime (tracktion::BeatPosition::fromBeats (beat)).inSeconds());
+            if (std::abs ((float) p.x - x) <= 8.0f)
+                return i;
+        }
+
+        return -1;
+    }
+
+    double getBarStartBeatForX (float x) const
+    {
+        auto& ts = audioEngine.getEdit().tempoSequence;
+        const double time = juce::jmax (0.0, xToTime (x));
+        auto barsAndBeats = ts.toBarsAndBeats (tracktion::TimePosition::fromSeconds (time));
+        barsAndBeats.beats = tracktion::BeatDuration();
+        return ts.toBeats (ts.toTime (barsAndBeats)).inBeats();
+    }
+
+    void showTimeSigMenuAt (double beat, int existingIndex = -1)
+    {
+        const int kBase = 100;
+        const char* presets[] = { "2/4", "3/4", "4/4", "5/4", "6/8", "7/8", "9/8", "12/8" };
+        constexpr int kPresetCount = 8;
+        juce::PopupMenu menu;
+        const auto current = existingIndex >= 0 ? audioEngine.getTimeSigAtIndex (existingIndex) : juce::String();
+
+        for (int i = 0; i < kPresetCount; ++i)
+            menu.addItem (kBase + i, presets[i], true, current == presets[i]);
+
+        if (existingIndex > 0)
+        {
+            menu.addSeparator();
+            menu.addItem (1, "Remove time signature change");
+        }
+
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+            [this, beat, existingIndex](int result)
+            {
+                if (result == 1 && existingIndex > 0)
+                {
+                    audioEngine.removeTimeSigAtIndex (existingIndex);
+                    selectedTimeSigIndex = -1;
+                    repaint();
+                    return;
+                }
+
+                if (result >= kBase)
+                {
+                    const char* presets[] = { "2/4", "3/4", "4/4", "5/4", "6/8", "7/8", "9/8", "12/8" };
+                    constexpr int kPresetCount = 8;
+                    const int idx = result - kBase;
+                    if (idx >= 0 && idx < kPresetCount)
+                    {
+                        const juce::String sig (presets[idx]);
+                        const int numerator = sig.upToFirstOccurrenceOf ("/", false, false).getIntValue();
+                        const int denominator = sig.fromFirstOccurrenceOf ("/", false, false).getIntValue();
+                        audioEngine.setTimeSigAtBeat (beat, numerator, denominator);
+                        selectedTimeSigIndex = audioEngine.getEdit().tempoSequence.indexOfTimeSig (
+                            &audioEngine.getEdit().tempoSequence.getTimeSigAt (tracktion::BeatPosition::fromBeats (beat)));
+                        repaint();
+                    }
+                }
+            });
+    }
+
+    float tempoBpmToY (double bpm) const
+    {
+        auto area = tempoLaneArea().reduced (0, 3);
+        const double norm = juce::jmap (juce::jlimit (20.0, 300.0, bpm), 20.0, 300.0, 1.0, 0.0);
+        return area.getY() + (float) norm * area.getHeight();
+    }
+
+    int getTempoNodeAt (juce::Point<int> p) const
+    {
+        if (! tempoLaneArea().contains (p))
+            return -1;
+
+        for (int i = audioEngine.getNumTempos(); --i >= 0;)
+        {
+            const double beat = audioEngine.getTempoStartBeat (i);
+            if (i == 0 && beat <= 0.0001)
+            {
+                if (tempoLaneArea().withWidth (kRulerLaneLabelW).contains (p))
+                    return 0;
+                continue;
+            }
+
+            const float x = timeToX (audioEngine.getEdit().tempoSequence.toTime (tracktion::BeatPosition::fromBeats (beat)).inSeconds());
+            const float y = tempoBpmToY (audioEngine.getTempoBpm (i));
+            if (std::abs ((float) p.x - x) <= 7.0f && std::abs ((float) p.y - y) <= 7.0f)
+                return i;
+        }
+
+        return -1;
+    }
+
+    juce::Rectangle<int> getTempoBpmLabelBounds (int index) const
+    {
+        return getTempoBpmEditBounds (index);
+    }
+
+    juce::Rectangle<int> getTempoBpmEditBounds (int index) const
+    {
+        if (index < 0 || index >= audioEngine.getNumTempos())
+            return {};
+
+        const auto area = tempoLaneArea();
+        if (index == 0 && audioEngine.getTempoStartBeat (0) <= 0.0001)
+        {
+            const auto labelArea = area.withWidth (kRulerLaneLabelW);
+            return labelArea.withTrimmedTop (labelArea.getHeight() / 2).reduced (2, 0);
+        }
+
+        const double beat = audioEngine.getTempoStartBeat (index);
+        const double time = audioEngine.getEdit().tempoSequence.toTime (tracktion::BeatPosition::fromBeats (beat)).inSeconds();
+        const float x = timeToX (time);
+        const juce::String bpmText = juce::String (audioEngine.getTempoBpm (index), 0);
+        const int pillW = juce::jmax (22, (int) Theme::uiSize (8.0f).getStringWidth (bpmText) + 8);
+        return { (int) (x - (float) pillW * 0.5f), area.getY() + 1, pillW, 11 };
+    }
+
+    int getTempoBpmLabelAt (juce::Point<int> p) const
+    {
+        for (int i = 0; i < audioEngine.getNumTempos(); ++i)
+            if (getTempoBpmLabelBounds (i).contains (p))
+                return i;
+
+        return -1;
+    }
+
+    juce::Rectangle<int> getTimeSigLabelBounds (int index) const
+    {
+        if (index < 0 || index >= audioEngine.getNumTimeSigs())
+            return {};
+
+        const auto area = timeSigLaneArea();
+        const auto labelArea = area.withWidth (kRulerLaneLabelW);
+        const double beat = audioEngine.getTimeSigStartBeat (index);
+        const bool isRoot = (index == 0 && beat <= 0.0001);
+
+        if (isRoot)
+            return labelArea.withTrimmedLeft (20).reduced (2, 2);
+
+        const double time = audioEngine.getEdit().tempoSequence.toTime (tracktion::BeatPosition::fromBeats (beat)).inSeconds();
+        const float anchorX = timeToX (time);
+        if (anchorX < (float) labelArea.getRight() || anchorX > getWidth() - kVScrollW)
+            return {};
+
+        return { (int) anchorX + 4, area.getY() + 2, 32, 12 };
+    }
+
+    int getTimeSigLabelAt (juce::Point<int> p) const
+    {
+        for (int i = 0; i < audioEngine.getNumTimeSigs(); ++i)
+            if (getTimeSigLabelBounds (i).contains (p))
+                return i;
+
+        return -1;
+    }
+
+    void drawTempoLane (juce::Graphics& g)
+    {
+        auto area = tempoLaneArea();
+        if (area.isEmpty())
+            return;
+
+        auto labelArea   = area.withWidth (kRulerLaneLabelW);
+        auto contentArea = area.withTrimmedLeft (kRulerLaneLabelW);
+
+        g.setColour (Theme::surface.withAlpha (0.45f));
+        g.fillRect (area);
+        g.setColour (Theme::surface.withAlpha (0.92f));
+        g.fillRect (labelArea);
+        g.setColour (Theme::border.withAlpha (0.35f));
+        g.drawHorizontalLine (area.getBottom() - 1, (float) area.getX(), (float) area.getRight());
+        g.setColour (Theme::border.withAlpha (0.22f));
+        g.drawVerticalLine (contentArea.getX(), (float) area.getY(), (float) area.getBottom());
+
+        const auto titleArea = labelArea.withHeight (labelArea.getHeight() / 2);
+        const auto valueArea = labelArea.withTrimmedTop (labelArea.getHeight() / 2);
+
+        g.setColour (Theme::textMuted.withAlpha (0.65f));
+        g.setFont (Theme::uiSize (7.5f).withStyle (juce::Font::bold));
+        g.drawText ("TEMPO", titleArea.reduced (4, 0), juce::Justification::centredLeft);
+
+        if (audioEngine.getNumTempos() > 0 && audioEngine.getTempoStartBeat (0) <= 0.0001)
+        {
+            g.setColour (Theme::textMain.withAlpha (0.88f));
+            g.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
+            g.drawText (juce::String (audioEngine.getTempoBpm (0), 0),
+                        valueArea.reduced (4, 0), juce::Justification::centredLeft);
+        }
+
+        juce::Path curve;
+        bool started = false;
+        for (int i = 0; i < audioEngine.getNumTempos(); ++i)
+        {
+            const double beat = audioEngine.getTempoStartBeat (i);
+            if (i == 0 && beat <= 0.0001)
+                continue;
+
+            const double time = audioEngine.getEdit().tempoSequence.toTime (tracktion::BeatPosition::fromBeats (beat)).inSeconds();
+            const float x = timeToX (time);
+            if (x < (float) contentArea.getX() || x > getWidth() + 20.0f)
+                continue;
+
+            const float y = tempoBpmToY (audioEngine.getTempoBpm (i));
+            if (! started) { curve.startNewSubPath (x, y); started = true; }
+            else           { curve.lineTo (x, y); }
+        }
+
+        if (! started && audioEngine.getNumTempos() > 0)
+        {
+            const float x = (float) contentArea.getX();
+            const float y = tempoBpmToY (audioEngine.getTempoBpm (0));
+            curve.startNewSubPath (x, y);
+            started = true;
+        }
+
+        if (! curve.isEmpty())
+        {
+            g.setColour (Theme::active.withAlpha (0.55f));
+            g.strokePath (curve, juce::PathStrokeType (1.25f));
+        }
+
+        for (int i = 0; i < audioEngine.getNumTempos(); ++i)
+        {
+            const double beat = audioEngine.getTempoStartBeat (i);
+            if (i == 0 && beat <= 0.0001)
+                continue;
+
+            const double time = audioEngine.getEdit().tempoSequence.toTime (tracktion::BeatPosition::fromBeats (beat)).inSeconds();
+            const float x = timeToX (time);
+            if (x < (float) contentArea.getX() || x > getWidth() - kVScrollW)
+                continue;
+
+            const double bpm = audioEngine.getTempoBpm (i);
+            const float y = tempoBpmToY (bpm);
+            const bool selected = (i == selectedTempoIndex);
+            const bool hovered  = (i == hoveredTempoNodeIndex);
+
+            g.setColour (Theme::border.withAlpha (0.35f));
+            g.drawLine (x, (float) area.getY(), x, (float) kRulerTopH, 1.0f);
+
+            const auto c = selected ? Theme::accent
+                         : hovered  ? Theme::accent.brighter (0.15f)
+                                    : Theme::active;
+            const float r = (selected || hovered) ? 5.5f : 4.5f;
+            g.setColour (c.withAlpha (0.95f));
+            g.fillEllipse (x - r, y - r, r * 2.0f, r * 2.0f);
+            g.setColour ((hovered && ! selected) ? Theme::textMain.withAlpha (0.7f)
+                                                 : juce::Colours::black.withAlpha (0.6f));
+            g.drawEllipse (x - r, y - r, r * 2.0f, r * 2.0f, 1.0f);
+
+            const juce::String bpmText = juce::String (bpm, 0);
+            const int pillW = juce::jmax (22, (int) Theme::uiSize (8.0f).getStringWidth (bpmText) + 8);
+            juce::Rectangle<float> pill (x - (float) pillW * 0.5f, area.getY() + 1.0f, (float) pillW, 11.0f);
+            g.setColour (Theme::surface.withAlpha (0.92f));
+            g.fillRoundedRectangle (pill, 2.0f);
+            g.setColour (c.withAlpha (selected ? 0.95f : 0.65f));
+            g.drawRoundedRectangle (pill, 2.0f, 1.0f);
+            g.setColour (selected ? Theme::textMain : Theme::textMuted);
+            g.setFont (Theme::uiSize (8.0f).withStyle (selected ? juce::Font::bold : juce::Font::plain));
+            g.drawText (bpmText, pill.toNearestInt(), juce::Justification::centred);
+        }
+    }
+
+    void drawTimeSigLane (juce::Graphics& g)
+    {
+        auto area = timeSigLaneArea();
+        if (area.isEmpty())
+            return;
+
+        auto labelArea   = area.withWidth (kRulerLaneLabelW);
+        auto contentArea = area.withTrimmedLeft (kRulerLaneLabelW);
+
+        g.setColour (juce::Colours::black.withAlpha (0.12f));
+        g.fillRect (area);
+        g.setColour (Theme::surface.withAlpha (0.92f));
+        g.fillRect (labelArea);
+        g.setColour (Theme::border.withAlpha (0.22f));
+        g.drawHorizontalLine (area.getBottom() - 1, (float) area.getX(), (float) area.getRight());
+        g.drawVerticalLine (contentArea.getX(), (float) area.getY(), (float) area.getBottom());
+
+        g.setColour (Theme::textMuted.withAlpha (0.65f));
+        g.setFont (Theme::uiSize (7.5f).withStyle (juce::Font::bold));
+        g.drawText ("SIG", labelArea.withWidth (20).reduced (2, 0), juce::Justification::centredLeft);
+
+        for (int i = 0; i < audioEngine.getNumTimeSigs(); ++i)
+        {
+            const double beat = audioEngine.getTimeSigStartBeat (i);
+            const double time = audioEngine.getEdit().tempoSequence.toTime (tracktion::BeatPosition::fromBeats (beat)).inSeconds();
+            const auto sig = audioEngine.getTimeSigAtIndex (i);
+            const bool selected = i == selectedTimeSigIndex;
+            const bool isRoot = (i == 0 && beat <= 0.0001);
+
+            juce::Rectangle<float> flag;
+            float anchorX = 0.0f;
+
+            if (isRoot)
+            {
+                flag = labelArea.withTrimmedLeft (20).reduced (2.0f, 2.0f).toFloat();
+                anchorX = flag.getCentreX();
+            }
+            else
+            {
+                anchorX = timeToX (time);
+                if (anchorX < (float) contentArea.getX() || anchorX > getWidth() - kVScrollW)
+                    continue;
+
+                flag = { anchorX + 4.0f, area.getY() + 2.0f, 32.0f, 12.0f };
+            }
+
+            g.setColour ((selected ? Theme::accent : Theme::meterYellow).withAlpha (selected ? 0.96f : 0.76f));
+            g.fillRoundedRectangle (flag, 2.0f);
+            g.setColour (selected ? Theme::accent.brighter (0.25f) : juce::Colours::black.withAlpha (0.55f));
+            g.drawRoundedRectangle (flag, 2.0f, selected ? 1.5f : 1.0f);
+
+            if (! isRoot)
+            {
+                g.setColour (Theme::border.withAlpha (0.35f));
+                g.drawLine (anchorX, (float) area.getBottom() - 1.0f, anchorX, (float) kRulerTopH, 1.0f);
+            }
+
+            g.setColour (juce::Colours::black.withAlpha (0.82f));
+            g.setFont (Theme::uiSize (8.0f).withStyle (juce::Font::bold));
+            g.drawText (sig, flag.toNearestInt(), juce::Justification::centred);
+        }
+    }
 
     void updateScrollBar()
     {
@@ -3725,27 +5025,84 @@ public:
     float timeToX (double t) const { return (float)kHeaderWidth + (float)((t - startTime) * pxPerSec); }
     double xToTime (float x) const { return (double)(x - kHeaderWidth) / pxPerSec + startTime; }
 
+    double pxPerBeatAt (tracktion::TempoSequence& ts, double beat) const
+    {
+        const double t0 = ts.toTime (tracktion::BeatPosition::fromBeats (beat)).inSeconds();
+        const double t1 = ts.toTime (tracktion::BeatPosition::fromBeats (beat + 1.0)).inSeconds();
+        return (t1 - t0) * pxPerSec;
+    }
+
+    static tracktion::tempo::BarsAndBeats barsAndBeatsAtBeat (tracktion::TempoSequence& ts, double beat)
+    {
+        return ts.toBarsAndBeats (ts.toTime (tracktion::BeatPosition::fromBeats (beat)));
+    }
+
+    float barBeatToX (tracktion::TempoSequence& ts, int barIndex, int beatInBar) const
+    {
+        tracktion::tempo::BarsAndBeats bb;
+        bb.bars = barIndex;
+        bb.beats = tracktion::BeatDuration::fromBeats ((double) beatInBar);
+        return timeToX (ts.toTime (ts.toBeats (bb)).inSeconds());
+    }
+
+    int beatsPerBarAt (tracktion::TempoSequence& ts, int barIndex) const
+    {
+        tracktion::tempo::BarsAndBeats bb;
+        bb.bars = barIndex;
+        bb.beats = tracktion::BeatDuration {};
+        const double time = ts.toTime (ts.toBeats (bb)).inSeconds();
+        return juce::jmax (1, (int) ts.getTimeSigAt (tracktion::TimePosition::fromSeconds (time)).numerator);
+    }
+
+    double absoluteBeatAt (tracktion::TempoSequence& ts, int barIndex, int beatInBar) const
+    {
+        tracktion::tempo::BarsAndBeats bb;
+        bb.bars = barIndex;
+        bb.beats = tracktion::BeatDuration::fromBeats ((double) beatInBar);
+        return ts.toBeats (bb).inBeats();
+    }
+
     juce::Array<tracktion::Track*> getSelectedTracks() const
     {
         juce::Array<tracktion::Track*> result;
         auto top = audioEngine.getTopLevelTracks();
+
+        std::function<tracktion::Track*(tracktion::Track*, const juce::String&)> findById =
+            [&findById] (tracktion::Track* track, const juce::String& id) -> tracktion::Track*
+            {
+                if (track == nullptr)
+                    return nullptr;
+
+                if (track->itemID.toString() == id)
+                    return track;
+
+                if (auto* folder = dynamic_cast<tracktion::FolderTrack*> (track))
+                    for (auto* child : folder->getAllAudioSubTracks (false))
+                        if (auto* found = findById (child, id))
+                            return found;
+
+                return nullptr;
+            };
+
         for (auto& id : selectedIds)
             for (auto* t : top)
-                if (t->itemID.toString() == id) { result.add(t); break; }
+                if (auto* found = findById (t, id)) { result.add(found); break; }
         return result;
     }
 
     int getSelectedIndex() const
     {
         if (selectedIds.isEmpty()) return -1;
-        auto top = audioEngine.getTopLevelTracks();
-        for (int i = 0; i < top.size(); ++i)
-            if (top[i]->itemID.toString() == selectedIds[0]) return i;
+        auto rows = const_cast<Timeline*> (this)->getVisibleRows();
+        for (int i = 0; i < rows.size(); ++i)
+            if (rows[i].track != nullptr && rows[i].track->itemID.toString() == selectedIds[0])
+                return i;
         return -1;
     }
 
     void paint(juce::Graphics& g) override
     {
+        trackButtonCache.clear();  // Clear button bounds cache before repainting
         currentTooltip.isValid = false;
         Theme::fillBackgroundGradient (g, getLocalBounds());
 
@@ -3826,11 +5183,11 @@ public:
                     if (mx >= kHeaderWidth && mx < getWidth() - kVScrollW)
                     {
                         g.setColour (Theme::accent.withAlpha (0.85f));
-                        g.fillRoundedRectangle (mx, 2.0f, 10.0f, 10.0f, 2.0f); // Flag
-                        g.fillRect (mx + 0.5f, 2.0f, 1.0f, 18.0f);              // Pole
+                        g.fillRoundedRectangle (mx, (float) kRulerSigH + 2.0f, 10.0f, 10.0f, 2.0f); // Flag
+                        g.fillRect (mx + 0.5f, (float) kRulerSigH + 2.0f, 1.0f, 18.0f);              // Pole
                         g.setColour (Theme::textMain);
                         g.setFont (Theme::uiSize (9.0f));
-                        g.drawText (marker->getName(), (int) mx + 12, 2, 60, 12, juce::Justification::left);
+                        g.drawText (marker->getName(), (int) mx + 12, kRulerSigH + 2, 60, 12, juce::Justification::left);
                     }
                 }
             }
@@ -3839,104 +5196,125 @@ public:
         g.setFont (Theme::uiSize (10.0f));
 
         auto& ts = audioEngine.getEdit().tempoSequence;
-        double startBeat = ts.toBeats (tracktion::TimePosition::fromSeconds (startTime)).inBeats();
-        double endBeat   = ts.toBeats (tracktion::TimePosition::fromSeconds (xToTime ((float)getWidth()))).inBeats();
+        const auto startBB = ts.toBarsAndBeats (tracktion::TimePosition::fromSeconds (startTime));
+        const auto endBB   = ts.toBarsAndBeats (tracktion::TimePosition::fromSeconds (xToTime ((float) getWidth())));
+        const int startBar = juce::jmax (0, (int) startBB.bars);
+        const int endBar   = (int) endBB.bars + 1;
 
-        // Compute pixels per beat at the current zoom level and tempo
-        double pxPerBeat = [&]() -> double {
-            double t0 = ts.toTime (tracktion::BeatPosition::fromBeats (startBeat)).inSeconds();
-            double t1 = ts.toTime (tracktion::BeatPosition::fromBeats (startBeat + 1.0)).inSeconds();
-            return (t1 - t0) * pxPerSec;
-        }();
+        double minPxPerBeat = pxPerBeatAt (ts, absoluteBeatAt (ts, startBar, 0));
+        double minPxPerBar  = minPxPerBeat * beatsPerBarAt (ts, startBar);
+        for (int ti = 0; ti < ts.getNumTempos(); ++ti)
+        {
+            if (auto* tempo = ts.getTempo (ti))
+            {
+                const double beat = tempo->getStartBeat().inBeats();
+                minPxPerBeat = juce::jmin (minPxPerBeat, pxPerBeatAt (ts, beat));
+            }
+        }
+        for (int bar = startBar; bar <= endBar; ++bar)
+        {
+            const int bpb = beatsPerBarAt (ts, bar);
+            const double barPx = pxPerBeatAt (ts, absoluteBeatAt (ts, bar, 0)) * (double) bpb;
+            minPxPerBar = juce::jmin (minPxPerBar, barPx);
+        }
 
-        // Pick the finest tick subdivision where ticks stay at least 8px apart
-        double beatStep;
-        if      (pxPerBeat * 0.125 >= 8.0)  beatStep = 0.125; // 1/8 beat (32nd notes in 4/4)
-        else if (pxPerBeat * 0.25  >= 8.0)  beatStep = 0.25;  // 1/4 beat (16th notes in 4/4)
-        else if (pxPerBeat * 0.5   >= 8.0)  beatStep = 0.5;   // half beat
-        else if (pxPerBeat         >= 8.0)  beatStep = 1.0;   // beat
-        else if (pxPerBeat * 2.0   >= 8.0)  beatStep = 2.0;   // 2 beats
-        else if (pxPerBeat * 4.0   >= 8.0)  beatStep = 4.0;   // bar (4/4)
-        else if (pxPerBeat * 8.0   >= 8.0)  beatStep = 8.0;   // 2 bars
-        else                                 beatStep = 16.0;  // 4 bars
-
-        // Estimate pixels per bar based on actual time signature numerator
-        auto& timeSig = ts.getTimeSigAt (tracktion::TimePosition::fromSeconds (startTime));
-        double pxPerBar = pxPerBeat * timeSig.numerator;
-
-        // Bar label step: power-of-2 number of bars between labels so text never overlaps
-        // Larger threshold (70px) matches Reaper's more spacious label layout
         int barLabelStep = 1;
-        while (pxPerBar * barLabelStep < 70.0)
+        while (minPxPerBar * (double) barLabelStep < 70.0)
             barLabelStep *= 2;
 
-        // Gate beat/sub-beat label visibility
-        bool showBeatLabels    = (pxPerBeat >= 40.0);
-        bool showSubBeatLabels = (pxPerBeat * 0.25 >= 30.0);
+        const bool showBeatLabels    = (minPxPerBeat >= 28.0);
+        const bool showSubBeatLabels = (minPxPerBeat * 0.25 >= 24.0);
+        const bool showBeatGrid      = (minPxPerBeat >= 20.0);
 
-        // Dual-band ruler: top row shows bar.beat, bottom row shows clock time
-        for (double b = std::floor (startBeat / beatStep) * beatStep; b <= endBeat; b += beatStep)
+        // Musical bar/beat ruler — respects time-signature and tempo changes.
+        for (int bar = startBar; bar <= endBar; ++bar)
         {
-            float x = timeToX (ts.toTime (tracktion::BeatPosition::fromBeats (b)).inSeconds());
-            if (x < kHeaderWidth) continue;
-            if (x > getWidth()) break;
+            const int beatsPerBar = beatsPerBarAt (ts, bar);
+            const bool labelThisBar = ((bar % barLabelStep) == 0);
 
-            auto bb = ts.toBarsAndBeats (ts.toTime (tracktion::BeatPosition::fromBeats (b)));
-            double beatsInBar = bb.beats.inBeats();
-            bool isBar  = (beatsInBar < 0.001);
-            bool isBeat = !isBar && (std::fmod (beatsInBar, 1.0) < 0.001);
-
-            // Tick marks in top band only (y from kRulerTopH upward)
-            float tickH = isBar ? (float)kRulerTopH : (isBeat ? 8.0f : 4.0f);
-            float alpha  = isBar ? 1.0f  : (isBeat ? 0.5f : 0.25f);
-            g.setColour (Theme::border.withAlpha (alpha));
-            g.drawLine (x, (float)kRulerTopH - tickH, x, (float)kRulerTopH);
-
-            // Top-band bar.beat labels
-            if (isBar && ((int)bb.bars % barLabelStep == 0))
+            for (int beatInBar = 0; beatInBar < beatsPerBar; ++beatInBar)
             {
-                g.setColour (Theme::textMain.withAlpha (0.9f));
-                g.setFont (Theme::uiSize (10.0f).boldened());
-                g.drawText (juce::String::formatted ("%d.1", (int)bb.bars + 1),
-                            (int)x + 3, 3, 50, kRulerTopH - 4, juce::Justification::left);
+                const float x = barBeatToX (ts, bar, beatInBar);
+                if (x + 1.0f < (float) kRulerContentX) continue;
+                if (x > (float) getWidth()) break;
+
+                const bool isBarLine = (beatInBar == 0);
+                const double absBeat = absoluteBeatAt (ts, bar, beatInBar);
+                const double localPxPerBeat = pxPerBeatAt (ts, absBeat);
+
+                if (x + 1.0f >= (float) kRulerContentX)
+                {
+                    const float tickH = isBarLine ? (float) kRulerBeatH : 8.0f;
+                    g.setColour (Theme::border.withAlpha (isBarLine ? 1.0f : 0.45f));
+                    g.drawLine (x, (float) kRulerTopH - tickH, x, (float) kRulerTopH);
+                }
+
+                if (x + 3.0f >= (float) kRulerContentX)
+                {
+                    if (isBarLine && labelThisBar)
+                    {
+                        g.setColour (Theme::textMain.withAlpha (0.9f));
+                        g.setFont (Theme::uiSize (10.0f).boldened());
+                        g.drawText (juce::String::formatted ("%d.1", bar + 1),
+                                    (int) x + 3, kRulerSigH + 3, 36, kRulerBeatH - 4, juce::Justification::left);
+                    }
+                    else if (! isBarLine && showBeatLabels && localPxPerBeat >= 24.0)
+                    {
+                        g.setColour (Theme::textMuted.withAlpha (0.72f));
+                        g.setFont (Theme::uiSize (9.0f));
+                        g.drawText (juce::String::formatted ("%d.%d", bar + 1, beatInBar + 1),
+                                    (int) x + 3, kRulerSigH + 3, 28, kRulerBeatH - 4, juce::Justification::left);
+                    }
+                }
+
+                if (isBarLine && bar > 0 && labelThisBar && x + 3.0f >= (float) kRulerContentX + 48.0f)
+                {
+                    const double posSeconds = ts.toTime (tracktion::BeatPosition::fromBeats (absBeat)).inSeconds();
+                    const int totalMs = juce::roundToInt (posSeconds * 1000.0);
+                    const juce::String timeStr = juce::String::formatted ("%d:%02d.%03d",
+                                                                          (totalMs / 1000) / 60,
+                                                                          (totalMs / 1000) % 60,
+                                                                          totalMs % 1000);
+                    g.setColour (Theme::textMuted.withAlpha (0.6f));
+                    g.setFont (Theme::uiSize (8.5f));
+                    g.drawText (timeStr, (int) x + 3, kRulerTopH + 3, 70, kRulerBotH - 5,
+                                juce::Justification::left);
+                }
             }
-            else if (isBeat && showBeatLabels)
-            {
-                g.setColour (Theme::textMuted.withAlpha (0.7f));
-                g.setFont (Theme::uiSize (9.0f));
-                g.drawText (juce::String::formatted ("%d.%d", (int)bb.bars + 1, (int)beatsInBar + 1),
-                            (int)x + 3, 3, 40, kRulerTopH - 4, juce::Justification::left);
-            }
-            else if (!isBeat && showSubBeatLabels)
-            {
-                g.setColour (Theme::textMuted.withAlpha (0.5f));
-                g.setFont (Theme::uiSize (9.0f));
-                g.drawText (juce::String::formatted ("%d.%d.%d", (int)bb.bars + 1,
-                                                     (int)beatsInBar + 1,
-                                                     (int)(std::fmod (beatsInBar, 1.0) * 4.0) + 1),
-                            (int)x + 3, 3, 40, kRulerTopH - 4, juce::Justification::left);
-            }
+        }
 
-            // Bottom-band clock-time labels at bar positions only
-            if (isBar && ((int)bb.bars % barLabelStep == 0))
+        // Sub-beat ticks: quarter-note subdivisions inside each beat when zoomed in.
+        if (showSubBeatLabels)
+        {
+            for (int bar = startBar; bar <= endBar; ++bar)
             {
-                double posSeconds = ts.toTime (tracktion::BeatPosition::fromBeats (b)).inSeconds();
-                int totalMs  = juce::roundToInt (posSeconds * 1000.0);
-                int ms       = totalMs % 1000;
-                int secs     = (totalMs / 1000) % 60;
-                int mins     = (totalMs / 1000) / 60;
-                juce::String timeStr = juce::String::formatted ("%d:%02d.%03d", mins, secs, ms);
+                const int beatsPerBar = beatsPerBarAt (ts, bar);
+                for (int beatInBar = 0; beatInBar < beatsPerBar; ++beatInBar)
+                {
+                    const double absBeat = absoluteBeatAt (ts, bar, beatInBar);
+                    if (pxPerBeatAt (ts, absBeat) * 0.25 < 12.0)
+                        continue;
 
-                g.setColour (Theme::textMuted.withAlpha (0.6f));
-                g.setFont (Theme::uiSize (8.5f));
-                g.drawText (timeStr, (int)x + 3, kRulerTopH + 3, 70, kRulerBotH - 5,
-                            juce::Justification::left);
+                    for (int sub = 1; sub < 4; ++sub)
+                    {
+                        const double subPos = absBeat + (double) sub * 0.25;
+                        const float x = timeToX (ts.toTime (tracktion::BeatPosition::fromBeats (subPos)).inSeconds());
+                        if (x + 1.0f < (float) kRulerContentX || x > (float) getWidth())
+                            continue;
+
+                        g.setColour (Theme::border.withAlpha (0.22f));
+                        g.drawLine (x, (float) kRulerTopH - 4.0f, x, (float) kRulerTopH);
+                    }
+                }
             }
         }
 
         // Separator line between top and bottom bands
         g.setColour (Theme::border.withAlpha (0.4f));
         g.drawHorizontalLine (kRulerTopH, (float)kHeaderWidth, (float)getWidth());
+
+        drawTimeSigLane (g);
+        drawTempoLane (g);
 
         auto top = audioEngine.getTopLevelTracks();
 
@@ -3945,16 +5323,30 @@ public:
             juce::Graphics::ScopedSaveState s (g);
             g.reduceClipRegion (0, laneTop(), getWidth() - kVScrollW, laneBottom() - laneTop());
 
-            // Draw vertical bar grid lines through the track lane body
+            // Draw vertical bar/beat grid lines through the track lane body
             g.setColour (Theme::border.withAlpha (0.15f));
-            for (double b = std::floor (startBeat / 1.0) * 1.0; b <= endBeat; b += 1.0)
+            for (int bar = startBar; bar <= endBar + 1; ++bar)
             {
-                auto bb2 = ts.toBarsAndBeats (ts.toTime (tracktion::BeatPosition::fromBeats (b)));
-                bool isBarLine = (bb2.beats.inBeats() < 0.001);
-                if (!isBarLine) continue;
-                float gx = timeToX (ts.toTime (tracktion::BeatPosition::fromBeats (b)).inSeconds());
-                if (gx < kHeaderWidth || gx > getWidth()) continue;
-                g.drawVerticalLine ((int)gx, (float)laneTop(), (float)laneBottom());
+                const float gx = barBeatToX (ts, bar, 0);
+                if (gx < (float) kHeaderWidth || gx > (float) getWidth())
+                    continue;
+                g.drawVerticalLine ((int) gx, (float) laneTop(), (float) laneBottom());
+            }
+
+            if (showBeatGrid)
+            {
+                g.setColour (Theme::border.withAlpha (0.07f));
+                for (int bar = startBar; bar <= endBar; ++bar)
+                {
+                    const int beatsPerBar = beatsPerBarAt (ts, bar);
+                    for (int beatInBar = 1; beatInBar < beatsPerBar; ++beatInBar)
+                    {
+                        const float gx = barBeatToX (ts, bar, beatInBar);
+                        if (gx < (float) kHeaderWidth || gx > (float) getWidth())
+                            continue;
+                        g.drawVerticalLine ((int) gx, (float) laneTop(), (float) laneBottom());
+                    }
+                }
             }
 
             int y = laneTop() - scrollY;
@@ -4238,6 +5630,9 @@ public:
         auto rB = juce::Rectangle<int>(textX + 56,   btnY, 24, 22);
         auto aB = juce::Rectangle<int>(textX + 84,   btnY, 24, 22);
 
+        // Cache button bounds for hit-testing in mouseDown
+        trackButtonCache[track->itemID.toString()] = { mB, sB, rB, aB };
+
         bool isMute = track->isMuted(false);
         bool isSolo = track->isSolo(false);
         bool isArm  = audioEngine.isTrackArmed(track);
@@ -4251,6 +5646,23 @@ public:
         auto fxB = juce::Rectangle<int>(textX, fxY, 76, 20);
         int  numFx = track->pluginList.size();
         drawFxBadge (g, fxB, numFx);
+
+        if (audio != nullptr)
+        {
+            const bool frozen = audioEngine.isTrackFrozen (audio);
+            const bool freezing = audioEngine.isTrackFreezing (audio);
+            if (frozen || freezing)
+            {
+                auto badge = juce::Rectangle<int> (kHeaderWidth - 88, y + rowH - 24, 76, 18);
+                const auto badgeColour = freezing ? Theme::meterYellow : juce::Colours::skyblue;
+                g.setColour (badgeColour.withAlpha (0.20f));
+                g.fillRoundedRectangle (badge.toFloat(), 4.0f);
+                g.setColour (badgeColour.withAlpha (0.95f));
+                g.drawRoundedRectangle (badge.toFloat(), 4.0f, 1.0f);
+                g.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
+                g.drawText (freezing ? "FREEZING..." : "FROZEN", badge, juce::Justification::centred);
+            }
+        }
 
         // Automation lane (volume / pan curve, editable).
         if (isAuto)
@@ -4461,8 +5873,40 @@ public:
                     }
                     else if (auto* midi = dynamic_cast<tracktion::MidiClip*>(clip))
                     {
-                        // Draw MIDI clip with mini piano-roll view
-                        auto innerCb = cb.reduced(2);
+                        // Reaper-style MIDI item: a small piano-roll preview inside the item,
+                        // with beat divisions and note bars anchored to their real clip beats.
+                        auto innerCb = cb.reduced (3.0f, 16.0f).withTrimmedBottom (2.0f);
+                        if (innerCb.getHeight() <= 8.0f)
+                            innerCb = cb.reduced (3.0f);
+
+                        g.setColour (juce::Colours::black.withAlpha (clip->isMuted() ? 0.42f : 0.30f));
+                        g.fillRoundedRectangle (innerCb, 3.0f);
+
+                        const auto& ts = audioEngine.getEdit().tempoSequence;
+                        const double clipStartBeat = ts.toBeats (midi->getPosition().getStart()).inBeats();
+                        const double clipEndBeat   = ts.toBeats (midi->getPosition().getEnd()).inBeats();
+                        const double clipBeats     = juce::jmax (0.001, clipEndBeat - clipStartBeat);
+
+                        const double minorStep = (snapEnabled && snapInterval > 0.0) ? snapInterval : 0.25;
+                        double visibleMinorStep = minorStep;
+                        while (visibleMinorStep * pxPerSec * (len / clipBeats) < 4.0)
+                            visibleMinorStep *= 2.0;
+
+                        for (double beat = visibleMinorStep; beat < clipBeats; beat += visibleMinorStep)
+                        {
+                            const float x = innerCb.getX() + (float) (beat / clipBeats) * innerCb.getWidth();
+                            const bool isBeat = std::abs (beat - std::round (beat)) < 0.0001;
+                            g.setColour (Theme::border.withAlpha (isBeat ? 0.24f : 0.14f));
+                            g.drawLine (x, innerCb.getY(), x, innerCb.getBottom(), 1.0f);
+                        }
+
+                        for (int i = 1; i < 6; ++i)
+                        {
+                            const float yLane = innerCb.getY() + innerCb.getHeight() * (float) i / 6.0f;
+                            g.setColour (Theme::border.withAlpha (0.08f));
+                            g.drawLine (innerCb.getX(), yLane, innerCb.getRight(), yLane, 1.0f);
+                        }
+
                         auto& seq = midi->getSequence();
                         auto notes = seq.getNotes();
 
@@ -4470,44 +5914,58 @@ public:
                         {
                             // Find note range (pitch)
                             int minNote = 127, maxNote = 0;
-                            double minTime = 1e10, maxTime = 0;
                             for (auto* note : notes) {
                                 minNote = juce::jmin(minNote, note->getNoteNumber());
                                 maxNote = juce::jmax(maxNote, note->getNoteNumber());
-                                minTime = juce::jmin(minTime, note->getStartBeat().inBeats());
-                                maxTime = juce::jmax(maxTime, note->getEndBeat().inBeats());
                             }
 
-                            int noteRange = juce::jmax(1, maxNote - minNote + 1);
-                            double timeRange = juce::jmax(0.001, maxTime - minTime);
+                            int noteRange = juce::jmax(12, maxNote - minNote + 1);
 
                             // Draw notes as small rectangles
                             for (auto* note : notes) {
                                 int pitch = note->getNoteNumber();
-                                double startBeat = note->getStartBeat().inBeats() - minTime;
-                                double endBeat = note->getEndBeat().inBeats() - minTime;
+                                double startBeat = note->getStartBeat().inBeats();
+                                double endBeat = note->getEndBeat().inBeats();
+                                if (endBeat <= 0.0 || startBeat >= clipBeats)
+                                    continue;
 
-                                float noteY = innerCb.getBottom() - (float)(pitch - minNote + 1) / noteRange * innerCb.getHeight();
-                                float noteH = innerCb.getHeight() / noteRange;
-                                float noteX = innerCb.getX() + (float)(startBeat / timeRange) * innerCb.getWidth();
-                                float noteW = (float)((endBeat - startBeat) / timeRange) * innerCb.getWidth();
+                                startBeat = juce::jlimit (0.0, clipBeats, startBeat);
+                                endBeat   = juce::jlimit (0.0, clipBeats, endBeat);
 
-                                g.setColour(juce::Colours::white.withAlpha(0.7f));
-                                g.fillRect(noteX, noteY - noteH, juce::jmax(1.0f, noteW), noteH);
+                                float noteY = innerCb.getBottom() - (float)(pitch - minNote + 1) / (float) noteRange * innerCb.getHeight();
+                                float noteH = juce::jlimit (2.0f, 7.0f, innerCb.getHeight() / (float) noteRange);
+                                float noteX = innerCb.getX() + (float)(startBeat / clipBeats) * innerCb.getWidth();
+                                float noteW = (float)((endBeat - startBeat) / clipBeats) * innerCb.getWidth();
+
+                                g.setColour (juce::Colours::white.withAlpha (clip->isMuted() ? 0.32f : 0.78f));
+                                g.fillRoundedRectangle (noteX, noteY - noteH, juce::jmax (2.0f, noteW), noteH, 1.5f);
                             }
                         }
                         else
                         {
                             // Empty MIDI clip
-                            g.setColour(juce::Colours::white.withAlpha(0.3f));
+                            g.setColour(juce::Colours::white.withAlpha(0.26f));
                             g.setFont(Theme::uiSize(9.0f));
-                            g.drawText("[empty]", innerCb, juce::Justification::centred);
+                            g.drawText("MIDI", innerCb, juce::Justification::centred);
                         }
                     }
 
                     g.setColour(Theme::textMain);
                     g.setFont (Theme::uiSize (10.0f));
                     g.drawText(clip->getName(), cb.reduced(6, 2).toNearestInt(), juce::Justification::topLeft);
+
+                    if (audio != nullptr && (audioEngine.isTrackFrozen (audio) || audioEngine.isTrackFreezing (audio)))
+                    {
+                        const bool freezing = audioEngine.isTrackFreezing (audio);
+                        auto tag = juce::Rectangle<float> (cb.getRight() - 74.0f, cb.getY() + 5.0f, 66.0f, 17.0f);
+                        const auto tagColour = freezing ? Theme::meterYellow : juce::Colours::skyblue;
+                        g.setColour (juce::Colours::black.withAlpha (0.34f));
+                        g.fillRoundedRectangle (tag, 4.0f);
+                        g.setColour (tagColour.withAlpha (0.95f));
+                        g.drawRoundedRectangle (tag, 4.0f, 1.0f);
+                        g.setFont (Theme::uiSize (8.5f).withStyle (juce::Font::bold));
+                        g.drawText (freezing ? "FREEZING" : "FROZEN", tag.toNearestInt(), juce::Justification::centred);
+                    }
                 }
             }
         }
@@ -5084,6 +6542,61 @@ public:
 
         // Ruler -> seek / loop / markers
         if (e.y < kRulerH) {
+            if (tempoLaneArea().contains (e.getPosition()))
+            {
+                const int tempoIndex = getTempoNodeAt (e.getPosition());
+                if (tempoIndex >= 0)
+                {
+                    selectedTempoIndex = tempoIndex;
+                    if (e.mods.isPopupMenu())
+                    {
+                        audioEngine.removeTempoAtIndex (tempoIndex);
+                        selectedTempoIndex = -1;
+                        repaint();
+                        return;
+                    }
+
+                    dragMode = DragMode::tempoNode;
+                    tempoDragStartBpm = audioEngine.getTempoBpm (tempoIndex);
+                    tempoDragStartY = e.y;
+                    repaint();
+                    return;
+                }
+
+                return;
+            }
+
+            if (timeSigLaneArea().contains (e.getPosition()))
+            {
+                const int timeSigIndex = getTimeSigNodeAt (e.getPosition());
+                if (timeSigIndex >= 0)
+                {
+                    selectedTimeSigIndex = timeSigIndex;
+                    selectedTempoIndex = -1;
+
+                    if (e.mods.isPopupMenu())
+                    {
+                        if (timeSigIndex > 0)
+                            audioEngine.removeTimeSigAtIndex (timeSigIndex);
+                        selectedTimeSigIndex = -1;
+                        repaint();
+                        return;
+                    }
+
+                    dragMode = DragMode::timeSigNode;
+                    repaint();
+                    return;
+                }
+
+                if (e.mods.isPopupMenu())
+                {
+                    showTimeSigMenuAt (getBarStartBeatForX ((float) e.x));
+                    return;
+                }
+
+                return;
+            }
+
             auto& transport = audioEngine.getEdit().getTransport();
             auto loopRange = transport.getLoopRange();
             float x0 = timeToX (loopRange.getStart().inSeconds());
@@ -5151,8 +6664,11 @@ public:
                 return;
             }
 
-            audioEngine.setTransportPosition(juce::jmax(0.0, xToTime((float)e.x)));
-            repaint();
+            if (beatRulerArea().contains (e.getPosition()))
+            {
+                audioEngine.setTransportPosition (juce::jmax (0.0, xToTime ((float) e.x)));
+                repaint();
+            }
             return;
         }
 
@@ -5198,24 +6714,26 @@ public:
                         return;
                     }
 
-                    // M / S / R / A hits.
-                    if (e.y >= btnY && e.y < btnY + 22)
+                    // M / S / R / A hits - use cached button bounds
+                    auto trackId = clickedTrack->itemID.toString();
+                    auto it = trackButtonCache.find(trackId);
+                    if (it != trackButtonCache.end())
                     {
-                        if (juce::Rectangle<int>(textX,      btnY, 24, 22).contains(e.getPosition())) {
+                        auto& btns = it->second;
+                        if (btns.m.contains(e.getPosition())) {
                             audioEngine.toggleTrackMute(clickedTrack); repaint(); return;
                         }
-                        if (juce::Rectangle<int>(textX + 28, btnY, 24, 22).contains(e.getPosition())) {
+                        if (btns.s.contains(e.getPosition())) {
                             audioEngine.toggleTrackSolo(clickedTrack); repaint(); return;
                         }
-                        if (juce::Rectangle<int>(textX + 56, btnY, 24, 22).contains(e.getPosition())) {
+                        if (btns.r.contains(e.getPosition())) {
                             audioEngine.setTrackArmed(clickedTrack, ! audioEngine.isTrackArmed(clickedTrack));
                             repaint();
                             return;
                         }
-                        if (juce::Rectangle<int>(textX + 84, btnY, 24, 22).contains(e.getPosition())) {
-                            juce::String id = clickedTrack->itemID.toString();
-                            if (automationVisibleTracks.contains (id)) automationVisibleTracks.removeString (id);
-                            else                                       automationVisibleTracks.add (id);
+                        if (btns.a.contains(e.getPosition())) {
+                            if (automationVisibleTracks.contains (trackId)) automationVisibleTracks.removeString (trackId);
+                            else                                           automationVisibleTracks.add (trackId);
                             updateScrollBar();
                             repaint();
                             return;
@@ -5240,22 +6758,7 @@ public:
                     }
                     if (onSelectionChanged) onSelectionChanged(getSelectedTracks());
                     
-                    // find top-level index for onTrackSelected
-                    int topIdx = 0;
-                    auto top = audioEngine.getTopLevelTracks();
-                    for (int j = 0; j < top.size(); ++j)
-                    {
-                        if (top[j] == clickedTrack) { topIdx = j; break; }
-                        if (auto* f = dynamic_cast<tracktion::FolderTrack*>(top[j]))
-                        {
-                            bool found = false;
-                            for (auto* child : f->getAllAudioSubTracks(false))
-                                if (child == clickedTrack) { topIdx = j; found = true; break; }
-                            if (found) break;
-                        }
-                    }
-
-                    if (onTrackSelected)    onTrackSelected(topIdx);
+                    if (onTrackSelected)    onTrackSelected(clickedTrack);
 
                     dragging             = true;
                     dragSourceTrack      = clickedTrack;
@@ -5271,7 +6774,7 @@ public:
             
             selectedIds.clearQuick();
             if (onSelectionChanged) onSelectionChanged({});
-            if (onTrackSelected)    onTrackSelected(-1);
+            if (onTrackSelected)    onTrackSelected(nullptr);
             repaint();
             return;
         }
@@ -5352,6 +6855,15 @@ public:
 
         m.addSeparator();
         m.addItem (10, "Add Send to New Bus...");
+
+        if (auto* at = dynamic_cast<tracktion::AudioTrack*> (track))
+        {
+            const bool freezing = audioEngine.isTrackFreezing (at);
+            const bool frozen = audioEngine.isTrackFrozen (at);
+            m.addItem (11, freezing ? "Freeze in progress..." : (frozen ? "Unfreeze Track" : "Freeze Track"),
+                       ! freezing, false);
+        }
+
         m.addSeparator();
 
         if (auto* f = dynamic_cast<tracktion::FolderTrack*> (track))
@@ -5380,12 +6892,23 @@ public:
                 {
                     selectedIds.removeString (track->itemID.toString());
                     audioEngine.deleteTrack (track);
-                    if (onTrackSelected) onTrackSelected (-1);
+                    if (onTrackSelected) onTrackSelected (nullptr);
                     repaint();
                 }
                 else if (chosen == 10)
                 {
                     audioEngine.addSendToNewBus (track);
+                    repaint();
+                }
+                else if (chosen == 11)
+                {
+                    if (auto* at = dynamic_cast<tracktion::AudioTrack*> (track))
+                    {
+                        if (audioEngine.isTrackFrozen (at))
+                            audioEngine.unfreezeTrack (at);
+                        else
+                            audioEngine.freezeTrack (at);
+                    }
                     repaint();
                 }
                 else if (chosen == 20 || chosen == 21)
@@ -5455,8 +6978,10 @@ public:
             return;
         }
 
-        if (e.y < kRulerH && e.y >= kHeaderBarH) {
-            audioEngine.setTransportPosition(juce::jmax(0.0, xToTime((float)e.x)));
+        if (dragMode == DragMode::none
+            && beatRulerArea().contains (e.getPosition()))
+        {
+            audioEngine.setTransportPosition (juce::jmax (0.0, xToTime ((float) e.x)));
             repaint();
             return;
         }
@@ -5566,6 +7091,40 @@ public:
             return;
         }
 
+        if (dragMode == DragMode::tempoNode && selectedTempoIndex >= 0)
+        {
+            auto& ts = audioEngine.getEdit().tempoSequence;
+            const double beat = ts.toBeats (tracktion::TimePosition::fromSeconds (juce::jmax (0.0, xToTime ((float) e.x)))).inBeats();
+            const double snappedBeat = snapEnabled && snapInterval > 0.0
+                ? std::round (beat / snapInterval) * snapInterval
+                : beat;
+
+            const double bpmDelta = (double) (tempoDragStartY - e.y) * 0.75;
+            const double newBpm = juce::jlimit (20.0, 300.0, tempoDragStartBpm + bpmDelta);
+            if (selectedTempoIndex > 0)
+            {
+                // Clamp so a node can't be dragged across its neighbours (keeps ordering stable).
+                const double minGap = 0.0625; // 1/16 beat
+                double lo = audioEngine.getTempoStartBeat (selectedTempoIndex - 1) + minGap;
+                double hi = (selectedTempoIndex + 1 < audioEngine.getNumTempos())
+                                ? audioEngine.getTempoStartBeat (selectedTempoIndex + 1) - minGap
+                                : juce::jmax (lo, snappedBeat);
+                audioEngine.moveTempoAtIndexToBeat (selectedTempoIndex,
+                                                    juce::jlimit (lo, juce::jmax (lo, hi), snappedBeat));
+            }
+            audioEngine.setTempoBpmAtIndex (selectedTempoIndex, newBpm);
+            repaint();
+            return;
+        }
+
+        if (dragMode == DragMode::timeSigNode && selectedTimeSigIndex >= 0)
+        {
+            if (selectedTimeSigIndex > 0)
+                audioEngine.moveTimeSigAtIndexToBeat (selectedTimeSigIndex, getBarStartBeatForX ((float) e.x));
+            repaint();
+            return;
+        }
+
         if (selectedClip && dragMode != DragMode::none) {
             double mouseTime = xToTime((float)e.x);
 
@@ -5659,6 +7218,7 @@ public:
     tracktion::Clip* selectedClip = nullptr;
     tracktion::Track* trackBeingRenamed = nullptr;
     juce::TextEditor  trackNameEditor;
+    juce::TextEditor  rulerValueEditor;
 
     void mouseUp(const juce::MouseEvent& e) override
     {
@@ -5774,7 +7334,52 @@ public:
 
     void mouseDoubleClick(const juce::MouseEvent& e) override
     {
-        if (e.y < kRulerH) return;
+        if (e.y < kRulerH)
+        {
+            if (tempoLaneArea().contains (e.getPosition()))
+            {
+                if (const int labelIndex = getTempoBpmLabelAt (e.getPosition()); labelIndex >= 0)
+                {
+                    beginTempoBpmEdit (labelIndex, getTempoBpmEditBounds (labelIndex));
+                    return;
+                }
+
+                if (const int existingNode = getTempoNodeAt (e.getPosition()); existingNode >= 0)
+                {
+                    selectedTempoIndex = existingNode;
+                    beginTempoBpmEdit (existingNode, getTempoBpmEditBounds (existingNode));
+                    repaint();
+                    return;
+                }
+
+                auto& ts = audioEngine.getEdit().tempoSequence;
+                const double time = juce::jmax (0.0, xToTime ((float) e.x));
+                double beat = ts.toBeats (tracktion::TimePosition::fromSeconds (time)).inBeats();
+                if (snapEnabled && snapInterval > 0.0)
+                    beat = std::round (beat / snapInterval) * snapInterval;
+
+                const double bpm = audioEngine.getTempoAtPosition (time);
+                audioEngine.insertTempoAtBeat (beat, bpm);
+                selectedTempoIndex = audioEngine.getNumTempos() - 1;
+                beginTempoBpmEdit (selectedTempoIndex, getTempoBpmEditBounds (selectedTempoIndex));
+                repaint();
+            }
+            else if (timeSigLaneArea().contains (e.getPosition()))
+            {
+                if (const int labelIndex = getTimeSigLabelAt (e.getPosition()); labelIndex >= 0)
+                {
+                    beginTimeSigEdit (labelIndex, getTimeSigLabelBounds (labelIndex));
+                    return;
+                }
+
+                const int existingIndex = getTimeSigNodeAt (e.getPosition());
+                const double beat = existingIndex >= 0
+                    ? audioEngine.getTimeSigStartBeat (existingIndex)
+                    : getBarStartBeatForX ((float) e.x);
+                showTimeSigMenuAt (beat, existingIndex);
+            }
+            return;
+        }
 
         if (e.x < kHeaderWidth)
         {
@@ -5868,40 +7473,55 @@ public:
             startTime = mouseTime - (e.x - kHeaderWidth) / pxPerSec;
             startTime = juce::jmax (0.0, startTime);
 
-            updateScrollBar();
-            repaint();
+            requestTimelineRefresh (true);
         }
         else if (shiftDown)
         {
             startTime -= wheel.deltaY * (100.0 / pxPerSec);
             startTime = juce::jmax (0.0, startTime);
-            updateScrollBar();
-            repaint();
+            requestTimelineRefresh (true);
         }
         else
         {
             // Default vertical scroll through the track list.
             scrollY -= (int) (wheel.deltaY * 60.0);
-            updateScrollBar();
-            repaint();
+            requestTimelineRefresh (true);
         }
     }
 
-    void valueTreePropertyChanged (juce::ValueTree& v, const juce::Identifier& i) override 
-    { 
+    void valueTreePropertyChanged (juce::ValueTree& v, const juce::Identifier& i) override
+    {
         if (i == IDs::snapEnabled)
             snapEnabled = v.getProperty (i);
         else if (i == IDs::snapInterval)
             snapInterval = v.getProperty (i);
 
-        updateScrollBar(); 
-        repaint(); 
+        requestTimelineRefresh (i != IDs::snapEnabled && i != IDs::snapInterval);
     }
-    void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { updateScrollBar(); repaint(); }
-    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { updateScrollBar(); repaint(); }
-    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override { updateScrollBar(); repaint(); }
+    void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { requestTimelineRefresh (true); }
+    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { requestTimelineRefresh (true); }
+    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override { requestTimelineRefresh (true); }
+
+    void editStateChanged() override { requestTimelineRefresh (false); }
 
 private:
+    void requestTimelineRefresh (bool updateLayout)
+    {
+        pendingScrollUpdate = pendingScrollUpdate || updateLayout;
+        triggerAsyncUpdate();
+    }
+
+    void handleAsyncUpdate() override
+    {
+        if (pendingScrollUpdate)
+        {
+            pendingScrollUpdate = false;
+            updateScrollBar();
+        }
+
+        repaint();
+    }
+
     tracktion::Clip* getClipAt(juce::Point<int> p)
     {
         if (p.x < kHeaderWidth || p.y < kRulerH || p.y >= laneBottom()) return nullptr;
@@ -5958,6 +7578,13 @@ private:
     bool                    dropDetachToTopLevel = false;
     int  dropPreviewY  = -1;
     juce::Rectangle<int> addTrackBtn, addMidiTrackBtn, addFolderBtn;
+    bool pendingScrollUpdate = false;
+
+    // Cache track button bounds keyed by track itemID string
+    struct TrackButtonBounds {
+        juce::Rectangle<int> m, s, r, a;  // mute, solo, arm, automation
+    };
+    std::map<juce::String, TrackButtonBounds> trackButtonCache;
 
     double startTime = 0.0;
     double pxPerSec  = 100.0;
@@ -6082,6 +7709,7 @@ public:
     bool detached = false;
 
     std::unique_ptr<juce::Drawable> faderKnobDrawable;
+    std::unique_ptr<juce::Drawable> iconMute, iconSolo;
 
     Mixer(AudioEngineManager& ae, ProjectData& pd) : audioEngine(ae), projectData(pd)
     {
@@ -6090,6 +7718,15 @@ public:
 
         if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::aerion_fader_svg, BinaryData::aerion_fader_svgSize)))
             faderKnobDrawable = juce::Drawable::createFromSVG (*svgXml);
+
+        auto loadIcon = [] (const char* d, int s) -> std::unique_ptr<juce::Drawable>
+        {
+            if (auto xml = juce::XmlDocument::parse (juce::String::fromUTF8 (d, s)))
+                return juce::Drawable::createFromSVG (*xml);
+            return {};
+        };
+        iconMute = loadIcon (BinaryData::aerion_mute_svg, BinaryData::aerion_mute_svgSize);
+        iconSolo = loadIcon (BinaryData::aerion_Solo_svg, BinaryData::aerion_Solo_svgSize);
     }
 
     ~Mixer() override { projectData.getProjectTree().removeListener (this); }
@@ -6240,7 +7877,8 @@ public:
         inner.removeFromRight (2);
         {
             juce::Rectangle<int> btnHits[5];
-            drawSideButtonColumn (g, rightCol, track, audioEngine, btnHits);
+            drawSideButtonColumn (g, rightCol, track, audioEngine, btnHits,
+                                  iconMute.get(), iconSolo.get());
             hit.muteBtn  = btnHits[0];
             hit.soloBtn  = btnHits[1];
             hit.monoBtn  = btnHits[2];
@@ -6337,7 +7975,8 @@ public:
         static void drawSideButtonColumn (juce::Graphics& g, juce::Rectangle<int> col,
                                           tracktion::Track* track,
                                           AudioEngineManager& audioEngine,
-                                          juce::Rectangle<int> (&btns)[5])
+                                          juce::Rectangle<int> (&btns)[5],
+                                          juce::Drawable* iconMute, juce::Drawable* iconSolo)
         {
             const char* labels[5] = { "M", "S", "MONO", "FX", "i" };
             bool states[5] = {
@@ -6354,7 +7993,14 @@ public:
             {
                 btns[i] = cursor.removeFromTop (kSideBtnH);
                 cursor.removeFromTop (kSideBtnGap);
-                Timeline::drawTrackBtn (g, btns[i], labels[i], states[i], colours[i]);
+
+                // Mute / Solo render as SVG icon buttons to match the Timeline and Inspector.
+                if (i == 0 && iconMute != nullptr)
+                    Timeline::drawTrackIconBtn (g, btns[i], iconMute, states[i], colours[i]);
+                else if (i == 1 && iconSolo != nullptr)
+                    Timeline::drawTrackIconBtn (g, btns[i], iconSolo, states[i], colours[i]);
+                else
+                    Timeline::drawTrackBtn (g, btns[i], labels[i], states[i], colours[i]);
             }
         }
 
@@ -6739,7 +8385,8 @@ public:
             juce::String s = timeSigLabel.getText();
             int n = s.upToFirstOccurrenceOf ("/", false, false).getIntValue();
             int d = s.fromFirstOccurrenceOf ("/", false, false).getIntValue();
-            if (n > 0 && d > 0) audioEngine.setTimeSig (n, d);
+            if (n > 0 && d > 0)
+                audioEngine.setTimeSigAtPosition (audioEngine.getTransportPosition(), n, d);
         };
     }
 
@@ -6855,7 +8502,7 @@ public:
 
     enum class Glyph { play, stop, record, rewind, forward, loop };
 
-    static void drawBtn (juce::Graphics& g, juce::Rectangle<float> b, Glyph k, bool active = false)
+    void drawBtn (juce::Graphics& g, juce::Rectangle<float> b, Glyph k, bool active = false)
     {
         auto bc = b.reduced (2.0f);
         juce::Colour col = (k == Glyph::record) ? Theme::recordRed : Theme::active;
@@ -6864,6 +8511,16 @@ public:
         g.fillRoundedRectangle (bc, 4.0f);
         g.setColour (active ? col.withAlpha (0.55f) : Theme::border.withAlpha (0.45f));
         g.drawRoundedRectangle (bc, 4.0f, 1.0f);
+
+        if (auto* icon = icons[(int) k].get())
+        {
+            juce::Graphics::ScopedSaveState s (g);
+            const auto iconBounds = bc.reduced (8.0f);
+            icon->replaceColour (juce::Colours::black, active ? col : Theme::textMuted.withAlpha (0.85f));
+            icon->replaceColour (juce::Colours::white, active ? col : Theme::textMuted.withAlpha (0.85f));
+            icon->drawWithin (g, iconBounds, juce::RectanglePlacement::centred, 1.0f);
+            return;
+        }
 
         float cx = bc.getCentreX(), cy = bc.getCentreY();
         g.setColour (active ? col : Theme::textMuted.withAlpha (0.75f));

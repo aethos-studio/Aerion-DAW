@@ -26,6 +26,7 @@ public:
             juce::Logger::setCurrentLogger (appLogger.get());
             juce::Logger::writeToLog ("=== Aerion starting ===");
             juce::Logger::writeToLog ("Log file: " + logFile.getFullPathName());
+            startupStartedMs = juce::Time::getMillisecondCounterHiRes();
         }
 
         // Show splash immediately. Its onFinished callback reveals the main window
@@ -47,12 +48,10 @@ public:
 
         // IMPORTANT:
         // Creating the main window (and therefore MainComponent / Tracktion Engine) can
-        // briefly block the message thread. If we do that immediately, the splash screen's
-        // timer won't tick and you'll only see its first frame (solid background).
-        //
-        // So we let the splash animation run its intro first, then construct the main
-        // window. The splash will keep animating until setReady() is called.
-        constexpr int kSplashIntroMs = 3200; // ~180 frames @ 60 Hz + a little slack
+        // briefly block the message thread. If that happens before the splash intro has
+        // revealed the logo and text, the animation visibly freezes or skips frames.
+        // Keep construction behind the full intro, then hold/fade once the DAW is ready.
+        constexpr int kSplashIntroMs = 3000; // matches SplashWindow's 180-frame intro at 60 Hz
 
         juce::Timer::callAfterDelay (350, [this]
         {
@@ -74,7 +73,11 @@ public:
 
         juce::Timer::callAfterDelay (kSplashIntroMs, [this]
         {
+            const auto constructStart = juce::Time::getMillisecondCounterHiRes();
             mainWindow = std::make_unique<MainWindow> (getApplicationName());
+            juce::Logger::writeToLog ("Startup: MainWindow constructed in "
+                                      + juce::String (juce::Time::getMillisecondCounterHiRes() - constructStart, 1)
+                                      + " ms");
 
             // Show the main window *behind* the splash first so there is no
             // visible "gap" between splash closing and the DAW appearing.
@@ -93,6 +96,9 @@ public:
                 {
                     splashWindow->setStatus ("Ready");
                     splashWindow->setReady();
+                    juce::Logger::writeToLog ("Startup: main window ready after "
+                                              + juce::String (juce::Time::getMillisecondCounterHiRes() - startupStartedMs, 1)
+                                              + " ms");
                     return;
                 }
 
@@ -145,8 +151,12 @@ public:
                               Theme::bgBase,
                               DocumentWindow::allButtons)
         {
+            const auto startMs = juce::Time::getMillisecondCounterHiRes();
             setUsingNativeTitleBar (false);
             setContentOwned (new MainComponent(), true);
+            juce::Logger::writeToLog ("Startup: MainComponent attached in "
+                                      + juce::String (juce::Time::getMillisecondCounterHiRes() - startMs, 1)
+                                      + " ms");
 
            #if JUCE_IOS || JUCE_ANDROID
             setFullScreen (true);
@@ -174,6 +184,7 @@ private:
     std::unique_ptr<SplashWindow> splashWindow;
     std::unique_ptr<juce::FileLogger> appLogger;
     juce::File logFile;
+    double startupStartedMs = 0.0;
 };
 
 START_JUCE_APPLICATION (AerionDawApplication)

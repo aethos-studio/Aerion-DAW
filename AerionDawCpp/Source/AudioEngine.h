@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include <map>
+#include "Keymap.h"
 
 class AudioEngineManager : public juce::ChangeListener,
                            private juce::Timer
@@ -21,6 +22,9 @@ public:
     tracktion::Engine& getEngine() { return engine; }
     tracktion::Edit& getEdit()     { return *edit; }
 
+    AerionKeymap& getKeymap()                   { return keymap; }
+    juce::PropertiesFile* getUserSettings()     { return appProperties.getUserSettings(); }
+
     void play()  { edit->getTransport().play(false); }
     void stop()  { edit->getTransport().stop(false, false); }
     void record() { edit->getTransport().record(false); }
@@ -38,6 +42,20 @@ public:
 
     void setTempo (double bpm);
     void setTimeSig (int numerator, int denominator);
+    int getNumTimeSigs() const;
+    double getTimeSigStartBeat (int index) const;
+    juce::String getTimeSigAtIndex (int index) const;
+    void setTimeSigAtBeat (double beat, int numerator, int denominator);
+    void setTimeSigAtPosition (double seconds, int numerator, int denominator);
+    void removeTimeSigAtIndex (int index);
+    void moveTimeSigAtIndexToBeat (int index, double beat);
+    int getNumTempos() const;
+    double getTempoStartBeat (int index) const;
+    double getTempoBpm (int index) const;
+    void insertTempoAtBeat (double beat, double bpm);
+    void removeTempoAtIndex (int index);
+    void setTempoBpmAtIndex (int index, double bpm);
+    void moveTempoAtIndexToBeat (int index, double beat);
 
     juce::Array<tracktion::AudioTrack*> getAudioTracks();
     juce::Array<tracktion::Track*>      getTopLevelTracks();
@@ -103,13 +121,14 @@ public:
     void freezeTrack (tracktion::AudioTrack* track);
     void unfreezeTrack (tracktion::AudioTrack* track);
     bool isTrackFrozen (tracktion::AudioTrack* track) const;
+    bool isTrackFreezing (tracktion::Track* track) const;
 
     // Persistence
     void saveProject (const juce::File& file, class ProjectData* projectData = nullptr);
     void loadProject (const juce::File& file, class ProjectData* projectData = nullptr);
     void createNewProject();
 
-    juce::StringArray collectAndSave (const juce::File& projectFile);
+    juce::StringArray collectAndSave (const juce::File& projectFile, class ProjectData* projectData = nullptr);
     juce::RecentlyOpenedFilesList& getRecentProjects() { return recentProjects; }
     void clearRecentProjects();
 
@@ -304,13 +323,20 @@ public:
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void timerCallback() override;
 
+    // UI editors use this after direct edit mutations (e.g. MIDI note edits)
+    // so dependent views can refresh without exposing broadcastChange().
+    void notifyEditContentChanged() { broadcastChange(); }
+
 private:
+    friend struct FreezeListener;
+
     static std::unique_ptr<tracktion::UIBehaviour> makeUIBehaviour();
 
     tracktion::Engine engine { ProjectInfo::projectName, makeUIBehaviour(), nullptr };
     std::unique_ptr<tracktion::Edit> edit;
 
     juce::ApplicationProperties appProperties;
+    AerionKeymap keymap;
     bool hadCrash = false;
 
     juce::ListenerList<Listener> listeners;
@@ -334,6 +360,9 @@ private:
     bool punchEnabled = false;
     juce::RecentlyOpenedFilesList recentProjects;
     void restoreRuntimeStateFromXml (const juce::XmlElement& runtimeXml);
+    void applyRestoredRuntimeStateToEdit();
+    void attachEditListenerToCurrentEdit();
+    tracktion::Track* findTrackById (const juce::String& id) const;
 
     std::map<uint64_t, std::unique_ptr<tracktion::SmartThumbnail>> thumbnails;
 
@@ -360,6 +389,7 @@ private:
         }
     };
     std::map<juce::String, std::unique_ptr<TrackMeter>> trackMeters;
+    juce::HashMap<juce::String, bool> freezingTracks;
 
     std::atomic<bool> closing { false };
     bool audioDevicesConnected = false;
