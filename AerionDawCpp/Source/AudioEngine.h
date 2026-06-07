@@ -1,7 +1,9 @@
 #pragma once
 #include <JuceHeader.h>
 #include <map>
+#include <memory>
 #include "Keymap.h"
+#include "Export/MixdownExportJob.h"
 
 class AudioEngineManager : public juce::ChangeListener,
                            private juce::Timer
@@ -363,6 +365,7 @@ private:
     void applyRestoredRuntimeStateToEdit();
     void attachEditListenerToCurrentEdit();
     tracktion::Track* findTrackById (const juce::String& id) const;
+    void cancelActiveFreezeJobs();
 
     std::map<uint64_t, std::unique_ptr<tracktion::SmartThumbnail>> thumbnails;
 
@@ -390,6 +393,9 @@ private:
     };
     std::map<juce::String, std::unique_ptr<TrackMeter>> trackMeters;
     juce::HashMap<juce::String, bool> freezingTracks;
+    std::map<juce::String, std::shared_ptr<MixdownExportJob>> activeFreezeJobs;
+    std::map<juce::String, MixdownExportJob::Listener*> activeFreezeListeners;
+    uint64_t editGeneration = 0;
 
     std::atomic<bool> closing { false };
     bool audioDevicesConnected = false;
