@@ -316,6 +316,7 @@ AudioEngineManager::AudioEngineManager()
 AudioEngineManager::~AudioEngineManager()
 {
     closing.store (true);
+    cancelActiveFreezeJobs();
 
     // Clear crash detection sentinel: this session is terminating cleanly
     if (auto* s = appProperties.getUserSettings())
@@ -902,21 +903,6 @@ void AudioEngineManager::setTrackArmed (te::Track* t, bool enabled)
     if (t == nullptr) return;
     armedTracks.set (t->itemID.toString(), enabled);
 
-    // Check if this is a MIDI-only track and clean up any unwanted audio clips
-    bool isMidiTrack = (bool) t->state.getProperty(IDs::isMidiTrack, false);
-    if (isMidiTrack)
-    {
-        if (auto* at = dynamic_cast<te::AudioTrack*>(t))
-        {
-            // Remove any WaveAudioClips that shouldn't exist on MIDI tracks
-            auto clips = at->getClips();
-            for (auto* clip : clips)
-            {
-                if (dynamic_cast<te::WaveAudioClip*>(clip))
-                    clip->removeFromParent();
-            }
-        }
-    }
     if (enabled)
     {
         // Check if this is a MIDI-only track
@@ -1589,11 +1575,14 @@ void AudioEngineManager::loadProject (const juce::File& file, class ProjectData*
 
         if (editXml == nullptr) return;
 
+        cancelActiveFreezeJobs();
+
         if (edit != nullptr && editListener != nullptr)
             edit->removeListener (editListener.get());
 
         auto vt = juce::ValueTree::fromXml (*editXml);
         edit = te::loadEditFromState (engine, vt, te::Edit::forEditing);
+        ++editGeneration;
         attachEditListenerToCurrentEdit();
 
         thumbnails.clear();
@@ -1826,9 +1815,10 @@ struct FreezeListener : public MixdownExportJob::Listener {
     juce::ValueTree     preFreeze;
     juce::File          destFile;
     double              insertAt;
+    uint64_t            generation;
 
-    FreezeListener(AudioEngineManager* o, juce::String id, juce::ValueTree state, juce::File f, double at)
-        : owner(o), trackId(std::move(id)), preFreeze(std::move(state)), destFile(f), insertAt(at) {}
+    FreezeListener(AudioEngineManager* o, juce::String id, juce::ValueTree state, juce::File f, double at, uint64_t gen)
+        : owner(o), trackId(std::move(id)), preFreeze(std::move(state)), destFile(f), insertAt(at), generation(gen) {}
 
     void exportProgress(float) override {}
 
@@ -1838,11 +1828,25 @@ struct FreezeListener : public MixdownExportJob::Listener {
         auto state = preFreeze;
         auto file = destFile;
         auto at = insertAt;
+        auto gen = generation;
 
-        juce::MessageManager::callAsync([ownerRef, id, state, file, at, result]() mutable {
+        juce::MessageManager::callAsync([ownerRef, id, state, file, at, gen, result]() mutable {
             if (ownerRef == nullptr)
                 return;
 
+            auto active = ownerRef->activeFreezeJobs.find (id);
+            if (active == ownerRef->activeFreezeJobs.end() || ownerRef->editGeneration != gen)
+                return;
+
+            if (auto listener = ownerRef->activeFreezeListeners.find (id);
+                listener != ownerRef->activeFreezeListeners.end())
+            {
+                active->second->removeListener (listener->second);
+                delete listener->second;
+                ownerRef->activeFreezeListeners.erase (listener);
+            }
+
+            ownerRef->activeFreezeJobs.erase (active);
             ownerRef->freezingTracks.remove (id);
 
             if (! result.ok)
@@ -1877,7 +1881,6 @@ struct FreezeListener : public MixdownExportJob::Listener {
             track->state.setProperty(IDs::freezeFile, file.getFullPathName(), nullptr);
             ownerRef->broadcastChange();
         });
-        delete this;
     }
 };
 
@@ -1935,7 +1938,10 @@ void AudioEngineManager::freezeTrack (te::AudioTrack* track)
     freezingTracks.set (trackId, true);
     broadcastChange();
 
-    job->addListener(new FreezeListener(this, trackId, preFreeze, destFile, rangeStart));
+    auto* listener = new FreezeListener(this, trackId, preFreeze, destFile, rangeStart, editGeneration);
+    job->addListener(listener);
+    activeFreezeJobs[trackId] = job;
+    activeFreezeListeners[trackId] = listener;
     job->start();
 }
 
@@ -1997,15 +2003,36 @@ void AudioEngineManager::unfreezeTrack (te::AudioTrack* track)
 
 void AudioEngineManager::createNewProject()
 {
+    cancelActiveFreezeJobs();
     setupInitialEdit();
+    ++editGeneration;
     armedTracks.clear();
     inputDeviceMap.clear();
     midiInputDeviceMap.clear();
     monitorModeMap.clear();
     punchEnabled = false;
     thumbnails.clear();
+    trackMeters.clear();
     syncFolderRouting();
     broadcastChange();
+}
+
+void AudioEngineManager::cancelActiveFreezeJobs()
+{
+    for (auto& jobEntry : activeFreezeJobs)
+    {
+        if (auto listener = activeFreezeListeners.find (jobEntry.first);
+            listener != activeFreezeListeners.end())
+        {
+            if (jobEntry.second != nullptr)
+                jobEntry.second->removeListener (listener->second);
+            delete listener->second;
+        }
+    }
+
+    activeFreezeListeners.clear();
+    activeFreezeJobs.clear();
+    freezingTracks.clear();
 }
 
 bool AudioEngineManager::hasCrashRecovery() const
