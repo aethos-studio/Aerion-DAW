@@ -101,7 +101,7 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
 - [x] Context Menu "Quick Send": `AudioEngineManager::addSendToNewBus()` creates a new bus and inserts an `AuxSendPlugin` on the source track; surfaced from track-header / Mixer-strip context menus.
 - [x] Inspector SENDS Wiring: Inspector "SENDS" section enumerates `AuxSendPlugin` instances on the selected track and exposes per-send level via `setAuxSendLevelDb` / `getAuxSendLevelDb` so users don't have to scan the Console.
 - [x] Insert Slot Sync: INSERTS list in the Inspector is driven by the live track plugin list, so any plugin added via the Console (drag-drop or context menu) appears immediately in the Inspector and vice versa.
-- [x] Insert Logic: Serial DSP processing follows the Tracktion plugin chain ordering; the Inspector supports click-to-edit (opens plugin editor) and right-click to remove. Bypass and drag-to-reorder remain on the polish list.
+- [x] Insert Logic: Serial DSP processing follows the Tracktion plugin chain ordering; the Inspector supports click-to-edit (opens plugin editor) and right-click to remove. **Insert bypass** (`BYP` pill / compact bypass dot) and **drag-to-reorder** are implemented in the Inspector INSERTS list, Plugin Manager window, and Mixer insert rack.
 - [x] Plugin Preset Browser: Engine API `getPluginNumPrograms` / `getPluginProgramName` / `setPluginProgram` exposed; programs are accessible via the plugin window pop-out and the plugin context menu.
 - [x] **Mix Snapshots (bonus, not on original roadmap):** `saveMixSnapshot` / `recallMixSnapshot` / `getMixSnapshotNames` capture and restore mixer state; surfaced as a "Snapshots" submenu on the Mixer-strip context menu.
 

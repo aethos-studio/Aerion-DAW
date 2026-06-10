@@ -66,6 +66,302 @@ namespace PluginPicker
 }
 
 //==============================================================================
+// Shared pill button drawing helper (used by Inspector, PianoRollEditor, etc.)
+inline void drawPill (juce::Graphics& g, juce::Rectangle<int> r, const juce::String& label,
+                     bool on, juce::Colour activeColour)
+{
+    g.setColour (on ? activeColour.withAlpha (0.8f) : Theme::surface);
+    g.fillRoundedRectangle (r.toFloat(), 3.0f);
+    g.setColour (on ? activeColour : Theme::border);
+    g.drawRoundedRectangle (r.toFloat(), 3.0f, 1.0f);
+    g.setColour (on ? juce::Colours::black : Theme::textMuted);
+    g.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
+    g.drawText (label, r, juce::Justification::centred);
+}
+
+struct InsertRowHitAreas
+{
+    juce::Rectangle<int> row, dragHandle, bypassBtn, labelArea;
+    tracktion::ExternalPlugin* plugin = nullptr;
+};
+
+struct InsertRowDragState
+{
+    int draggingExternalIndex = -1;
+    int dropBeforeExternalIndex = -1;
+    int dropPreviewY = -1;
+};
+
+inline bool isInsertTrackFrozen (AudioEngineManager& audioEngine, tracktion::Track* track)
+{
+    if (auto* at = dynamic_cast<tracktion::AudioTrack*> (track))
+        return audioEngine.isTrackFrozen (at) || audioEngine.isTrackFreezing (at);
+    return false;
+}
+
+inline void showFrozenTrackInsertAlert()
+{
+    juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
+                                            "Track Frozen",
+                                            "Cannot modify plugins on frozen tracks. Unfreeze the track first.");
+}
+
+inline InsertRowHitAreas paintInsertRow (juce::Graphics& g, juce::Rectangle<int> row,
+                                         tracktion::ExternalPlugin& plug, AudioEngineManager& audioEngine,
+                                         float alpha = 1.0f)
+{
+    InsertRowHitAreas hit;
+    hit.row    = row;
+    hit.plugin = &plug;
+
+    const bool bypassed = audioEngine.isExternalPluginBypassed (&plug);
+    Theme::drawRoundedPanel (g, row.toFloat(), Theme::bgBase, alpha * (bypassed ? 0.45f : 1.0f));
+
+    hit.dragHandle = row.removeFromLeft (16).reduced (2, 6);
+    g.setColour (Theme::textMuted.withMultipliedAlpha (alpha));
+    for (int i = 0; i < 3; ++i)
+    {
+        const float dotY = (float) hit.dragHandle.getY() + 4.0f + (float) i * 5.0f;
+        g.fillEllipse ((float) hit.dragHandle.getX() + 4.0f, dotY, 2.0f, 2.0f);
+        g.fillEllipse ((float) hit.dragHandle.getRight() - 6.0f, dotY, 2.0f, 2.0f);
+    }
+
+    hit.bypassBtn = row.removeFromRight (34).reduced (4, 5);
+    drawPill (g, hit.bypassBtn, "BYP", bypassed, Theme::meterYellow);
+
+    hit.labelArea = row.reduced (4, 0);
+    g.setColour ((bypassed ? Theme::textMuted : Theme::textMain).withMultipliedAlpha (alpha));
+    g.setFont (Theme::uiSize (11.0f));
+    g.drawText (plug.getName(), hit.labelArea, juce::Justification::centredLeft, true);
+
+    return hit;
+}
+
+inline InsertRowHitAreas paintCompactInsertSlot (juce::Graphics& g, juce::Rectangle<int> row,
+                                                 tracktion::ExternalPlugin& plug,
+                                                 AudioEngineManager& audioEngine)
+{
+    InsertRowHitAreas hit;
+    hit.row    = row;
+    hit.plugin = &plug;
+
+    const bool bypassed = audioEngine.isExternalPluginBypassed (&plug);
+    Theme::drawRoundedPanel (g, row.toFloat(), Theme::bgBase, bypassed ? 0.45f : 1.0f);
+
+    hit.bypassBtn = row.removeFromLeft (8).reduced (1, 3);
+    g.setColour (bypassed ? Theme::meterYellow : Theme::textMuted.withAlpha (0.55f));
+    g.fillEllipse (hit.bypassBtn.toFloat().reduced (1.5f));
+
+    hit.dragHandle = row.removeFromLeft (6).reduced (0, 3);
+    g.setColour (Theme::textMuted.withAlpha (0.7f));
+    for (int i = 0; i < 3; ++i)
+    {
+        const float dotY = (float) hit.dragHandle.getY() + 2.0f + (float) i * 3.5f;
+        g.fillEllipse ((float) hit.dragHandle.getCentreX() - 1.0f, dotY, 2.0f, 2.0f);
+    }
+
+    hit.labelArea = row.reduced (1, 2);
+
+    g.setColour (bypassed ? Theme::textMuted : Theme::textMain);
+    g.setFont (Theme::uiSize (8.5f).withStyle (juce::Font::bold));
+    g.drawText (plug.getName().substring (0, 1).toUpperCase(), hit.labelArea, juce::Justification::centred);
+
+    return hit;
+}
+
+inline void paintInsertDropLine (juce::Graphics& g, int y, int x, int width)
+{
+    g.setColour (Theme::accent.withAlpha (0.95f));
+    g.fillRect ((float) x, (float) y, (float) width, 2.0f);
+}
+
+inline int insertDropBeforeIndexFromY (const juce::Array<InsertRowHitAreas>& hits, int y)
+{
+    for (int i = 0; i < hits.size(); ++i)
+    {
+        if (y < hits[i].row.getCentreY())
+            return i;
+    }
+    return hits.size();
+}
+
+inline int insertDropPreviewYFromIndex (const juce::Array<InsertRowHitAreas>& hits, int dropBeforeIndex)
+{
+    if (hits.isEmpty())
+        return -1;
+
+    if (dropBeforeIndex <= 0)
+        return hits.getFirst().row.getY() - 1;
+
+    if (dropBeforeIndex >= hits.size())
+        return hits.getLast().row.getBottom() + 1;
+
+    return hits[dropBeforeIndex].row.getY() - 1;
+}
+
+inline void showInsertContextMenu (AudioEngineManager& audioEngine, tracktion::Track* track,
+                                   tracktion::ExternalPlugin* plugin, juce::Point<int> screenPos,
+                                   std::function<void()> onChanged)
+{
+    if (plugin == nullptr || track == nullptr)
+        return;
+
+    juce::PopupMenu m;
+    m.addItem (1, "Open Editor");
+    m.addItem (2, "Bypass", true, ! plugin->isEnabled());
+    m.addSeparator();
+    m.addItem (4, "Move Up", plugin != nullptr);
+    m.addItem (5, "Move Down", plugin != nullptr);
+    m.addSeparator();
+    m.addItem (3, "Remove Plugin");
+
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ screenPos.x, screenPos.y, 1, 1 }),
+                     [&audioEngine, track, plugin, onChanged] (int chosen)
+                     {
+                         if (chosen <= 0 || plugin == nullptr)
+                             return;
+
+                         if (isInsertTrackFrozen (audioEngine, track))
+                         {
+                             showFrozenTrackInsertAlert();
+                             return;
+                         }
+
+                         juce::Array<tracktion::ExternalPlugin*> externals;
+                         for (auto* p : track->pluginList)
+                             if (auto* e = dynamic_cast<tracktion::ExternalPlugin*> (p))
+                                 externals.add (e);
+
+                         const int idx = externals.indexOf (plugin);
+
+                         if (chosen == 1)
+                             plugin->showWindowExplicitly();
+                         else if (chosen == 2)
+                             audioEngine.setPluginBypassed (plugin, plugin->isEnabled());
+                         else if (chosen == 3)
+                             audioEngine.removePlugin (plugin);
+                         else if (chosen == 4 && idx > 0)
+                             audioEngine.moveExternalPlugin (track, plugin, idx - 1);
+                         else if (chosen == 5 && idx >= 0 && idx < externals.size() - 1)
+                             audioEngine.moveExternalPlugin (track, plugin, idx + 1);
+
+                         if (onChanged)
+                             onChanged();
+                     });
+}
+
+inline bool handleInsertRowMouseDown (const juce::MouseEvent& e,
+                                      const juce::Array<InsertRowHitAreas>& hits,
+                                      AudioEngineManager& audioEngine,
+                                      tracktion::Track* track,
+                                      InsertRowDragState& dragState,
+                                      std::function<void()> onChanged)
+{
+    if (track == nullptr)
+        return false;
+
+    if (e.mods.isPopupMenu())
+    {
+        for (auto& hit : hits)
+        {
+            if (hit.row.contains (e.getPosition()))
+            {
+                showInsertContextMenu (audioEngine, track, hit.plugin, e.getScreenPosition(), onChanged);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    for (int i = 0; i < hits.size(); ++i)
+    {
+        auto& hit = hits.getReference (i);
+        if (! hit.row.contains (e.getPosition()))
+            continue;
+
+        if (hit.bypassBtn.contains (e.getPosition()))
+        {
+            if (isInsertTrackFrozen (audioEngine, track))
+            {
+                showFrozenTrackInsertAlert();
+                return true;
+            }
+
+            audioEngine.setPluginBypassed (hit.plugin, hit.plugin->isEnabled());
+            if (onChanged) onChanged();
+            return true;
+        }
+
+        if (hit.dragHandle.contains (e.getPosition()))
+        {
+            if (isInsertTrackFrozen (audioEngine, track))
+            {
+                showFrozenTrackInsertAlert();
+                return true;
+            }
+
+            dragState.draggingExternalIndex = i;
+            dragState.dropBeforeExternalIndex = i;
+            dragState.dropPreviewY = insertDropPreviewYFromIndex (hits, i);
+            return true;
+        }
+
+        if (hit.labelArea.contains (e.getPosition()) && hit.plugin != nullptr)
+        {
+            hit.plugin->showWindowExplicitly();
+            return true;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+inline bool handleInsertRowMouseDrag (const juce::MouseEvent& e,
+                                      const juce::Array<InsertRowHitAreas>& hits,
+                                      InsertRowDragState& dragState,
+                                      std::function<void()> onChanged)
+{
+    if (dragState.draggingExternalIndex < 0)
+        return false;
+
+    dragState.dropBeforeExternalIndex = insertDropBeforeIndexFromY (hits, e.y);
+    dragState.dropPreviewY = insertDropPreviewYFromIndex (hits, dragState.dropBeforeExternalIndex);
+
+    if (onChanged)
+        onChanged();
+
+    return true;
+}
+
+inline bool handleInsertRowMouseUp (AudioEngineManager& audioEngine,
+                                    tracktion::Track* track,
+                                    const juce::Array<InsertRowHitAreas>& hits,
+                                    InsertRowDragState& dragState,
+                                    std::function<void()> onChanged)
+{
+    if (dragState.draggingExternalIndex < 0 || track == nullptr)
+        return false;
+
+    const int from = dragState.draggingExternalIndex;
+    int to = dragState.dropBeforeExternalIndex;
+    if (to > from) --to;
+
+    dragState.draggingExternalIndex = -1;
+    dragState.dropBeforeExternalIndex = -1;
+    dragState.dropPreviewY = -1;
+
+    if (to != from && to >= 0 && to < hits.size() && hits[from].plugin != nullptr)
+        audioEngine.moveExternalPlugin (track, hits[from].plugin, to);
+
+    if (onChanged)
+        onChanged();
+
+    return true;
+}
+
+//==============================================================================
 // Lists plugins on a track and allows opening their editors.
 class PluginManagerWindow : public juce::DocumentWindow
 {
@@ -119,47 +415,29 @@ private:
             g.setFont (Theme::uiSize (10.0f).withStyle (juce::Font::bold));
             g.drawText ("+ ADD", addBtnBounds, juce::Justification::centred);
 
+            insertRowHits.clearQuick();
             int y = header.getBottom() + 10;
-            rowBounds.clearQuick();
-            removeBounds.clearQuick();
-            plugins.clearQuick();
 
             for (auto* p : track->pluginList)
             {
-                // Only show external (3rd party) plugins (VST3/AU).
-                if (dynamic_cast<tracktion::ExternalPlugin*> (p) == nullptr)
-                    continue;
-
-                juce::Rectangle<int> r (10, y, getWidth() - 20, 40);
-                Theme::drawRoundedPanel (g, r.toFloat(), Theme::surface);
-
-                g.setColour (Theme::textMain);
-                g.setFont (Theme::uiSize (13.0f));
-                g.drawText (p->getName(), r.reduced (12, 0).withTrimmedRight (60), juce::Justification::centredLeft);
-
-                g.setColour (Theme::textMuted);
-                g.setFont (Theme::uiSize (10.0f));
-                g.drawText ("dbl-click", r.withTrimmedRight (40), juce::Justification::centredRight);
-
-                // Per-row remove button.
-                juce::Rectangle<int> rm = r.removeFromRight (32).reduced (4);
-                g.setColour (Theme::recordRed.withAlpha (0.18f));
-                g.fillRoundedRectangle (rm.toFloat(), 3.0f);
-                g.setColour (Theme::recordRed);
-                g.drawRoundedRectangle (rm.toFloat(), 3.0f, 1.0f);
-                g.setFont (Theme::uiSize (12.0f).withStyle (juce::Font::bold));
-                g.drawText ("X", rm, juce::Justification::centred);
-
-                rowBounds.add (r);    // r has had the X area trimmed off
-                removeBounds.add (rm);
-                plugins.add (p);
-                y += 46;
+                if (auto* plug = dynamic_cast<tracktion::ExternalPlugin*> (p))
+                {
+                    juce::Rectangle<int> row (10, y, getWidth() - 20, 34);
+                    insertRowHits.add (paintInsertRow (g, row, *plug, audioEngine));
+                    y += 38;
+                }
             }
 
-            if (plugins.isEmpty())
+            if (insertRowHits.isEmpty())
             {
                 g.setColour (Theme::textMuted);
-                g.drawText ("No third-party plugins added.", getLocalBounds().withTrimmedTop(40), juce::Justification::centred);
+                g.drawText ("No third-party plugins added.", getLocalBounds().withTrimmedTop (40), juce::Justification::centred);
+            }
+            else if (insertDragState.dropPreviewY >= 0)
+            {
+                paintInsertDropLine (g, insertDragState.dropPreviewY,
+                                     insertRowHits.getFirst().row.getX(),
+                                     insertRowHits.getFirst().row.getWidth());
             }
         }
 
@@ -183,26 +461,32 @@ private:
                 return;
             }
 
-            for (int i = 0; i < removeBounds.size(); ++i)
-                if (removeBounds[i].contains (e.getPosition()))
-                {
-                    audioEngine.removePlugin (plugins[i].get());
-                    repaint();
-                    return;
-                }
+            if (handleInsertRowMouseDown (e, insertRowHits, audioEngine, track, insertDragState,
+                                          [this] { repaint(); }))
+                return;
+        }
+
+        void mouseDrag (const juce::MouseEvent& e) override
+        {
+            handleInsertRowMouseDrag (e, insertRowHits, insertDragState, [this] { repaint(); });
+        }
+
+        void mouseUp (const juce::MouseEvent& e) override
+        {
+            juce::ignoreUnused (e);
+            handleInsertRowMouseUp (audioEngine, track, insertRowHits, insertDragState, [this] { repaint(); });
         }
 
         void mouseDoubleClick (const juce::MouseEvent& e) override
         {
-            for (int i = 0; i < rowBounds.size(); ++i)
-                if (rowBounds[i].contains (e.getPosition()))
+            for (auto& hit : insertRowHits)
+            {
+                if (hit.labelArea.contains (e.getPosition()) && hit.plugin != nullptr)
                 {
-                    auto p = plugins[i];
-                    p->setEnabled (true);
-                    p->setProcessingEnabled (true);
-                    p->showWindowExplicitly();
+                    hit.plugin->showWindowExplicitly();
                     return;
                 }
+            }
         }
 
         void timerCallback() override { repaint(); }
@@ -210,9 +494,8 @@ private:
         tracktion::Track* track;
         AudioEngineManager& audioEngine;
         juce::Rectangle<int> addBtnBounds;
-        juce::Array<juce::Rectangle<int>>   rowBounds;
-        juce::Array<juce::Rectangle<int>>   removeBounds;
-        juce::Array<tracktion::Plugin::Ptr> plugins;
+        juce::Array<InsertRowHitAreas> insertRowHits;
+        InsertRowDragState insertDragState;
     };
 
     tracktion::Track* track;
@@ -244,20 +527,6 @@ public:
 protected:
     juce::String name;
 };
-
-//==============================================================================
-// Shared pill button drawing helper (used by Inspector, PianoRollEditor, etc.)
-inline void drawPill (juce::Graphics& g, juce::Rectangle<int> r, const juce::String& label,
-                     bool on, juce::Colour activeColour)
-{
-    g.setColour (on ? activeColour.withAlpha (0.8f) : Theme::surface);
-    g.fillRoundedRectangle (r.toFloat(), 3.0f);
-    g.setColour (on ? activeColour : Theme::border);
-    g.drawRoundedRectangle (r.toFloat(), 3.0f, 1.0f);
-    g.setColour (on ? juce::Colours::black : Theme::textMuted);
-    g.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
-    g.drawText (label, r, juce::Justification::centred);
-}
 
 //==============================================================================
 // "About Aerion DAW" dialog. Hosts the vertical Aerion logo, version + credits,
@@ -1595,8 +1864,7 @@ public:
             faderArea = juce::Rectangle<int>();
         }
 
-        insertRows.clearQuick();
-        insertPlugins.clearQuick();
+        insertRowHits.clearQuick();
         sendRows.clearQuick();
 
         // Track header
@@ -1737,7 +2005,7 @@ public:
         }
 
         // Inserts
-        const int insertsH = juce::jmax (60, 40 + externals.size() * 36);
+        const int insertsH = juce::jmax (60, 40 + externals.size() * 38);
         drawInsertSection (g, b.removeFromTop (insertsH), externals);
         b.removeFromTop (10);
 
@@ -1902,6 +2170,11 @@ public:
         if (insertAddBtn.contains (e.getPosition()))
         {
             if (selectedTrack == nullptr) return;
+            if (isInsertTrackFrozen (audioEngine, selectedTrack))
+            {
+                showFrozenTrackInsertAlert();
+                return;
+            }
             auto track = selectedTrack;
             auto sp = e.getScreenPosition();
             juce::Rectangle<int> anchor (sp.x, sp.y, 1, 1);
@@ -1915,26 +2188,10 @@ public:
             return;
         }
 
-        // Click an insert row -> open its editor; right-click -> remove.
-        for (int i = 0; i < insertRows.size(); ++i)
-        {
-            if (insertRows[i].contains (e.getPosition()))
-            {
-                if (auto* plug = insertPlugins[i])
-                {
-                    if (e.mods.isPopupMenu())
-                    {
-                        audioEngine.removePlugin (plug);
-                        repaint();
-                    }
-                    else
-                    {
-                        plug->showWindowExplicitly();
-                    }
-                }
-                return;
-            }
-        }
+        // Click an insert row -> open its editor; right-click -> context menu.
+        if (handleInsertRowMouseDown (e, insertRowHits, audioEngine, selectedTrack, insertDragState,
+                                      [this] { repaint(); }))
+            return;
     }
 
     void mouseDoubleClick (const juce::MouseEvent& e) override
@@ -1955,6 +2212,9 @@ public:
 
     void mouseDrag (const juce::MouseEvent& e) override
     {
+        if (handleInsertRowMouseDrag (e, insertRowHits, insertDragState, [this] { repaint(); }))
+            return;
+
         if (faderArea.contains (e.getPosition()) || (e.getMouseDownX() >= faderArea.getX() && e.getMouseDownX() < faderArea.getRight()))
         {
             ::setFaderFromY (audioEngine, selectedTrack, faderArea, e.y);
@@ -1980,6 +2240,12 @@ public:
         }
     }
 
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        juce::ignoreUnused (e);
+        handleInsertRowMouseUp (audioEngine, selectedTrack, insertRowHits, insertDragState, [this] { repaint(); });
+    }
+
     static void drawIconStateBtn (juce::Graphics& g, juce::Rectangle<int> r,
                                   juce::Drawable* icon, bool on, juce::Colour activeColour)
     {
@@ -1994,8 +2260,8 @@ public:
 private:
     AudioEngineManager& audioEngine;
     ProjectData& projectData;
-    juce::Array<juce::Rectangle<int>> insertRows;
-    juce::Array<tracktion::ExternalPlugin*> insertPlugins;
+    juce::Array<InsertRowHitAreas> insertRowHits;
+    InsertRowDragState insertDragState;
     juce::Array<juce::Rectangle<int>> sendRows;
     juce::Array<tracktion::AuxSendPlugin*> sendPlugins;
     juce::Array<juce::Rectangle<int>> sendLevelBounds;
@@ -2072,18 +2338,15 @@ private:
 
         for (auto* plug : plugins)
         {
-            juce::Rectangle<int> row ((int) b.getX(), y, b.getWidth(), 30);
-            Theme::drawRoundedPanel (g, row.toFloat(), Theme::bgBase);
-            g.setColour (Theme::active);
-            g.fillEllipse ((float) row.getX() + 8.0f, (float) y + 11.0f, 6.0f, 6.0f);
-            g.setColour (Theme::textMain);
-            g.setFont (Theme::uiSize (11.0f));
-            g.drawText (plug->getName(), row.getX() + 20, y, row.getWidth() - 30, 30, juce::Justification::centredLeft);
-
-            insertRows.add (row);
-            insertPlugins.add (plug);
-            y += 36;
+            juce::Rectangle<int> row ((int) b.getX(), y, b.getWidth(), 34);
+            insertRowHits.add (paintInsertRow (g, row, *plug, audioEngine));
+            y += 38;
         }
+
+        if (insertDragState.dropPreviewY >= 0 && ! insertRowHits.isEmpty())
+            paintInsertDropLine (g, insertDragState.dropPreviewY,
+                                 insertRowHits.getFirst().row.getX(),
+                                 insertRowHits.getFirst().row.getWidth());
     }
 
     void drawSendSection (juce::Graphics& g, juce::Rectangle<int> b,
@@ -7691,6 +7954,7 @@ class Mixer : public juce::Component,
 {
 public:
     static constexpr int kStripW        = 110;
+    static constexpr int kInsertColW    = 24;
     static constexpr int kFolderSubmixExtraW = 8;
     static constexpr int kHeaderH       = 28;
     static constexpr int kColorBandH    = 4;
@@ -7795,6 +8059,8 @@ public:
             tracktion::Track* track = isMaster ? audioEngine.getMasterTrack() : tracks[i];
             juce::Colour tColor = isMaster ? Theme::meterRed : Theme::colourForTrack(i);
             int stripW = kStripW;
+            if (! isMaster)
+                stripW += kInsertColW;
             if (auto* f = dynamic_cast<tracktion::FolderTrack*> (track))
                 if (audioEngine.isFolderSubmix (f))
                     stripW += kFolderSubmixExtraW;
@@ -7853,8 +8119,19 @@ public:
         g.drawText (name, nameArea, juce::Justification::centred);
         inner.removeFromTop (2);
 
+        auto stripBody = inner;
+        auto rightCol = stripBody.removeFromRight (kSideBtnColW);
+        stripBody.removeFromRight (2);
+
+        juce::Rectangle<int> insertCol;
+        if (! isMaster)
+        {
+            insertCol = stripBody.removeFromRight (kInsertColW);
+            stripBody.removeFromRight (2);
+        }
+
         // Pan knob row
-        auto panArea = inner.removeFromTop (kPanAreaH);
+        auto panArea = stripBody.removeFromTop (kPanAreaH);
         float pan = audioEngine.getTrackPan (track);
         drawPanKnob (g, panArea, pan);
         hit.panArea = panArea;
@@ -7870,11 +8147,9 @@ public:
                                               panArea.getRight() - lx, 12),
                         juce::Justification::centredLeft, false);
         }
-        inner.removeFromTop (2);
+        stripBody.removeFromTop (2);
 
         // Right-side button column
-        auto rightCol = inner.removeFromRight (kSideBtnColW);
-        inner.removeFromRight (2);
         {
             juce::Rectangle<int> btnHits[5];
             drawSideButtonColumn (g, rightCol, track, audioEngine, btnHits,
@@ -7886,17 +8161,39 @@ public:
             hit.infoBtn  = btnHits[4];
         }
 
-        // Collect plugin list (not drawn; used by FX button handler)
-        for (auto* pl : track->pluginList)
-            if (auto* ep = dynamic_cast<tracktion::ExternalPlugin*> (pl))
-                hit.insertPlugins.add (ep);
-
         // Fader + dual meters (fills remaining inner zone)
-        auto faderZone = inner.withTrimmedBottom (kBottomH);
+        auto faderZone = stripBody.withTrimmedBottom (kBottomH);
         const bool k14 = isMaster && (bool) projectData.getProjectTree().getProperty (IDs::masterKMeter, false);
         ::paintFader (g, faderZone, audioEngine, track, tColor, isMaster,
                       faderKnobDrawable.get(), &hit.peakReadoutArea, k14);
         hit.faderArea = faderZone;
+
+        if (! isMaster && insertCol.getWidth() > 0)
+        {
+            juce::Array<tracktion::ExternalPlugin*> externals;
+            for (auto* pl : track->pluginList)
+                if (auto* ep = dynamic_cast<tracktion::ExternalPlugin*> (pl))
+                    externals.add (ep);
+
+            int slotY = insertCol.getY();
+            const int slotH = 16;
+            const int slotGap = 2;
+
+            for (auto* ep : externals)
+            {
+                if (slotY + slotH > insertCol.getBottom())
+                    break;
+
+                juce::Rectangle<int> slot (insertCol.getX(), slotY, insertCol.getWidth(), slotH);
+                hit.insertRowHits.add (paintCompactInsertSlot (g, slot, *ep, audioEngine));
+                slotY += slotH + slotGap;
+            }
+
+            if (insertDragTrack == track && insertDragState.dropPreviewY >= 0 && ! hit.insertRowHits.isEmpty())
+                paintInsertDropLine (g, insertDragState.dropPreviewY,
+                                     hit.insertRowHits.getFirst().row.getX(),
+                                     hit.insertRowHits.getFirst().row.getWidth());
+        }
 
         // Plugin-drag hover highlight
         if (! isMaster && pluginDragHoverTrack == track)
@@ -8147,6 +8444,14 @@ public:
                     return;
                 }
 
+                if (handleInsertRowMouseDown (e, hit.insertRowHits, audioEngine, hit.track, insertDragState,
+                                              [this] { repaint(); }))
+                {
+                    if (insertDragState.draggingExternalIndex >= 0)
+                        insertDragTrack = hit.track;
+                    return;
+                }
+
                 if (hit.faderArea.contains (e.getPosition()))
                 {
                     if (e.mods.isPopupMenu())
@@ -8161,6 +8466,18 @@ public:
         }
     void mouseDrag(const juce::MouseEvent& e) override
     {
+        if (insertDragTrack != nullptr && insertDragState.draggingExternalIndex >= 0)
+        {
+            for (auto& hit : stripHits)
+            {
+                if (hit.track == insertDragTrack)
+                {
+                    handleInsertRowMouseDrag (e, hit.insertRowHits, insertDragState, [this] { repaint(); });
+                    return;
+                }
+            }
+        }
+
         if (activePanTrack)
         {
             float delta = (dragStartY - e.y) / 100.0f; // up = right, down = left
@@ -8178,8 +8495,23 @@ public:
         }
     }
 
-    void mouseUp(const juce::MouseEvent&) override
+    void mouseUp(const juce::MouseEvent& e) override
     {
+        if (insertDragTrack != nullptr)
+        {
+            for (auto& hit : stripHits)
+            {
+                if (hit.track == insertDragTrack)
+                {
+                    handleInsertRowMouseUp (audioEngine, hit.track, hit.insertRowHits, insertDragState,
+                                            [this] { repaint(); });
+                    break;
+                }
+            }
+            insertDragTrack = nullptr;
+        }
+
+        juce::ignoreUnused (e);
         activePanTrack   = nullptr;
         activeFaderTrack = nullptr;
     }
@@ -8212,51 +8544,8 @@ private:
         juce::Rectangle<int> stripBounds;
         juce::Rectangle<int> muteBtn, soloBtn, panArea, faderArea, peakReadoutArea;
         juce::Rectangle<int> monoBtn, fxBtn, infoBtn;
-        juce::Array<juce::Rectangle<int>>      insertSlots;
-        juce::Array<juce::Rectangle<int>>      insertEmptySlots;
-        juce::Array<juce::Rectangle<int>>      insertBypassBtns;
-        juce::Array<tracktion::Plugin*>        insertPlugins;
+        juce::Array<InsertRowHitAreas> insertRowHits;
     };
-
-void showInsertContextMenu(tracktion::Plugin* plugin, tracktion::Track* track, juce::Point<int> screenPos)
-    {
-        juce::PopupMenu m;
-        m.addItem (1, "Open Editor");
-        m.addItem (2, "Bypass", true, ! plugin->isEnabled());
-        m.addSeparator();
-        
-        // Presets Submenu
-        juce::PopupMenu presets;
-        int numProgs = audioEngine.getPluginNumPrograms (plugin);
-        if (numProgs > 0)
-        {
-            for (int i = 0; i < juce::jmin (32, numProgs); ++i)
-                presets.addItem (100 + i, audioEngine.getPluginProgramName (plugin, i));
-            
-            if (numProgs > 32) presets.addItem (0, "... (more in editor)", false);
-        }
-        else
-        {
-            presets.addItem (0, "No presets found", false);
-        }
-        m.addSubMenu ("Presets", presets);
-        
-        m.addSeparator();
-        m.addItem (3, "Remove Plugin");
-
-        m.showMenuAsync(juce::PopupMenu::Options()
-                        .withTargetScreenArea({ screenPos.x, screenPos.y, 1, 1 }),
-            [this, plugin] (int chosen) {
-                if (chosen == 1 && plugin)      plugin->showWindowExplicitly();
-                else if (chosen == 2 && plugin) plugin->setEnabled (! plugin->isEnabled());
-                else if (chosen == 3 && plugin) {
-                    audioEngine.removePlugin(plugin);
-                    repaint();
-                }
-                else if (chosen >= 100) audioEngine.setPluginProgram (plugin, chosen - 100);
-                repaint();
-            });
-    }
 
     AudioEngineManager& audioEngine;
     ProjectData& projectData;
@@ -8269,6 +8558,9 @@ void showInsertContextMenu(tracktion::Plugin* plugin, tracktion::Track* track, j
     tracktion::Track*       activeFaderTrack = nullptr;
     float panAtDragStart = 0.0f;
     int   dragStartY     = 0;
+
+    tracktion::Track* insertDragTrack = nullptr;
+    InsertRowDragState insertDragState;
 
     // Plugin drag hover state
     tracktion::Track* pluginDragHoverTrack = nullptr;
@@ -8326,6 +8618,8 @@ void showInsertContextMenu(tracktion::Plugin* plugin, tracktion::Track* track, j
             const bool isMaster = (i == tracks.size());
             auto* track = isMaster ? audioEngine.getMasterTrack() : tracks[i];
             int stripW = kStripW;
+            if (! isMaster)
+                stripW += kInsertColW;
             if (auto* f = dynamic_cast<tracktion::FolderTrack*> (track))
                 if (audioEngine.isFolderSubmix (f))
                     stripW += kFolderSubmixExtraW;

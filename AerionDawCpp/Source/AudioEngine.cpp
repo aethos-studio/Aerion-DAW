@@ -1076,6 +1076,72 @@ void AudioEngineManager::removePlugin (te::Plugin* plugin)
     if (plugin != nullptr) plugin->deleteFromParent();
 }
 
+bool AudioEngineManager::isExternalPluginBypassed (te::Plugin* plugin) const
+{
+    return plugin != nullptr && ! plugin->isEnabled();
+}
+
+void AudioEngineManager::setPluginBypassed (te::Plugin* plugin, bool bypassed)
+{
+    if (plugin == nullptr)
+        return;
+
+    if (auto* ownerTrack = plugin->getTrack())
+    {
+        if (auto* at = dynamic_cast<te::AudioTrack*> (ownerTrack))
+        {
+            if (isTrackFrozen (at) || isTrackFreezing (at))
+                return;
+        }
+    }
+
+    plugin->setEnabled (! bypassed);
+
+    if (! bypassed)
+        plugin->setProcessingEnabled (true);
+
+    edit->pluginChanged (*plugin);
+    broadcastChange();
+}
+
+void AudioEngineManager::moveExternalPlugin (te::Track* track, te::ExternalPlugin* plugin, int newExternalIndex)
+{
+    if (track == nullptr || plugin == nullptr)
+        return;
+
+    if (auto* at = dynamic_cast<te::AudioTrack*> (track))
+    {
+        if (isTrackFrozen (at) || isTrackFreezing (at))
+            return;
+    }
+
+    juce::Array<te::ExternalPlugin*> externals;
+    for (int i = 0; i < track->pluginList.size(); ++i)
+        if (auto* e = dynamic_cast<te::ExternalPlugin*> (track->pluginList[i]))
+            externals.add (e);
+
+    const int currentExternalIndex = externals.indexOf (plugin);
+    if (currentExternalIndex < 0)
+        return;
+
+    newExternalIndex = juce::jlimit (0, externals.size() - 1, newExternalIndex);
+    if (newExternalIndex == currentExternalIndex)
+        return;
+
+    externals.remove (currentExternalIndex);
+    externals.insert (newExternalIndex, plugin);
+
+    int targetListIndex = track->pluginList.size();
+    const int followingExternalIndex = newExternalIndex + 1;
+
+    if (followingExternalIndex < externals.size())
+        targetListIndex = track->pluginList.indexOf (externals[followingExternalIndex]);
+
+    te::Plugin::Ptr pluginPtr (plugin);
+    track->pluginList.insertPlugin (pluginPtr, targetListIndex, nullptr);
+    broadcastChange();
+}
+
 void AudioEngineManager::setTrackPan (te::Track* track, float pan)
 {
     if (auto* p = getAutomationParam (track, AutomationParamKind::Pan))

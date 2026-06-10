@@ -160,6 +160,9 @@ public:
 
     tracktion::Plugin::Ptr addPluginToTrack (tracktion::Track* track, const juce::PluginDescription& desc);
     void removePlugin (tracktion::Plugin* plugin);
+    bool isExternalPluginBypassed (tracktion::Plugin* plugin) const;
+    void setPluginBypassed (tracktion::Plugin* plugin, bool bypassed);
+    void moveExternalPlugin (tracktion::Track* track, tracktion::ExternalPlugin* plugin, int newExternalIndex);
     tracktion::Plugin* getPluginFor (juce::ValueTree& v);
     
     // Plugin Presets (Phase 6)

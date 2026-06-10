@@ -8,7 +8,7 @@ Aerion DAW has just landed the **Pre-Alpha Release** (`91d704c`) with the versio
 | Milestone | Status |
 |---|---|
 | M1: DAW Essentials — Editing (v0.0.1) | **Complete** — clip/MIDI/transport editing including **MIDI CC / Pitch lane** in the Piano Roll |
-| M2: DAW Essentials — Mixing (v0.1.0 Pre-Alpha) | **Complete** — Phase/Mono, HPF/LPF, Inserts, Sends, Presets, Snapshots, **clip + K-14 on master**, **submix folders + routing + Console/Timeline visuals**, **cascading mute/solo**, **drag-to-indent/detach** |
+| M2: DAW Essentials — Mixing (v0.1.0 Pre-Alpha) | **Complete** — Phase/Mono, HPF/LPF, Inserts, Sends, Presets, Snapshots, **clip + K-14 on master**, **submix folders + routing + Console/Timeline visuals**, **cascading mute/solo**, **drag-to-indent/detach**, **insert bypass + drag-to-reorder** |
 | M3: DAW Essentials — Recording & Monitoring (v0.6.0) | **Complete** — Metronome, Count-In, Punch In/Out, PDC, Multi-channel Input Routing, Buffer Safety, **live recording waveform**, **ASIO + WASAPI + DirectSound + WinRT MIDI driver pack**, **Reset Audio Settings** safety net, **per-track Input Monitoring override (Auto / On / Off)** and a **per-track MIDI controller selector** all shipped. Per-track input + monitor settings are session-scoped today; persisting them through `IDs::trackInputDeviceIdx` / `IDs::midiInputDevice` / `IDs::monitorMode` is the only follow-up. |
 | M4: DAW Essentials — Project & Workflow (v0.7.0) | **In progress** — **Mixdown Export shipped**. Stems export, Bounce/Freeze, Tempo Map, Recent Projects, Auto-save / Crash Recovery, Customisable Keyboard Shortcuts and Collect-and-Save still outstanding. |
 | M5: DAW Essentials — Polish & Stability (v0.9.0) | Not started (some performance/typography work has begun in flight) |
