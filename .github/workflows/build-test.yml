@@ -1,0 +1,54 @@
+name: build-test
+
+# Milestone 5 CI: build the app + smoke tests on every PR and push to main,
+# so regressions surface before the tag-triggered packaging workflow runs.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+concurrency:
+  group: build-test-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  windows:
+    name: Windows build + smoke tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tracktion v3.2.0 references some GitHub modules via SSH submodules in
+      # its .gitmodules - that fails on the unauthenticated CI runner, so we
+      # pre-clone the repo with HTTPS submodules and feed the path to
+      # FetchContent via FETCHCONTENT_SOURCE_DIR_* (same as package-release.yml).
+      - name: Pre-clone Tracktion Engine with HTTPS submodules
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch v3.2.0 https://github.com/Tracktion/tracktion_engine.git tracktion_engine-src
+          Push-Location tracktion_engine-src
+          git submodule set-url modules/juce https://github.com/juce-framework/JUCE.git
+          git submodule update --init --recursive --depth 1
+          Pop-Location
+
+      - name: Configure (Release, x64, tests on)
+        run: >
+          cmake -S AerionDawCpp -B build -G "Visual Studio 17 2022" -A x64
+          -DCMAKE_BUILD_TYPE=Release
+          -DAERION_BUILD_TESTS=ON
+          -DFETCHCONTENT_SOURCE_DIR_TRACKTION_ENGINE="${{ github.workspace }}\tracktion_engine-src"
+
+      - name: Build app
+        run: cmake --build build --config Release --target AerionDaw --parallel
+
+      - name: Build tests
+        run: cmake --build build --config Release --target AerionTests --parallel
+
+      - name: Run smoke tests
+        run: ctest --test-dir build -C Release --output-on-failure

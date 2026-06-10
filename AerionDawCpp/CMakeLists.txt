@@ -280,6 +280,49 @@ if (NOT WIN32)
     endif()
 endif()
 
+# --- Tests ----------------------------------------------------------------------
+# Opt-in smoke-test target (Milestone 5). Off by default so local app builds and
+# CPack packaging are unaffected; CI configures with -DAERION_BUILD_TESTS=ON.
+# ProjectData.cpp references tracktion::Edit, so the test target links the same
+# engine modules as the app and shares the FetchContent build tree.
+option(AERION_BUILD_TESTS "Build the AerionTests smoke-test console app" OFF)
+
+if (AERION_BUILD_TESTS)
+    enable_testing()
+
+    juce_add_console_app(AerionTests PRODUCT_NAME "AerionTests")
+    juce_generate_juce_header(AerionTests)
+
+    target_sources(AerionTests PRIVATE
+        Source/Tests/TestsMain.cpp
+        Source/ProjectData.h
+        Source/ProjectData.cpp
+        Source/Keymap.h
+    )
+
+    target_link_libraries(AerionTests PRIVATE
+        juce::juce_core
+        juce::juce_data_structures
+        juce::juce_events
+        juce::juce_graphics
+        juce::juce_gui_basics
+        juce::juce_gui_extra
+        juce::juce_audio_basics
+        juce::juce_audio_devices
+        juce::juce_audio_formats
+        juce::juce_audio_processors
+        juce::juce_audio_utils
+        juce::juce_cryptography
+        tracktion_core
+        tracktion_graph
+        tracktion_engine
+    )
+
+    target_compile_features(AerionTests PRIVATE cxx_std_20)
+
+    add_test(NAME AerionSmokeTests COMMAND AerionTests)
+endif()
+
 # --- Packaging ----------------------------------------------------------------
 # Shared CPack metadata for both NSIS (Windows) and DragNDrop (macOS). The
 # version number is sourced from the `project(... VERSION)` declaration above so
