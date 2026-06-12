@@ -1,0 +1,76 @@
+---
+description: Fedora 44 Linux development environment — build, audio, and Windows migration guardrails
+alwaysApply: true
+---
+
+# Fedora 44 development environment
+
+Primary local dev machine: **Fedora 44** (migrated from Windows 11). Agent shell commands and build instructions must target **Linux/bash**, not PowerShell or MSVC, unless explicitly working on Windows CI or cross-platform CMake.
+
+## Workspace path
+
+Clone location (example):
+
+```text
+~/Aethos-Studio/Aerion DAW/
+```
+
+Open the **repository root** in Cursor (folder containing `AerionDawCpp/`). For CMake Tools, set source directory to `AerionDawCpp` or use presets with `-S AerionDawCpp`.
+
+## Build (default workflow)
+
+From repository root:
+
+```bash
+cmake --preset fedora-ninja-debug -S AerionDawCpp -B build
+cmake --build build --preset fedora-ninja-debug
+```
+
+Binary output:
+
+```text
+build/AerionDaw_artefacts/Debug/Aerion DAW
+```
+
+Release:
+
+```bash
+cmake --preset fedora-ninja-release -S AerionDawCpp -B build
+cmake --build build --preset fedora-ninja-release
+```
+
+Smoke tests:
+
+```bash
+cmake --preset fedora-ninja-debug -S AerionDawCpp -B build -DAERION_BUILD_TESTS=ON
+cmake --build build --target AerionTests
+ctest --test-dir build --output-on-failure
+```
+
+## First-time system packages
+
+See `AerionDawCpp/Documentation/CURSOR_DEVELOPMENT.md` for the full `dnf` list. Minimum: `cmake`, `ninja-build`, `gcc-c++`, ALSA + X11 + Mesa + Freetype + Fontconfig + curl devel packages.
+
+## Audio on Fedora
+
+- **PipeWire** is the default session; JUCE ALSA backend typically works via PipeWire's ALSA shim.
+- **JACK** is optional but recommended for pro-audio; install `jack-audio-connection-kit-devel`. CMake auto-enables `JUCE_JACK` when headers are found.
+- Do not assume ASIO, WASAPI, DirectSound, or WinRT MIDI on Linux — those are Windows backends.
+
+## Windows → Linux pitfalls (do not reintroduce)
+
+| Windows habit | Fedora approach |
+|---------------|-----------------|
+| `cmake --preset win-msvc-debug` | `fedora-ninja-debug` preset |
+| Backslash paths | `juce::File` / POSIX paths |
+| `build\AerionDaw_artefacts\...\Aerion DAW.exe` | `build/AerionDaw_artefacts/Debug/Aerion DAW` (no `.exe`) |
+| VST3 in `Program Files\Common Files\VST3` | `~/.vst3`, `/usr/lib/vst3` |
+| Visual Studio generator | **Ninja** + GCC or Clang |
+
+## Agent guardrails on Fedora
+
+1. Run builds and tests in **bash** from the repo root.
+2. Do not install system packages without stating the `dnf install` command for the user to approve.
+3. First configure may **FetchContent** Tracktion Engine (~minutes). Use `-DFETCHCONTENT_SOURCE_DIR_TRACKTION_ENGINE=...` only when mirroring CI offline clone pattern.
+4. Do not modify `AerionDawCpp/External/ASIO-SDK_*` except for Windows-specific fixes.
+5. Keep `compile_commands.json` useful: Fedora presets set `CMAKE_EXPORT_COMPILE_COMMANDS=ON`.

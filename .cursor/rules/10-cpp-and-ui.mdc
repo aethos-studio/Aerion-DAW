@@ -1,0 +1,50 @@
+---
+description: C++ and JUCE UI editing standards for Aerion DAW source files
+globs: AerionDawCpp/Source/**/*
+alwaysApply: false
+---
+
+# C++ & UI editing rules
+
+## Language & style
+
+- **C++20** (`target_compile_features(... cxx_std_20)`). Match surrounding naming and include order.
+- JUCE headers first, then project headers. Use `juce::` prefix consistently with existing files.
+- Prefer extending existing types over new parallel abstractions.
+
+## Audio & realtime safety
+
+- Never allocate, lock, or call blocking I/O on the audio thread.
+- UI updates from background threads must use `juce::MessageManager::callAsync` or existing weak-reference patterns (see `PluginScanThread` in `AudioEngine.cpp`).
+- Engine mutations go through `AudioEngineManager`; check freeze/bypass guards before moving plugins.
+
+## UI
+
+- Observe `ProjectData` / `ValueTree` listeners; avoid duplicating state in component members.
+- Use `Theme::` colours, fonts, and `uiSize()` scaling — not raw `juce::Colours::` or hard-coded 14px unless matching an existing local pattern.
+- Tooltips: use `AerionTooltipWindow` where the rest of the file does.
+- Large UI lives in `UIComponents.h` — keep new components consistent with existing section headers and paint methods.
+
+## Plugins & formats
+
+- VST3 hosting is enabled (`JUCE_PLUGINHOST_VST3=1`). AU is macOS-only.
+- Plugin scan paths: Windows uses custom sanitised paths; **Linux uses JUCE defaults** (`~/.vst3`, `/usr/lib/vst3`, etc.). Do not paste Windows path logic into Linux builds.
+- Preferred Linux audio device order in code: **JACK, then ALSA** (`AudioEngine.cpp`).
+
+## Files to touch carefully
+
+| Area | Files |
+|------|-------|
+| Main window / menus | `MainComponent.cpp` |
+| Keymap | `Keymap.h` + consumers |
+| Export | `Source/Export/*` |
+| CMake / resources | `CMakeLists.txt`, `Resources/` |
+
+## Tests
+
+When changing `ProjectData` or `Keymap` serialisation, update or extend `AerionTests` (`Source/Tests/TestsMain.cpp`) and verify with:
+
+```bash
+cmake --build build --target AerionTests
+ctest --test-dir build --output-on-failure
+```

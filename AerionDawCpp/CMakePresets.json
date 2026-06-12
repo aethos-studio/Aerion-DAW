@@ -54,6 +54,26 @@
         "CMAKE_C_COMPILER": "clang",
         "CMAKE_CXX_COMPILER": "clang++"
       }
+    },
+    {
+      "name": "fedora-ninja-debug",
+      "displayName": "Fedora Linux Ninja Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/../build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "fedora-ninja-release",
+      "displayName": "Fedora Linux Ninja Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/../build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -76,6 +96,14 @@
       "name": "mac-clang-x86",
       "configurePreset": "mac-clang-x86",
       "configuration": "Release"
+    },
+    {
+      "name": "fedora-ninja-debug",
+      "configurePreset": "fedora-ninja-debug"
+    },
+    {
+      "name": "fedora-ninja-release",
+      "configurePreset": "fedora-ninja-release"
     }
   ]
 }

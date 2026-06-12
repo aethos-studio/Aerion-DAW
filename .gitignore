@@ -39,7 +39,9 @@ desktop.ini
 
 # ---- AI / assistant tooling (local-only) ---------------------------------
 .claude/
-.cursor/
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 Cursor-AI/
 Gemini/
 .aider*

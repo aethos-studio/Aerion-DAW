@@ -114,7 +114,7 @@ Aerion DAW follows a strict **Model-View-Controller (MVC)** separation:
 - **Controller:** `AudioEngineManager` wraps the Tracktion `Edit` and manages the real-time audio graph and transport.
 - **View:** Native JUCE components in `UIComponents.h` observe the `ValueTree` and repaint only when the underlying state changes.
 
-See `AerionDawCpp/Documentation/` for the roadmap, status, release procedure, and manual test checklist.
+See `AerionDawCpp/Documentation/` for the roadmap, status, release procedure, manual test checklist, and **Cursor development guide (Fedora 44)**.
 
 ---
 
