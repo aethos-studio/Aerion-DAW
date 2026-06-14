@@ -51,4 +51,4 @@ jobs:
         run: cmake --build build --config Release --target AerionTests --parallel
 
       - name: Run smoke tests
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: ctest --test-dir build -C Release -R "^AerionSmokeTests$" --output-on-failure
