@@ -10,6 +10,16 @@
 // serialisation/conflict logic. Run headless via the AerionTests console
 // target (ctest), so nothing here may open windows or audio devices.
 
+static int countChildrenWithType (const juce::ValueTree& tree, juce::Identifier type)
+{
+    int count = 0;
+    for (int i = 0; i < tree.getNumChildren(); ++i)
+        if (tree.getChild (i).hasType (type))
+            ++count;
+
+    return count;
+}
+
 class ProjectDataTests final : public juce::UnitTest
 {
 public:
@@ -28,6 +38,19 @@ public:
             expectEquals ((double) tree.getProperty (IDs::snapInterval), 1.0);
             expect ((bool) tree.getProperty (IDs::autoCrossfadeEnabled));
             expectEquals ((int) tree.getProperty (IDs::autoCrossfadeMaxMs), 120);
+        }
+
+        beginTest ("createMockData replaces seeded roots");
+        {
+            ProjectData pd;
+            pd.createMockData();
+            pd.createMockData();
+
+            const auto& tree = pd.getProjectTree();
+            expectEquals (countChildrenWithType (tree, IDs::Tracks), 1);
+            expectEquals (countChildrenWithType (tree, IDs::AuxTracks), 1);
+            expectEquals (tree.getChildWithName (IDs::Tracks).getNumChildren(), 4);
+            expectEquals (tree.getChildWithName (IDs::AuxTracks).getNumChildren(), 2);
         }
 
         beginTest ("XML round-trip preserves the full tree");

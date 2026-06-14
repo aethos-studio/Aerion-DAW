@@ -53,6 +53,10 @@ namespace IDs
     DECLARE_ID (freezeFile);          // String: path to the freeze WAV
     DECLARE_ID (preFreezeClipType);   // String: "audio" or "midi" for each saved clip
     DECLARE_ID (preFreezeClipState);  // ValueTree blob for MIDI sequence
+    DECLARE_ID (preFreezePluginStates);
+    DECLARE_ID (preFreezePluginState);
+    DECLARE_ID (preFreezePluginIndex);
+    DECLARE_ID (preFreezePluginEnabled);
 
     /** Stored on `MidiClip::state` — int controller number (0–127) or -1 for pitch bend. */
     DECLARE_ID (pianoRollCC);

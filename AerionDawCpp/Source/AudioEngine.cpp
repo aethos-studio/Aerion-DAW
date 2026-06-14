@@ -6,6 +6,8 @@ namespace te = tracktion;
 
 namespace
 {
+    const juce::Identifier freezeClipStateType { "ClipState" };
+
     /** Picks the buffer size in `sizes` closest to `targetSamples`, preferring
         an equal or smaller value when there's a tie. Used by the safe-default
         path; never forces a buffer the device can't actually support. */
@@ -1968,10 +1970,10 @@ void AudioEngineManager::freezeTrack (te::AudioTrack* track)
 
     if (rangeEnd <= rangeStart) return;
 
-    // Serialize pre-freeze clip state into track->state
+    // Serialize pre-freeze clip and insert state into track->state
     juce::ValueTree preFreeze(IDs::preFreeze);
     for (auto* clip : clips) {
-        juce::ValueTree cs("ClipState");
+        juce::ValueTree cs(freezeClipStateType);
         if (auto* wc = dynamic_cast<te::WaveAudioClip*>(clip)) {
             cs.setProperty("file", wc->getSourceFileReference().getFile().getFullPathName(), nullptr);
             cs.setProperty(IDs::preFreezeClipType, "audio", nullptr);
@@ -1983,6 +1985,20 @@ void AudioEngineManager::freezeTrack (te::AudioTrack* track)
         cs.setProperty("endBeat", clip->getEndBeat().inBeats(), nullptr);
         preFreeze.addChild(cs, -1, nullptr);
     }
+
+    juce::ValueTree pluginStates (IDs::preFreezePluginStates);
+    int externalPluginIndex = 0;
+    for (auto* p : track->getAllPlugins())
+    {
+        if (dynamic_cast<te::ExternalPlugin*> (p) == nullptr)
+            continue;
+
+        juce::ValueTree pluginState (IDs::preFreezePluginState);
+        pluginState.setProperty (IDs::preFreezePluginIndex, externalPluginIndex++, nullptr);
+        pluginState.setProperty (IDs::preFreezePluginEnabled, p->isEnabled(), nullptr);
+        pluginStates.addChild (pluginState, -1, nullptr);
+    }
+    preFreeze.addChild (pluginStates, -1, nullptr);
 
     // Build destination WAV path
     auto freezeDir = engine.getPropertyStorage().getAppPrefsFolder().getChildFile("Recovery");
@@ -2026,6 +2042,9 @@ void AudioEngineManager::unfreezeTrack (te::AudioTrack* track)
     // Re-insert original clips from preFreeze state
     for (int i = 0; i < preFreeze.getNumChildren(); ++i) {
         auto cs = preFreeze.getChild(i);
+        if (! cs.hasType (freezeClipStateType))
+            continue;
+
         juce::String clipType = cs.getProperty(IDs::preFreezeClipType, "audio").toString();
         double startBeat = cs.getProperty("startBeat", 0.0);
 
@@ -2049,10 +2068,24 @@ void AudioEngineManager::unfreezeTrack (te::AudioTrack* track)
         }
     }
 
-    // Re-enable ExternalPlugins
+    auto pluginStates = preFreeze.getChildWithName (IDs::preFreezePluginStates);
+    int externalPluginIndex = 0;
     for (auto* p : track->getAllPlugins())
+    {
         if (dynamic_cast<te::ExternalPlugin*>(p))
-            p->setEnabled(true);
+        {
+            bool enabled = true;
+            if (pluginStates.isValid() && externalPluginIndex < pluginStates.getNumChildren())
+                enabled = (bool) pluginStates.getChild (externalPluginIndex)
+                                      .getProperty (IDs::preFreezePluginEnabled, true);
+
+            p->setEnabled (enabled);
+            if (enabled)
+                p->setProcessingEnabled (true);
+
+            ++externalPluginIndex;
+        }
+    }
 
     // Delete the freeze WAV file
     juce::File freezeFile(track->state.getProperty(IDs::freezeFile).toString());

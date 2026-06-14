@@ -164,6 +164,16 @@ void ProjectData::syncWithEngine (tracktion::Edit& edit)
 
 void ProjectData::createMockData()
 {
+    for (auto existingTracks = projectTree.getChildWithName (IDs::Tracks);
+         existingTracks.isValid();
+         existingTracks = projectTree.getChildWithName (IDs::Tracks))
+        projectTree.removeChild (existingTracks, nullptr);
+
+    for (auto existingAuxTracks = projectTree.getChildWithName (IDs::AuxTracks);
+         existingAuxTracks.isValid();
+         existingAuxTracks = projectTree.getChildWithName (IDs::AuxTracks))
+        projectTree.removeChild (existingAuxTracks, nullptr);
+
     juce::ValueTree tracksTree (IDs::Tracks);
     juce::ValueTree auxTracksTree (IDs::AuxTracks);
     
