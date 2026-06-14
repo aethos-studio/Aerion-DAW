@@ -1088,7 +1088,7 @@ void AudioEngineManager::setPluginBypassed (te::Plugin* plugin, bool bypassed)
     if (plugin == nullptr)
         return;
 
-    if (auto* ownerTrack = plugin->getTrack())
+    if (auto* ownerTrack = plugin->getOwnerTrack())
     {
         if (auto* at = dynamic_cast<te::AudioTrack*> (ownerTrack))
         {
