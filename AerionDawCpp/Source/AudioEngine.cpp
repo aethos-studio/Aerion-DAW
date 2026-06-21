@@ -1073,6 +1073,14 @@ void AudioEngineManager::toggleTrackMute (te::Track* t)
 
 void AudioEngineManager::removePlugin (te::Plugin* plugin)
 {
+    if (plugin != nullptr)
+    {
+        if (auto* ownerTrack = plugin->getTrack())
+            if (auto* at = dynamic_cast<te::AudioTrack*> (ownerTrack))
+                if (isTrackFrozen (at) || isTrackFreezing (at))
+                    return;
+    }
+
     if (plugin != nullptr) plugin->deleteFromParent();
 }
 
@@ -1494,6 +1502,7 @@ tracktion::WaveAudioClip* AudioEngineManager::insertAudioClipOnTrack (
     tracktion::AudioTrack* track, const juce::File& file, double startTimeSecs)
 {
     if (track == nullptr || ! file.existsAsFile()) return nullptr;
+    if (isTrackFrozen (track) || isTrackFreezing (track)) return nullptr;
 
     te::AudioFile af (engine, file);
     double len = af.getLength();
@@ -2023,6 +2032,10 @@ void AudioEngineManager::unfreezeTrack (te::AudioTrack* track)
     for (auto* c : clips)
         c->removeFromParent();
 
+    // The public insert path rejects frozen tracks; unfreeze is the controlled
+    // transition back to editable source clips.
+    track->state.setProperty(IDs::frozen, false, nullptr);
+
     // Re-insert original clips from preFreeze state
     for (int i = 0; i < preFreeze.getNumChildren(); ++i) {
         auto cs = preFreeze.getChild(i);
@@ -2060,7 +2073,6 @@ void AudioEngineManager::unfreezeTrack (te::AudioTrack* track)
         freezeFile.deleteFile();
 
     // Clear frozen state
-    track->state.setProperty(IDs::frozen, false, nullptr);
     track->state.setProperty(IDs::freezeFile, "", nullptr);
     track->state.removeChild(preFreeze, nullptr);
 
@@ -2562,6 +2574,10 @@ void AudioEngineManager::deletePluginFromBrowserList (const juce::PluginDescript
 tracktion::Plugin::Ptr AudioEngineManager::addPluginToTrack (te::Track* track, const juce::PluginDescription& desc)
 {
     if (track == nullptr) return {};
+
+    if (auto* at = dynamic_cast<te::AudioTrack*> (track))
+        if (isTrackFrozen (at) || isTrackFreezing (at))
+            return {};
 
     // pluginList lives on the base Track, so this works for audio, folder and master tracks.
     auto p = edit->getPluginCache().createNewPlugin (te::ExternalPlugin::xmlTypeName, desc);

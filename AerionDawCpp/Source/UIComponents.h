@@ -99,6 +99,17 @@ inline bool isInsertTrackFrozen (AudioEngineManager& audioEngine, tracktion::Tra
     return false;
 }
 
+inline bool isClipTrackFrozenOrFreezing (AudioEngineManager& audioEngine, tracktion::Clip* clip)
+{
+    if (clip == nullptr)
+        return false;
+
+    if (auto* at = dynamic_cast<tracktion::AudioTrack*> (clip->getTrack()))
+        return audioEngine.isTrackFrozen (at) || audioEngine.isTrackFreezing (at);
+
+    return false;
+}
+
 inline void showFrozenTrackInsertAlert()
 {
     juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
@@ -3003,6 +3014,12 @@ public:
 
         if (box != &ccTypeCombo) return;
 
+        if (! canEditMidiClip())
+        {
+            syncCCSelectorFromClipState();
+            return;
+        }
+
         const int id = ccTypeCombo.getSelectedId();
         if (id == 7)
         {
@@ -3037,6 +3054,13 @@ public:
     /** Called from modal dialog (must be public for non-member callback). */
     void handleCustomCCAlert (int result, juce::String ccText)
     {
+        if (! canEditMidiClip())
+        {
+            syncCCSelectorFromClipState();
+            repaint();
+            return;
+        }
+
         if (result == 1)
         {
             int v = juce::jlimit (0, 127, ccText.getIntValue());
@@ -3148,9 +3172,9 @@ public:
 
         if (km.matches ("pianoRoll.selectAll", key)) { selectAllNotes();    return true; }
         if (km.matches ("pianoRoll.copy",      key)) { copySelection();     return true; }
-        if (km.matches ("pianoRoll.cut",       key)) { cutSelection();      return true; }
-        if (km.matches ("pianoRoll.paste",     key)) { pasteClipboard();    return true; }
-        if (km.matches ("pianoRoll.duplicate", key)) { duplicateSelection(); return true; }
+        if (km.matches ("pianoRoll.cut",       key)) { if (canEditMidiClip()) cutSelection();       return true; }
+        if (km.matches ("pianoRoll.paste",     key)) { if (canEditMidiClip()) pasteClipboard();     return true; }
+        if (km.matches ("pianoRoll.duplicate", key)) { if (canEditMidiClip()) duplicateSelection(); return true; }
 
         if (km.matches ("transport.playStop", key))
         {
@@ -3176,7 +3200,8 @@ public:
 
         if (km.matches ("pianoRoll.delete", key))
         {
-            deleteSelectedNotes ("Delete MIDI notes");
+            if (canEditMidiClip())
+                deleteSelectedNotes ("Delete MIDI notes");
             return true;
         }
 
@@ -3184,6 +3209,9 @@ public:
         const bool nudgeR = km.matches ("pianoRoll.nudgeRight", key);
         if (nudgeL || nudgeR)
         {
+            if (! canEditMidiClip())
+                return true;
+
             double delta = nudgeL ? -snapInterval : snapInterval;
             if (! snapEnabled)
                 delta *= 0.1;
@@ -3196,13 +3224,15 @@ public:
         const bool transDn = km.matches ("pianoRoll.transposeDown", key);
         if (transUp || transDn)
         {
-            transposeSelectedNotes (transUp ? 1 : -1);
+            if (canEditMidiClip())
+                transposeSelectedNotes (transUp ? 1 : -1);
             return true;
         }
 
         if (km.matches ("pianoRoll.quantize", key))
         {
-            quantizeSelectedNotes();
+            if (canEditMidiClip())
+                quantizeSelectedNotes();
             return true;
         }
 
@@ -3211,7 +3241,8 @@ public:
 
     void quantize()
     {
-        quantizeSelectedNotes();
+        if (canEditMidiClip())
+            quantizeSelectedNotes();
     }
 
     void notifyMidiContentChanged()
@@ -3219,8 +3250,16 @@ public:
         audioEngine.notifyEditContentChanged();
     }
 
+    bool canEditMidiClip()
+    {
+        return ! isClipTrackFrozenOrFreezing (audioEngine, &midiClip);
+    }
+
     void deleteSelectedNotes (const juce::String& transactionName)
     {
+        if (! canEditMidiClip())
+            return;
+
         auto notes = getSelectedNotes();
         if (notes.isEmpty())
             return;
@@ -3237,6 +3276,9 @@ public:
 
     void nudgeSelectedNotes (double delta)
     {
+        if (! canEditMidiClip())
+            return;
+
         auto notes = getSelectedNotes();
         if (notes.isEmpty())
             return;
@@ -3257,6 +3299,9 @@ public:
 
     void transposeSelectedNotes (int delta)
     {
+        if (! canEditMidiClip())
+            return;
+
         auto notes = getSelectedNotes();
         if (notes.isEmpty())
             return;
@@ -3273,6 +3318,9 @@ public:
 
     void quantizeSelectedNotes()
     {
+        if (! canEditMidiClip())
+            return;
+
         auto notes = getSelectedNotes();
         if (notes.isEmpty())
             return;
@@ -3317,12 +3365,18 @@ public:
 
     void cutSelection()
     {
+        if (! canEditMidiClip())
+            return;
+
         copySelection();
         deleteSelectedNotes ("Cut MIDI notes");
     }
 
     tracktion::MidiNote* insertCopiedNote (const CopiedNote& copied, double baseBeat)
     {
+        if (! canEditMidiClip())
+            return nullptr;
+
         auto before = midiClip.getSequence().getNotes();
         const double start = juce::jmax (0.0, baseBeat + copied.start);
 
@@ -3342,6 +3396,9 @@ public:
 
     void pasteClipboard()
     {
+        if (! canEditMidiClip())
+            return;
+
         if (noteClipboard.isEmpty())
             return;
 
@@ -3360,6 +3417,9 @@ public:
 
     void duplicateSelection()
     {
+        if (! canEditMidiClip())
+            return;
+
         auto notes = getSelectedNotes();
         if (notes.isEmpty())
             return;
@@ -3415,6 +3475,12 @@ public:
         if (e.x < kKeyW)
         {
             setAuditionNote (yToNote (e.y));
+            return;
+        }
+
+        if (! canEditMidiClip())
+        {
+            dragMode = PRDragMode::none;
             return;
         }
 
@@ -3530,6 +3596,13 @@ public:
             return;
         }
 
+        if (! canEditMidiClip())
+        {
+            dragMode = PRDragMode::none;
+            draggingNote = nullptr;
+            return;
+        }
+
         if (dragMode == PRDragMode::ccLane)
         {
             if (! e.mods.isRightButtonDown())
@@ -3595,7 +3668,8 @@ public:
 
         if (dragMode == PRDragMode::marquee)
         {
-            if (marqueeBounds.getWidth() < 4 && marqueeBounds.getHeight() < 4 && ! marqueeAdditive)
+            if (canEditMidiClip()
+                && marqueeBounds.getWidth() < 4 && marqueeBounds.getHeight() < 4 && ! marqueeAdditive)
                 addNoteAt (marqueeAnchor);
 
             marqueeBounds = {};
@@ -3615,6 +3689,9 @@ public:
 
     void updateVelocityAt (int x, int y)
     {
+        if (! canEditMidiClip())
+            return;
+
         auto va = velocityArea();
         float vel  = juce::jlimit (0.0f, 1.0f, (float) (va.getBottom() - y) / (float) juce::jmax (1, va.getHeight()));
         int velInt = (int) (vel * 127.0f);
@@ -3780,6 +3857,9 @@ private:
 
     void applyCCValueAt (int x, int y, bool force)
     {
+        if (! canEditMidiClip())
+            return;
+
         auto ca = ccLaneArea();
         const double b = snapBeat ((double) xToBeat (x));
         if (! force && std::abs (b - lastCCPaintBeat) < 1.0e-7)
@@ -3798,6 +3878,9 @@ private:
 
     void tryRemoveCCEventAt (const juce::MouseEvent& e)
     {
+        if (! canEditMidiClip())
+            return;
+
         auto ca = ccLaneArea();
         const int ctype = activeControllerType();
         tracktion::MidiControllerEvent* hit = nullptr;
@@ -4075,6 +4158,9 @@ private:
 
     tracktion::MidiNote* addNoteAt (juce::Point<int> pos)
     {
+        if (! canEditMidiClip())
+            return nullptr;
+
         if (! gridArea().contains (pos))
             return nullptr;
 
@@ -4523,7 +4609,8 @@ public:
             if (e.x >= kHeaderWidth && e.y >= kRulerH && e.y < laneBottom() && e.x < getWidth() - kVScrollW)
             {
                 if (auto* clip = getClipAt (e.getPosition()))
-                    newHover = getSmartToolDragModeFor (*clip, e.getPosition());
+                    if (! isClipTrackFrozenOrFreezing (audioEngine, clip))
+                        newHover = getSmartToolDragModeFor (*clip, e.getPosition());
             }
 
             if (newHover != hoverDragMode)
@@ -4684,6 +4771,9 @@ public:
     {
         auto* audio = dynamic_cast<tracktion::AudioTrack*> (&track);
         if (audio == nullptr)
+            return;
+
+        if (audioEngine.isTrackFrozen (audio) || audioEngine.isTrackFreezing (audio))
             return;
 
         juce::Array<tracktion::WaveAudioClip*> waves;
@@ -7046,6 +7136,9 @@ public:
         {
             if (auto* clip = getClipAt(e.getPosition()))
             {
+                if (isClipTrackFrozenOrFreezing (audioEngine, clip))
+                    return;
+
                 if (auto* ct = clip->getClipTrack())
                 {
                     double t = xToTime ((float) e.x);
@@ -7069,7 +7162,9 @@ public:
             dragOffset = selectedClip->getPosition().getStart().inSeconds() - xToTime((float)e.x);
 
             // Use the same decision as hover so the UI feels "smart tool" consistent.
-            dragMode = getSmartToolDragModeFor (*selectedClip, e.getPosition());
+            dragMode = isClipTrackFrozenOrFreezing (audioEngine, selectedClip)
+                ? DragMode::none
+                : getSmartToolDragModeFor (*selectedClip, e.getPosition());
 
             if (auto* wave = dynamic_cast<tracktion::WaveAudioClip*> (selectedClip))
             {
@@ -7389,6 +7484,12 @@ public:
         }
 
         if (selectedClip && dragMode != DragMode::none) {
+            if (isClipTrackFrozenOrFreezing (audioEngine, selectedClip))
+            {
+                dragMode = DragMode::none;
+                return;
+            }
+
             double mouseTime = xToTime((float)e.x);
 
             if (dragMode == DragMode::move)
@@ -7678,6 +7779,9 @@ public:
 
             if (auto* a = dynamic_cast<tracktion::AudioTrack*>(row.track))
             {
+                if (audioEngine.isTrackFrozen (a) || audioEngine.isTrackFreezing (a))
+                    return;
+
                 // Check if this is a MIDI-only track
                 bool isMidiTrack = (bool) a->state.getProperty(IDs::isMidiTrack, false);
 
