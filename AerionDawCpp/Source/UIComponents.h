@@ -367,9 +367,9 @@ class PluginManagerWindow : public juce::DocumentWindow
 {
 public:
     PluginManagerWindow (tracktion::Track* t, AudioEngineManager& ae)
-        : DocumentWindow (t->getName() + "  -  Plugins", Theme::bgPanel,
-                          DocumentWindow::closeButton | DocumentWindow::minimiseButton),
-          track (t), audioEngine (ae)
+        : DocumentWindow (t != nullptr ? t->getName() + "  -  Plugins" : juce::String ("Plugins"),
+                          Theme::bgPanel,
+                          DocumentWindow::closeButton | DocumentWindow::minimiseButton)
     {
         setUsingNativeTitleBar (false);
         setTitleBarHeight (28);
@@ -390,7 +390,9 @@ private:
     struct Content : public juce::Component,
                      public juce::Timer
     {
-        Content (tracktion::Track* t, AudioEngineManager& ae) : track (t), audioEngine (ae) 
+        Content (tracktion::Track* t, AudioEngineManager& ae)
+            : trackId (t != nullptr ? t->itemID.toString() : juce::String()),
+              audioEngine (ae)
         {
             startTimerHz (10); // Refresh list if plugins are added/removed
         }
@@ -398,6 +400,18 @@ private:
         void paint (juce::Graphics& g) override
         {
             g.fillAll (Theme::bgPanel);
+
+            auto* currentTrack = resolveTrack();
+            if (currentTrack == nullptr)
+            {
+                insertRowHits.clearQuick();
+                addBtnBounds = {};
+                g.setColour (Theme::textMuted);
+                g.setFont (Theme::uiSize (12.0f));
+                g.drawText ("Track no longer exists.", getLocalBounds(), juce::Justification::centred);
+                requestClose();
+                return;
+            }
             
             auto b = getLocalBounds().reduced (10);
             auto header = b.removeFromTop (30);
@@ -418,7 +432,7 @@ private:
             insertRowHits.clearQuick();
             int y = header.getBottom() + 10;
 
-            for (auto* p : track->pluginList)
+            for (auto* p : currentTrack->pluginList)
             {
                 if (auto* plug = dynamic_cast<tracktion::ExternalPlugin*> (p))
                 {
@@ -443,9 +457,16 @@ private:
 
         void mouseDown (const juce::MouseEvent& e) override
         {
+            auto* currentTrack = resolveTrack();
+            if (currentTrack == nullptr)
+            {
+                requestClose();
+                return;
+            }
+
             if (addBtnBounds.contains (e.getPosition()))
             {
-                if (auto* at = dynamic_cast<tracktion::AudioTrack*>(track)) {
+                if (auto* at = dynamic_cast<tracktion::AudioTrack*>(currentTrack)) {
                     if (audioEngine.isTrackFrozen(at)) {
                         juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
                             "Track Frozen", "Cannot add plugins to frozen tracks. Unfreeze the track first.");
@@ -453,15 +474,26 @@ private:
                     }
                 }
                 auto screen = localAreaToGlobal (addBtnBounds);
-                PluginPicker::show (audioEngine, screen, [this] (const juce::PluginDescription& d) {
-                    if (auto p = audioEngine.addPluginToTrack (track, d))
+                juce::Component::SafePointer<Content> safeThis (this);
+                PluginPicker::show (audioEngine, screen, [safeThis] (const juce::PluginDescription& d) mutable {
+                    if (safeThis == nullptr)
+                        return;
+
+                    auto* pickedTrack = safeThis->resolveTrack();
+                    if (pickedTrack == nullptr)
+                    {
+                        safeThis->requestClose();
+                        return;
+                    }
+
+                    if (auto p = safeThis->audioEngine.addPluginToTrack (pickedTrack, d))
                         p->showWindowExplicitly();
-                    repaint();
+                    safeThis->repaint();
                 });
                 return;
             }
 
-            if (handleInsertRowMouseDown (e, insertRowHits, audioEngine, track, insertDragState,
+            if (handleInsertRowMouseDown (e, insertRowHits, audioEngine, currentTrack, insertDragState,
                                           [this] { repaint(); }))
                 return;
         }
@@ -474,11 +506,25 @@ private:
         void mouseUp (const juce::MouseEvent& e) override
         {
             juce::ignoreUnused (e);
-            handleInsertRowMouseUp (audioEngine, track, insertRowHits, insertDragState, [this] { repaint(); });
+            auto* currentTrack = resolveTrack();
+            if (currentTrack == nullptr)
+            {
+                insertDragState = {};
+                requestClose();
+                return;
+            }
+
+            handleInsertRowMouseUp (audioEngine, currentTrack, insertRowHits, insertDragState, [this] { repaint(); });
         }
 
         void mouseDoubleClick (const juce::MouseEvent& e) override
         {
+            if (resolveTrack() == nullptr)
+            {
+                requestClose();
+                return;
+            }
+
             for (auto& hit : insertRowHits)
             {
                 if (hit.labelArea.contains (e.getPosition()) && hit.plugin != nullptr)
@@ -489,17 +535,60 @@ private:
             }
         }
 
-        void timerCallback() override { repaint(); }
+        void timerCallback() override
+        {
+            if (resolveTrack() == nullptr)
+            {
+                requestClose();
+                return;
+            }
 
-        tracktion::Track* track;
+            repaint();
+        }
+
+        tracktion::Track* resolveTrack() const
+        {
+            if (trackId.isEmpty())
+                return nullptr;
+
+            for (auto* candidate : tracktion::getAllTracks (audioEngine.getEdit()))
+                if (candidate != nullptr && candidate->itemID.toString() == trackId)
+                    return candidate;
+
+            if (auto* master = audioEngine.getMasterTrack())
+                if (master->itemID.toString() == trackId)
+                    return master;
+
+            return nullptr;
+        }
+
+        void requestClose()
+        {
+            if (closeRequested)
+                return;
+
+            closeRequested = true;
+            stopTimer();
+
+            if (auto* window = findParentComponentOfClass<PluginManagerWindow>())
+            {
+                juce::Component::SafePointer<PluginManagerWindow> safeWindow (window);
+                juce::MessageManager::callAsync ([safeWindow]() mutable
+                {
+                    if (safeWindow != nullptr)
+                        safeWindow->closeButtonPressed();
+                });
+            }
+        }
+
+        juce::String trackId;
         AudioEngineManager& audioEngine;
+        bool closeRequested = false;
         juce::Rectangle<int> addBtnBounds;
         juce::Array<InsertRowHitAreas> insertRowHits;
         InsertRowDragState insertDragState;
     };
 
-    tracktion::Track* track;
-    AudioEngineManager& audioEngine;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginManagerWindow)
 };
 
