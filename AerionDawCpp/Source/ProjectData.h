@@ -75,6 +75,9 @@ public:
     // Syncs the ProjectData tree with the live Tracktion Engine state
     void syncWithEngine (tracktion::Edit& edit);
 
+    std::unique_ptr<juce::XmlElement> createProjectSettingsXml() const;
+    void restoreProjectSettingsFromXml (const juce::XmlElement& settings);
+
     // Legacy design/demo seed data. Runtime startup uses an empty tree and syncs from the engine.
     void createMockData();
 

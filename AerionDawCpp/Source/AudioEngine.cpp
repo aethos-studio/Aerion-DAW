@@ -1585,14 +1585,7 @@ void AudioEngineManager::saveProject (const juce::File& file, class ProjectData*
 
     // Serialize project settings
     if (projectData != nullptr)
-    {
-        auto settings = std::make_unique<juce::XmlElement>("ProjectSettings");
-        settings->setAttribute("snapEnabled",  (int) projectData->getProjectTree()
-            .getProperty(IDs::snapEnabled,  true));
-        settings->setAttribute("snapInterval", (double) projectData->getProjectTree()
-            .getProperty(IDs::snapInterval, 1.0));
-        root->addChildElement(settings.release());
-    }
+        root->addChildElement (projectData->createProjectSettingsXml().release());
 
     // Append the EDIT block
     if (auto editXml = edit->state.createXml())
@@ -1690,16 +1683,11 @@ void AudioEngineManager::loadProject (const juce::File& file, class ProjectData*
 
         broadcastChange();
 
-        // Restore snap settings from <ProjectSettings> if present
+        // Restore project settings from <ProjectSettings> if present
         if (projectData != nullptr && xml->getTagName() == "AerionProject")
         {
             if (auto* settingsElem = xml->getChildByName("ProjectSettings"))
-            {
-                projectData->getProjectTree().setProperty(
-                    IDs::snapEnabled,  settingsElem->getBoolAttribute("snapEnabled",  true),  nullptr);
-                projectData->getProjectTree().setProperty(
-                    IDs::snapInterval, settingsElem->getDoubleAttribute("snapInterval", 1.0), nullptr);
-            }
+                projectData->restoreProjectSettingsFromXml (*settingsElem);
         }
 
         // Show non-blocking alert for missing files

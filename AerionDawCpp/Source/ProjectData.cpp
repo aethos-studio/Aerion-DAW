@@ -13,6 +13,7 @@ ProjectData::ProjectData()
     projectTree.setProperty (IDs::snapInterval, 1.0, nullptr);
     projectTree.setProperty (IDs::autoCrossfadeEnabled, true, nullptr);
     projectTree.setProperty (IDs::autoCrossfadeMaxMs, 120, nullptr);
+    projectTree.setProperty (IDs::masterKMeter, false, nullptr);
 }
 
 juce::ValueTree ProjectData::getTrackTree (int id) const
@@ -162,6 +163,35 @@ void ProjectData::syncWithEngine (tracktion::Edit& edit)
     }
 }
 
+std::unique_ptr<juce::XmlElement> ProjectData::createProjectSettingsXml() const
+{
+    const auto& tree = getProjectTree();
+    auto settings = std::make_unique<juce::XmlElement> ("ProjectSettings");
+
+    settings->setAttribute ("snapEnabled", (int) tree.getProperty (IDs::snapEnabled, true));
+    settings->setAttribute ("snapInterval", (double) tree.getProperty (IDs::snapInterval, 1.0));
+    settings->setAttribute ("autoCrossfadeEnabled", (int) tree.getProperty (IDs::autoCrossfadeEnabled, true));
+    settings->setAttribute ("autoCrossfadeMaxMs", (int) tree.getProperty (IDs::autoCrossfadeMaxMs, 120));
+    settings->setAttribute ("masterKMeter", (int) tree.getProperty (IDs::masterKMeter, false));
+
+    return settings;
+}
+
+void ProjectData::restoreProjectSettingsFromXml (const juce::XmlElement& settings)
+{
+    auto& tree = getProjectTree();
+
+    tree.setProperty (IDs::snapEnabled, settings.getBoolAttribute ("snapEnabled", true), nullptr);
+    tree.setProperty (IDs::snapInterval, settings.getDoubleAttribute ("snapInterval", 1.0), nullptr);
+    tree.setProperty (IDs::autoCrossfadeEnabled,
+                      settings.getBoolAttribute ("autoCrossfadeEnabled", true),
+                      nullptr);
+    tree.setProperty (IDs::autoCrossfadeMaxMs,
+                      settings.getIntAttribute ("autoCrossfadeMaxMs", 120),
+                      nullptr);
+    tree.setProperty (IDs::masterKMeter, settings.getBoolAttribute ("masterKMeter", false), nullptr);
+}
+
 void ProjectData::createMockData()
 {
     juce::ValueTree tracksTree (IDs::Tracks);
@@ -174,6 +204,7 @@ void ProjectData::createMockData()
     projectTree.setProperty (IDs::snapInterval, 1.0, nullptr);
     projectTree.setProperty (IDs::autoCrossfadeEnabled, true, nullptr);
     projectTree.setProperty (IDs::autoCrossfadeMaxMs, 120, nullptr); // Studio One-ish default
+    projectTree.setProperty (IDs::masterKMeter, false, nullptr);
 
     // Helper lambda to create a track
     auto createTrack = [&](int id, const juce::String& name, const juce::String& color, const juce::String& type, float level, const juce::String& pan)

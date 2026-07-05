@@ -28,6 +28,7 @@ public:
             expectEquals ((double) tree.getProperty (IDs::snapInterval), 1.0);
             expect ((bool) tree.getProperty (IDs::autoCrossfadeEnabled));
             expectEquals ((int) tree.getProperty (IDs::autoCrossfadeMaxMs), 120);
+            expect (! (bool) tree.getProperty (IDs::masterKMeter));
         }
 
         beginTest ("XML round-trip preserves the full tree");
@@ -46,6 +47,30 @@ public:
             expect (reloaded.isValid());
             expect (reloaded.isEquivalentTo (original),
                     "reloaded tree must be equivalent to the original");
+        }
+
+        beginTest ("ProjectSettings XML preserves project-level edit options");
+        {
+            ProjectData pd;
+            auto& tree = pd.getProjectTree();
+            tree.setProperty (IDs::snapEnabled, false, nullptr);
+            tree.setProperty (IDs::snapInterval, 0.25, nullptr);
+            tree.setProperty (IDs::autoCrossfadeEnabled, false, nullptr);
+            tree.setProperty (IDs::autoCrossfadeMaxMs, 500, nullptr);
+            tree.setProperty (IDs::masterKMeter, true, nullptr);
+
+            auto settings = pd.createProjectSettingsXml();
+            expect (settings != nullptr);
+
+            ProjectData restored;
+            restored.restoreProjectSettingsFromXml (*settings);
+            auto& restoredTree = restored.getProjectTree();
+
+            expect (! (bool) restoredTree.getProperty (IDs::snapEnabled));
+            expectEquals ((double) restoredTree.getProperty (IDs::snapInterval), 0.25);
+            expect (! (bool) restoredTree.getProperty (IDs::autoCrossfadeEnabled));
+            expectEquals ((int) restoredTree.getProperty (IDs::autoCrossfadeMaxMs), 500);
+            expect ((bool) restoredTree.getProperty (IDs::masterKMeter));
         }
 
         beginTest ("getTrackTree resolves tracks by id");

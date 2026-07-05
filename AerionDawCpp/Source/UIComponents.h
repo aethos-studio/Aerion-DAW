@@ -90,6 +90,17 @@ struct InsertRowDragState
     int draggingExternalIndex = -1;
     int dropBeforeExternalIndex = -1;
     int dropPreviewY = -1;
+    juce::String draggingTrackID;
+    juce::String draggingPluginID;
+
+    void clear()
+    {
+        draggingExternalIndex = -1;
+        dropBeforeExternalIndex = -1;
+        dropPreviewY = -1;
+        draggingTrackID.clear();
+        draggingPluginID.clear();
+    }
 };
 
 inline bool isInsertTrackFrozen (AudioEngineManager& audioEngine, tracktion::Track* track)
@@ -97,6 +108,43 @@ inline bool isInsertTrackFrozen (AudioEngineManager& audioEngine, tracktion::Tra
     if (auto* at = dynamic_cast<tracktion::AudioTrack*> (track))
         return audioEngine.isTrackFrozen (at) || audioEngine.isTrackFreezing (at);
     return false;
+}
+
+inline tracktion::Track* findInsertTrackByID (AudioEngineManager& audioEngine, const juce::String& trackID)
+{
+    if (trackID.isEmpty())
+        return nullptr;
+
+    for (auto* track : audioEngine.getMixerTracks())
+        if (track != nullptr && track->itemID.toString() == trackID)
+            return track;
+
+    return nullptr;
+}
+
+inline juce::Array<tracktion::ExternalPlugin*> getExternalInsertPlugins (tracktion::Track* track)
+{
+    juce::Array<tracktion::ExternalPlugin*> externals;
+
+    if (track != nullptr)
+        for (auto* p : track->pluginList)
+            if (auto* e = dynamic_cast<tracktion::ExternalPlugin*> (p))
+                externals.add (e);
+
+    return externals;
+}
+
+inline tracktion::ExternalPlugin* findExternalInsertPluginByID (tracktion::Track* track,
+                                                               const juce::String& pluginID)
+{
+    if (pluginID.isEmpty())
+        return nullptr;
+
+    for (auto* plugin : getExternalInsertPlugins (track))
+        if (plugin != nullptr && plugin->itemID.toString() == pluginID)
+            return plugin;
+
+    return nullptr;
 }
 
 inline void showFrozenTrackInsertAlert()
@@ -206,6 +254,9 @@ inline void showInsertContextMenu (AudioEngineManager& audioEngine, tracktion::T
     if (plugin == nullptr || track == nullptr)
         return;
 
+    const auto trackID = track->itemID.toString();
+    const auto pluginID = plugin->itemID.toString();
+
     juce::PopupMenu m;
     m.addItem (1, "Open Editor");
     m.addItem (2, "Bypass", true, ! plugin->isEnabled());
@@ -216,34 +267,36 @@ inline void showInsertContextMenu (AudioEngineManager& audioEngine, tracktion::T
     m.addItem (3, "Remove Plugin");
 
     m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ screenPos.x, screenPos.y, 1, 1 }),
-                     [&audioEngine, track, plugin, onChanged] (int chosen)
+                     [&audioEngine, trackID, pluginID, onChanged] (int chosen)
                      {
-                         if (chosen <= 0 || plugin == nullptr)
+                         if (chosen <= 0)
                              return;
 
-                         if (isInsertTrackFrozen (audioEngine, track))
+                         auto* liveTrack = findInsertTrackByID (audioEngine, trackID);
+                         auto* livePlugin = findExternalInsertPluginByID (liveTrack, pluginID);
+
+                         if (liveTrack == nullptr || livePlugin == nullptr)
+                             return;
+
+                         if (isInsertTrackFrozen (audioEngine, liveTrack))
                          {
                              showFrozenTrackInsertAlert();
                              return;
                          }
 
-                         juce::Array<tracktion::ExternalPlugin*> externals;
-                         for (auto* p : track->pluginList)
-                             if (auto* e = dynamic_cast<tracktion::ExternalPlugin*> (p))
-                                 externals.add (e);
-
-                         const int idx = externals.indexOf (plugin);
+                         auto externals = getExternalInsertPlugins (liveTrack);
+                         const int idx = externals.indexOf (livePlugin);
 
                          if (chosen == 1)
-                             plugin->showWindowExplicitly();
+                             livePlugin->showWindowExplicitly();
                          else if (chosen == 2)
-                             audioEngine.setPluginBypassed (plugin, plugin->isEnabled());
+                             audioEngine.setPluginBypassed (livePlugin, livePlugin->isEnabled());
                          else if (chosen == 3)
-                             audioEngine.removePlugin (plugin);
+                             audioEngine.removePlugin (livePlugin);
                          else if (chosen == 4 && idx > 0)
-                             audioEngine.moveExternalPlugin (track, plugin, idx - 1);
+                             audioEngine.moveExternalPlugin (liveTrack, livePlugin, idx - 1);
                          else if (chosen == 5 && idx >= 0 && idx < externals.size() - 1)
-                             audioEngine.moveExternalPlugin (track, plugin, idx + 1);
+                             audioEngine.moveExternalPlugin (liveTrack, livePlugin, idx + 1);
 
                          if (onChanged)
                              onChanged();
@@ -303,6 +356,8 @@ inline bool handleInsertRowMouseDown (const juce::MouseEvent& e,
             dragState.draggingExternalIndex = i;
             dragState.dropBeforeExternalIndex = i;
             dragState.dropPreviewY = insertDropPreviewYFromIndex (hits, i);
+            dragState.draggingTrackID = track->itemID.toString();
+            dragState.draggingPluginID = hit.plugin != nullptr ? hit.plugin->itemID.toString() : juce::String();
             return true;
         }
 
@@ -341,19 +396,36 @@ inline bool handleInsertRowMouseUp (AudioEngineManager& audioEngine,
                                     InsertRowDragState& dragState,
                                     std::function<void()> onChanged)
 {
-    if (dragState.draggingExternalIndex < 0 || track == nullptr)
+    juce::ignoreUnused (track, hits);
+
+    if (dragState.draggingExternalIndex < 0)
         return false;
 
-    const int from = dragState.draggingExternalIndex;
-    int to = dragState.dropBeforeExternalIndex;
-    if (to > from) --to;
+    const auto trackID = dragState.draggingTrackID;
+    const auto pluginID = dragState.draggingPluginID;
+    int dropBefore = dragState.dropBeforeExternalIndex;
+    dragState.clear();
 
-    dragState.draggingExternalIndex = -1;
-    dragState.dropBeforeExternalIndex = -1;
-    dragState.dropPreviewY = -1;
+    auto* liveTrack = findInsertTrackByID (audioEngine, trackID);
+    auto* livePlugin = findExternalInsertPluginByID (liveTrack, pluginID);
 
-    if (to != from && to >= 0 && to < hits.size() && hits[from].plugin != nullptr)
-        audioEngine.moveExternalPlugin (track, hits[from].plugin, to);
+    if (liveTrack != nullptr && livePlugin != nullptr)
+    {
+        auto externals = getExternalInsertPlugins (liveTrack);
+        const int from = externals.indexOf (livePlugin);
+
+        if (from >= 0 && externals.size() > 1)
+        {
+            dropBefore = juce::jlimit (0, externals.size(), dropBefore);
+
+            int to = dropBefore;
+            if (to > from) --to;
+            to = juce::jlimit (0, externals.size() - 1, to);
+
+            if (to != from)
+                audioEngine.moveExternalPlugin (liveTrack, livePlugin, to);
+        }
+    }
 
     if (onChanged)
         onChanged();
