@@ -7,6 +7,7 @@
 # ---- Build & packaging output --------------------------------------------
 build/
 build-*/
+tracktion_engine-src/
 out/
 dist/
 coverage/

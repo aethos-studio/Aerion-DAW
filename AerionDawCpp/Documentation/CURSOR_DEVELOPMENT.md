@@ -140,7 +140,22 @@ Use **Audio Settings** in the app to pick ASIO or WASAPI. Reset Audio Settings i
 
 ## First configure notes
 
-- **Tracktion Engine** is fetched via CMake `FetchContent` on first configure (can take several minutes).
+- **Tracktion Engine** must be pre-cloned with **HTTPS submodules** (FetchContent alone fails on Windows because Tracktion's JUCE submodule uses SSH). Run once per machine:
+
+```powershell
+git clone --depth 1 --branch v3.2.0 https://github.com/Tracktion/tracktion_engine.git tracktion_engine-src
+Push-Location tracktion_engine-src
+git submodule set-url modules/juce https://github.com/juce-framework/JUCE.git
+git submodule update --init --recursive --depth 1
+Pop-Location
+
+$te = (Resolve-Path tracktion_engine-src).Path
+cmake --preset win-msvc-debug -S AerionDawCpp -B build "-DFETCHCONTENT_SOURCE_DIR_TRACKTION_ENGINE=$te"
+cmake --build build --preset win-msvc-debug
+```
+
+  `tracktion_engine-src/` is gitignored (local cache, same pattern as CI).
+
 - **ASIO SDK** is already in-tree — no download step.
 - **Tests** are off by default; use `win-msvc-debug-tests` or `-DAERION_BUILD_TESTS=ON`.
 - **Plugin scan** on first launch runs in the background after the main window appears.
