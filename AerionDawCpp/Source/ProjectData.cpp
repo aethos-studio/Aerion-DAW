@@ -194,6 +194,8 @@ void ProjectData::restoreProjectSettingsFromXml (const juce::XmlElement& setting
 
 void ProjectData::createMockData()
 {
+    projectTree.removeAllChildren (nullptr);
+
     juce::ValueTree tracksTree (IDs::Tracks);
     juce::ValueTree auxTracksTree (IDs::AuxTracks);
     
