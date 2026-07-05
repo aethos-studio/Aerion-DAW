@@ -7,13 +7,30 @@
   },
   "configurePresets": [
     {
-      "name": "win-msvc-debug",
-      "displayName": "Windows MSVC Debug",
+      "name": "win-msvc-base",
+      "hidden": true,
       "generator": "Visual Studio 17 2022",
+      "architecture": {
+        "value": "x64",
+        "strategy": "set"
+      },
       "binaryDir": "${sourceDir}/../build",
       "cacheVariables": {
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "CMAKE_CONFIGURATION_TYPES": "Debug;Release"
+      }
+    },
+    {
+      "name": "win-msvc-debug",
+      "displayName": "Windows MSVC Debug (x64)",
+      "inherits": "win-msvc-base"
+    },
+    {
+      "name": "win-msvc-debug-tests",
+      "displayName": "Windows MSVC Debug + Tests (x64)",
+      "inherits": "win-msvc-base",
+      "cacheVariables": {
+        "AERION_BUILD_TESTS": "ON"
       }
     },
     {
@@ -59,7 +76,20 @@
   "buildPresets": [
     {
       "name": "win-msvc-debug",
+      "displayName": "Build Debug",
       "configurePreset": "win-msvc-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "win-msvc-release",
+      "displayName": "Build Release",
+      "configurePreset": "win-msvc-debug",
+      "configuration": "Release"
+    },
+    {
+      "name": "win-msvc-debug-tests",
+      "displayName": "Build Debug + Tests",
+      "configurePreset": "win-msvc-debug-tests",
       "configuration": "Debug"
     },
     {
@@ -77,6 +107,16 @@
       "configurePreset": "mac-clang-x86",
       "configuration": "Release"
     }
+  ],
+  "testPresets": [
+    {
+      "name": "win-msvc-debug-tests",
+      "displayName": "Run smoke tests",
+      "configurePreset": "win-msvc-debug-tests",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
   ]
 }
-

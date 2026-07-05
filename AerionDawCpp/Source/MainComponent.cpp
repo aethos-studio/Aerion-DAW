@@ -586,6 +586,7 @@ MainComponent::MainComponent()
     };
 
     setSize (1400, 860);
+    updateTitleBar();
     // 25 Hz: playhead + meters; avoids piling on top of other ~30 Hz component timers.
     startTimerHz (25);
 
@@ -788,7 +789,7 @@ void MainComponent::updateTitleBar()
     menuBar.repaint();
 
     if (auto* dw = findParentComponentOfClass<juce::DocumentWindow>())
-        dw->setName (name + " - Aerion DAW");
+        dw->setName (Theme::windowTitle (name));
 }
 
 void MainComponent::detachFromObservedEditState()
@@ -1354,7 +1355,7 @@ class MainComponent::MixerWindow : public juce::DocumentWindow
 {
 public:
     MixerWindow (MainComponent& mc)
-        : DocumentWindow ("Mixer - Aerion DAW", Theme::bgPanel,
+        : DocumentWindow (juce::String ("Mixer") + Theme::productTitleSuffix(), Theme::bgPanel,
                           juce::DocumentWindow::closeButton | juce::DocumentWindow::minimiseButton),
           owner (mc)
     {

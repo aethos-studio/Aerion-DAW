@@ -590,7 +590,9 @@ public:
         g.setColour (juce::Colour (0xff63b3ed));
         {
             auto versionRow = b.removeFromTop (18.0f);
-            g.drawText ("v0.1   -   AETHOS STUDIO LTD.", versionRow.toNearestInt(),
+            g.drawText ("v" + juce::String (ProjectInfo::versionString)
+                            + juce::String::fromUTF8 (u8"   \u2014   AETHOS STUDIO LTD."),
+                        versionRow.toNearestInt(),
                         juce::Justification::centred, false);
         }
 
@@ -1163,7 +1165,7 @@ public:
 
         g.setColour (Theme::textMuted.withAlpha (0.5f));
         g.setFont (Theme::uiSize (11.0f));
-        g.drawText (projectTitle + " - Aerion DAW", 0, 0, getWidth(), getHeight(), juce::Justification::centred);
+        g.drawText (Theme::windowTitle (projectTitle), 0, 0, getWidth(), getHeight(), juce::Justification::centred);
     }
 
     void mouseMove (const juce::MouseEvent& e) override

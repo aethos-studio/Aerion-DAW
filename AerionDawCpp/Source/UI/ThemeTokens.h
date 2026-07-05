@@ -80,6 +80,19 @@ namespace Theme
         return f;
     }
 
+    // ---- Branding / window titles -------------------------------------------
+    /** Suffix for main-window and menu-bar titles: " — Aerion DAW". */
+    inline juce::String productTitleSuffix()
+    {
+        return juce::String::fromUTF8 (u8" \u2014 Aerion DAW");
+    }
+
+    /** Full window title, e.g. "My Song — Aerion DAW" or "*My Song* — Aerion DAW". */
+    inline juce::String windowTitle (const juce::String& projectName)
+    {
+        return projectName + productTitleSuffix();
+    }
+
     // ---- Drawing primitives -------------------------------------------------
     inline void drawRoundedPanel (juce::Graphics& g,
                                   juce::Rectangle<float> b,

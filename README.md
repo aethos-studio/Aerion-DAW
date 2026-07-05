@@ -4,6 +4,8 @@
 
 **A modern Digital Audio Workstation built with C++20, JUCE 8, and the Tracktion Engine.**
 
+**Development status:** v0.3.0 Pre-Alpha — Milestones 1–4 complete; Milestone 5 (Polish & Stability) in progress. See [`AerionDawCpp/Documentation/ROADMAP.md`](AerionDawCpp/Documentation/ROADMAP.md) and [`STATUS.md`](AerionDawCpp/Documentation/STATUS.md).
+
 ---
 
 ## Why Aerion DAW?
@@ -32,9 +34,9 @@ Aerion is designed to bridge the gap between high-end professional production an
 
 ## Recent Updates
 
-- **Audio Export:** Professional-grade mixdown export supporting WAV, AIFF, FLAC, and OGG formats with real-time waveform preview and clip detection.
-- **UI Polish:** Fully themed export dialogs matching Aerion branding, with ASCII-art waveform placeholders and visual clip indicators.
-- **Stability:** Eliminated render freezes through smart parameter debouncing and eliminated Edit copy creation for preview-only jobs.
+- **Milestone 5 kick-off:** CI build-on-PR workflow (`build-test.yml`) and first smoke tests (`AerionTests`).
+- **Milestone 4 complete:** Custom keyboard shortcuts, time signature changes, per-track input/monitor persistence, mixdown + stems export, freeze/bounce, crash recovery.
+- **Docs & versioning:** Roadmap/STATUS aligned to v0.3.0; window title bar shows `<ProjectName> — Aerion DAW` on startup; About dialog reads the CMake app version.
 
 ---
 
@@ -52,7 +54,7 @@ Aerion-DAW/
     CMakeLists.txt
     CMakePresets.json  Windows CMake presets (optional)
     CMake/             CPack helper scripts
-    Documentation/     Roadmap, status, release notes, manual test checklist
+    Documentation/     Roadmap, status, release notes, manual test checklist, Cursor dev guide (Windows)
     Resources/         SVG assets, fonts, icons
     External/          Third-party SDKs (e.g. Steinberg ASIO on Windows)
     Source/            Application code (Main, AudioEngine, UI, Export, …)
@@ -81,19 +83,28 @@ Anything else you see locally (e.g. `build/`, `dist/`, `_CPack_Packages/`, `.cur
 ### Prerequisites
 
 - **CMake** 3.20+
-- **Visual Studio 2022** (MSVC)
-- **PowerShell 7** (optional; any shell works)
+- **Visual Studio 2022** (MSVC, x64 — workload *Desktop development with C++*)
+- **Git** (Tracktion Engine is fetched on first configure)
+- **PowerShell 7** (optional; Windows PowerShell also works)
 
-If your IDE only looks for `CMakePresets.json` at the workspace root, either open the **`AerionDawCpp`** folder as the CMake source tree or always pass **`-S AerionDawCpp`** as in the commands below (presets live beside `CMakeLists.txt`).
+Open the **repository root** in Cursor/VS Code — root `CMakePresets.json` includes the Aerion presets and `.vscode/settings.json` points CMake Tools at `AerionDawCpp/`. See [`AerionDawCpp/Documentation/CURSOR_DEVELOPMENT.md`](AerionDawCpp/Documentation/CURSOR_DEVELOPMENT.md) for the full Windows dev guide.
 
 ### Building (Windows / PowerShell)
 
-Presets live next to the CMake project under `AerionDawCpp/`. From the **repository root**:
+From the **repository root**:
 
 ```powershell
 # Configure + build (Debug)
 cmake --preset win-msvc-debug -S AerionDawCpp -B build
 cmake --build build --preset win-msvc-debug
+
+# Release
+cmake --build build --preset win-msvc-release
+
+# Smoke tests (optional)
+cmake --preset win-msvc-debug-tests -S AerionDawCpp -B build
+cmake --build build --preset win-msvc-debug-tests
+ctest --test-dir build -C Debug --output-on-failure
 
 # ---- Manual alternative ----
 cmake -S AerionDawCpp -B build -G "Visual Studio 17 2022" -A x64
@@ -114,7 +125,7 @@ Aerion DAW follows a strict **Model-View-Controller (MVC)** separation:
 - **Controller:** `AudioEngineManager` wraps the Tracktion `Edit` and manages the real-time audio graph and transport.
 - **View:** Native JUCE components in `UIComponents.h` observe the `ValueTree` and repaint only when the underlying state changes.
 
-See `AerionDawCpp/Documentation/` for the roadmap, status, release procedure, and manual test checklist.
+See `AerionDawCpp/Documentation/` for the roadmap, status, release procedure, manual test checklist, and [`CURSOR_DEVELOPMENT.md`](AerionDawCpp/Documentation/CURSOR_DEVELOPMENT.md) (Windows build + Cursor guardrails).
 
 ---
 

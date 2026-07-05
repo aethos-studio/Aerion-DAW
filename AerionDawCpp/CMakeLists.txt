@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(AerionDaw VERSION 0.2.0)
+project(AerionDaw VERSION 0.3.0)
 
 # Fetch Tracktion Engine (includes JUCE)
 include(FetchContent)
@@ -31,7 +31,7 @@ FetchContent_MakeAvailable(tracktion_engine)
 # Setup executable
 juce_add_gui_app(AerionDaw
     PRODUCT_NAME "Aerion DAW"
-    VERSION 0.2.0
+    VERSION ${PROJECT_VERSION}
     COMPANY_NAME "Aethos Studio Ltd."
     BUNDLE_ID "com.aethos.aeriondaw"
     ICON_BIG "Resources/aerion_logo.svg"
@@ -43,9 +43,9 @@ if (APPLE)
     set_target_properties(AerionDaw PROPERTIES
         MACOSX_BUNDLE_GUI_IDENTIFIER "com.aethos.aeriondaw"
         MACOSX_BUNDLE_BUNDLE_NAME "Aerion DAW"
-        MACOSX_BUNDLE_BUNDLE_VERSION "0.2.0"
-        MACOSX_BUNDLE_SHORT_VERSION_STRING "0.2.0"
-        MACOSX_BUNDLE_LONG_VERSION_STRING "0.2.0"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_LONG_VERSION_STRING "${PROJECT_VERSION}"
         MACOSX_BUNDLE_COPYRIGHT "Copyright © Aethos Studio Ltd."
         MACOSX_DEPLOYMENT_TARGET "11.0"
     )

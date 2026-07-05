@@ -26,7 +26,9 @@ desktop.ini
 
 # ---- IDE / editor caches -------------------------------------------------
 .vs/
-.vscode/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
 .idea/
 *.user
 *.suo
@@ -39,7 +41,9 @@ desktop.ini
 
 # ---- AI / assistant tooling (local-only) ---------------------------------
 .claude/
-.cursor/
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 Cursor-AI/
 Gemini/
 .aider*

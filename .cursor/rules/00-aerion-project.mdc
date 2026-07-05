@@ -1,0 +1,53 @@
+---
+description: Core Aerion DAW project guardrails — architecture, repo layout, and change discipline
+alwaysApply: true
+---
+
+# Aerion DAW — project guardrails
+
+You are working on **Aerion DAW** (`aethos-studio/Aerion-DAW`): a C++20 DAW using **JUCE 8** and **Tracktion Engine v3.2**.
+
+## Repository layout
+
+- **CMake project root:** `AerionDawCpp/` (not the repo root). Pass `-S AerionDawCpp` when configuring from the repository root, or open the repo root and use the root `CMakePresets.json` (includes the Aerion presets).
+- **Application code:** `AerionDawCpp/Source/`
+- **Bundled docs:** `AerionDawCpp/Documentation/` (roadmap, status, Cursor dev guide)
+- **Tracked at repo root:** `README.md`, `LICENSE`, `.gitignore`, `.github/`, `CMakePresets.json`, `AerionDawCpp/`
+- **Never commit:** `build/`, `dist/`, IDE caches, personal scratch (`scratch/`, `notes/`, `dev/`). See `.gitignore`.
+
+## Architecture (non-negotiable)
+
+Strict **MVC** separation:
+
+| Layer | Owner | Role |
+|-------|-------|------|
+| Model | `ProjectData` | `juce::ValueTree` is the single source of truth for project state |
+| Controller | `AudioEngineManager` | Wraps Tracktion `Edit`, real-time audio graph, transport |
+| View | JUCE components in `UIComponents.h` et al. | Observe `ValueTree`; repaint only when state changes |
+
+Do not bypass the ValueTree for persistent UI state. Do not put audio-thread work on the message thread without the existing patterns in `AudioEngine.cpp`.
+
+## Change discipline
+
+1. **Minimize scope** — smallest correct diff; no drive-by refactors or unrelated formatting.
+2. **Cross-platform** — CI builds on **Windows (MSVC)** and **macOS (Ninja/Clang)**. **Windows 11 is the primary local dev target**; changes must not break macOS without explicit platform guards (`#if JUCE_WINDOWS`, `JUCE_MAC`, `JUCE_LINUX`).
+3. **Windows-first shell commands** — use **PowerShell** from the repo root unless the user explicitly asks for Linux/macOS CI steps.
+4. **Theme tokens for UI** — prefer `Theme::` tokens (`ThemeTokens.h`) over magic pixel values; Milestone 5 is auditing fixed layouts.
+5. **Tests are opt-in** — configure with `-DAERION_BUILD_TESTS=ON` or the `win-msvc-debug-tests` preset for `AerionTests`; do not enable by default in packaging presets.
+6. **Do not link ONNX Runtime** — declared in CMake but intentionally stubbed until Milestone 8.
+7. **ASIO SDK** — Windows-only, GPLv3, bundled under `AerionDawCpp/External/`. Do not remove trademark notices or splash/About attribution.
+
+## Milestone context
+
+Current focus: **Milestone 5 (Polish & Stability, v0.4.0)**. Read `AerionDawCpp/Documentation/STATUS.md` and `ROADMAP.md` before large features.
+
+## When unsure
+
+Read the relevant source before proposing changes. Canonical examples:
+
+- Audio / plugins: `AerionDawCpp/Source/AudioEngine.cpp`
+- Project persistence: `AerionDawCpp/Source/ProjectData.cpp`
+- UI patterns: `AerionDawCpp/Source/UIComponents.h`, `AerionDawCpp/Source/UI/ThemeTokens.h`
+- Build / backends: `AerionDawCpp/CMakeLists.txt`
+
+Full Windows setup and build commands: `AerionDawCpp/Documentation/CURSOR_DEVELOPMENT.md`

@@ -1,0 +1,82 @@
+---
+description: Windows 11 development environment — build, audio, and IDE guardrails
+alwaysApply: true
+---
+
+# Windows development environment
+
+Primary local dev machine: **Windows 11** with **Visual Studio 2022** (MSVC x64). Agent shell commands and build instructions must target **PowerShell** and the **win-msvc-*** CMake presets unless explicitly working on macOS CI or Linux future support.
+
+## Workspace path
+
+Example clone location:
+
+```text
+C:\Users\<you>\Documents\Aethos Studio\Aerion-DAW\
+```
+
+Open the **repository root** in Cursor so `.cursor/rules/` and root `CMakePresets.json` load. CMake source directory is `AerionDawCpp/` (set automatically via `.vscode/settings.json`).
+
+## Build (default workflow)
+
+From repository root in **PowerShell**:
+
+```powershell
+cmake --preset win-msvc-debug -S AerionDawCpp -B build
+cmake --build build --preset win-msvc-debug
+```
+
+Binary output:
+
+```text
+build\AerionDaw_artefacts\Debug\Aerion DAW.exe
+```
+
+Release:
+
+```powershell
+cmake --build build --preset win-msvc-release
+```
+
+Output: `build\AerionDaw_artefacts\Release\Aerion DAW.exe`
+
+Smoke tests:
+
+```powershell
+cmake --preset win-msvc-debug-tests -S AerionDawCpp -B build
+cmake --build build --preset win-msvc-debug-tests
+ctest --test-dir build -C Debug --output-on-failure
+```
+
+## Prerequisites
+
+- **CMake** 3.20+
+- **Visual Studio 2022** with workload *Desktop development with C++* (MSVC v143, Windows 10/11 SDK)
+- **Git** (for FetchContent / Tracktion Engine)
+
+Full checklist: `AerionDawCpp/Documentation/CURSOR_DEVELOPMENT.md`
+
+## Audio on Windows
+
+- **ASIO** — Steinberg SDK bundled under `AerionDawCpp/External/ASIO-SDK_*` (GPLv3). Enabled automatically when headers are found.
+- **WASAPI / DirectSound** — JUCE defaults on Windows.
+- **WinRT MIDI** — enabled in CMake for Windows 10+.
+- Do not assume ALSA, JACK, or CoreAudio on Windows builds.
+
+## Linux / Fedora pitfalls (do not reintroduce on Windows)
+
+| Linux / Fedora habit | Windows approach |
+|----------------------|------------------|
+| `fedora-ninja-debug` preset | `win-msvc-debug` preset |
+| `./build/Aerion DAW` (no `.exe`) | `build\AerionDaw_artefacts\Debug\Aerion DAW.exe` |
+| `dnf install` dev packages | Visual Studio Installer + CMake |
+| Ninja + GCC | Visual Studio 2022 generator, **x64** |
+| Forward-slash-only scripts | PowerShell; use `-S AerionDawCpp -B build` |
+
+## Agent guardrails on Windows
+
+1. Run builds and tests in **PowerShell** from the repo root.
+2. First configure may **FetchContent** Tracktion Engine (~minutes). CI pre-clones with HTTPS submodules; local dev can let FetchContent run normally.
+3. Do not modify `AerionDawCpp/External/ASIO-SDK_*` except for Windows SDK integration fixes.
+4. Prefer `cmake --preset` over hand-rolled generator flags; presets set **x64** and `CMAKE_EXPORT_COMPILE_COMMANDS`.
+5. If CMake Tools shows no presets, reload the window after pulling — root `CMakePresets.json` includes `AerionDawCpp/CMakePresets.json`.

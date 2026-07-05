@@ -1,0 +1,11 @@
+{
+  "cmake.sourceDirectory": "${workspaceFolder}/AerionDawCpp",
+  "cmake.buildDirectory": "${workspaceFolder}/build",
+  "cmake.configurePreset": "win-msvc-debug",
+  "cmake.buildPreset": "win-msvc-debug",
+  "cmake.testPreset": "win-msvc-debug-tests",
+  "files.associations": {
+    "*.mdc": "markdown"
+  },
+  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools"
+}

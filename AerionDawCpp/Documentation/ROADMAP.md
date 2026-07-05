@@ -4,7 +4,9 @@ This document outlines the development path for Aerion DAW. The strategy is simp
 
 ---
 
-## Current State (v0.1.0 Pre-Alpha — May 2026)
+## Current State (v0.3.0 Pre-Alpha — June 2026)
+
+**Milestones 1–4 are complete.** Active development is **Milestone 5 (Polish & Stability, targeting v0.4.0)**. The shipped app version is **v0.3.0** (CMake `project` version); the latest git tag may still read `v0.2.0` until the next release is tagged.
 
 All items below are fully implemented and working in the current build (unless marked as partial).
 
@@ -149,24 +151,26 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
 ---
 
 ## Milestone 5 — DAW Essentials: Polish & Stability (v0.4.0)
-*Ship-ready quality.*
+*Ship-ready quality. **In progress** — CI and first smoke tests landed June 2026; see inventory below.*
 
-- [ ] **Performance Optimization:** Multi-threaded audio graph; minimize UI thread blocking; profile and eliminate hot-path allocations. *In progress: splash/deferred device init, repaint scoping, tooltip/toolbar cadence — continue with timeline/piano-roll paint profiling.*
-- [ ] **High-DPI / Retina Support:** All custom-drawn components scale correctly at 150 % / 200 % display scaling. *Typography tokens (`Theme::uiSize`) are a base layer; audit fixed pixel layouts next.*
+- [ ] **Performance Optimization:** Multi-threaded audio graph; minimize UI thread blocking; profile and eliminate hot-path allocations. *Partial: splash/deferred device init, repaint scoping, tooltip/toolbar cadence done — timeline/piano-roll paint profiling still outstanding.*
+- [ ] **High-DPI / Retina Support:** All custom-drawn components scale correctly at 150 % / 200 % display scaling. *Partial (~40 %): typography tokens (`Theme::uiSize` / `kUiFontScale`) shipped; fixed-pixel layout audit not started.*
 - [ ] **Workspace Layouts:** Save and switch between named window layouts (Editing, Mixing, Recording).
 - [ ] **Accessibility:** Screen-reader labels on all interactive controls; keyboard-navigable mixer.
 - [ ] **Error Reporting:** Structured in-app crash reporter; DBG logs surfaced to a `Console` panel in dev builds.
-- [ ] **Unit & Integration Tests:** `ProjectData` round-trip tests; `AudioEngine` smoke tests; CI pipeline (GitHub Actions).
-- [ ] **macOS Packaging:** Code-signed DMG, notarised for Gatekeeper.
-- [ ] **Windows Packaging:** NSIS installer (already scaffolded in CMake); code-signed binary.
+- [x] **CI pipeline (GitHub Actions):** `.github/workflows/build-test.yml` — Release build of `AerionDaw` + `AerionTests` on every PR and push to `main` (`ctest`). Tag-triggered installer packaging remains in `package-release.yml`.
+- [x] **Unit & Integration Tests (smoke):** `AerionTests` — `ProjectData` XML round-trip, track lookup, and `AerionKeymap` serialisation/conflict/import tests. *Grow toward `AudioEngine` smoke coverage next.*
+- [ ] **macOS Packaging:** DMG built by the release workflow; production code-signing and notarization for Gatekeeper still outstanding (local builds use ad-hoc signing only).
+- [ ] **Windows Packaging:** NSIS installer scaffolded in CMake (CPack, shortcuts, VC++ runtime); production code-signed binary still outstanding.
 
 ---
 
 ## Milestone 6 — Pro Composition & Audio Editing (v0.5.0)
 *Close the Logic / Cubase / Studio One gaps for songwriters, composers, and vocal producers.*
 
+*Custom keyboard shortcuts shipped in Milestone 4 — see `AerionKeymap` / `KeyboardShortcutsPanel`.*
+
 - [ ] **Command Palette + Action Registry:** Centralise every menu item, toolbar action, shortcut, and context command behind a single action registry. This becomes the foundation for custom keymaps, macros, command search, and eventual scripting.
-- [ ] **Custom Key Commands:** Complete the Help / Keyboard Shortcuts panel with editable bindings, import/export keymap files, conflict detection, and a "reset to defaults" path.
 - [ ] **Macro Actions:** Let users chain existing commands into named macros, assign shortcuts, and store them in the project/user settings. This is the REAPER-style productivity bridge before full scripting.
 - [ ] **Chord Track:** Add a global chord lane above the Timeline. Chords should be insertable/editable on the ruler, saved in the `.aerion` project, and exposed to MIDI tools, future Session Players, and AI generation.
 - [ ] **Scale-Aware Piano Roll:** Add global/project scale selection, per-clip scale override, "highlight in scale", "filter to scale", and scale quantize for selected MIDI notes.
@@ -201,7 +205,7 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
 - [ ] **Stem Separation:** Add "Separate Stems" for vocals, drums, bass, and other instruments, with GPU/CPU capability checks and background progress.
 - [ ] **AI-Assisted Mixing:** Add gain staging suggestions, masking warnings, EQ matching, loudness targets, and mix snapshot comparison.
 - [ ] **AI Arrangement Assistant:** Use Chord Track, markers, clip metadata, and arrangement variants to suggest intros, drops, bridges, edits, and alternate structures.
-- [ ] **Cloud Project Sync:** Sync `.aerion` project files plus referenced audio to Google Drive first, then abstract the provider layer for future services.
+- [ ] **Cloud Project Sync:** Sync `.aerion` project files plus referenced audio to Google Drive first, then abstract the provider layer for future services. *Scaffolding exists: `GoogleDriveClient` (OAuth2/PKCE, Browser Cloud tab) — OAuth client credentials must be configured before login works in the field.*
 - [ ] **Version History:** Browse project snapshots, compare metadata, restore prior versions, and recover individual clips or mix states.
 - [ ] **Collaboration Sessions:** Real-time or near-real-time multi-user project sessions with conflict rules for clips, tracks, mixer state, and comments.
 - [ ] **Mobile Companion App:** Remote transport, marker navigation, recording controls, monitor mix controls, and macro control surface.
@@ -237,7 +241,7 @@ All M4 completion-sprint items shipped:
 4. ✅ **Mixer M/S Icons** — `Mixer::drawSideButtonColumn` renders mute/solo via `Timeline::drawTrackIconBtn` using `BinaryData::aerion_mute_svg` / `aerion_Solo_svg`, matching Timeline and Inspector.
 5. ✅ **Freeze/Tempo Polish Pass** — Tempo lane now shows a resize cursor and a brighter highlight on hover (`hoveredTempoNodeIndex`); non-root tempo nodes are clamped between their neighbours during drag so ordering can no longer flip; freeze/unfreeze guards (empty track, already-freezing, missing freeze WAV) verified.
 
-**Next:** Milestone 5 — performance profiling, high-DPI audit, workspace layouts, error reporting, tests/CI, and packaging.
+**Next (M5):** performance profiling, high-DPI audit, workspace layouts, error reporting, grow test coverage (`AudioEngine` smoke tests), and packaging finish line (production signing + macOS notarization).
 
 ---
 
