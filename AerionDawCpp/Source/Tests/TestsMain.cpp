@@ -169,11 +169,20 @@ public:
 static ProjectDataTests projectDataTests;
 static KeymapTests keymapTests;
 
+class ConsoleUnitTestRunner final : public juce::UnitTestRunner
+{
+public:
+    void logMessage (const juce::String& message) override
+    {
+        std::cout << message << std::endl;
+    }
+};
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
 
-    juce::UnitTestRunner runner;
+    ConsoleUnitTestRunner runner;
     runner.setAssertOnFailure (false);
     runner.runTestsInCategory ("Aerion");
 
