@@ -18,8 +18,64 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  ubuntu-smoke-tests:
+    name: Ubuntu smoke tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ninja-build \
+            xvfb \
+            libasound2-dev \
+            libjack-jackd2-dev \
+            libcurl4-openssl-dev \
+            libfreetype6-dev \
+            libfontconfig1-dev \
+            libx11-dev \
+            libxcomposite-dev \
+            libxcursor-dev \
+            libxext-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            libwebkit2gtk-4.1-dev
+
+      - name: Pre-clone Tracktion Engine with HTTPS submodules
+        run: |
+          git clone --depth 1 --branch v3.2.0 https://github.com/Tracktion/tracktion_engine.git tracktion_engine-src
+          cd tracktion_engine-src
+          git submodule set-url modules/juce https://github.com/juce-framework/JUCE.git
+          git submodule update --init --recursive --depth 1
+
+      - name: Configure smoke tests
+        run: >
+          cmake -S AerionDawCpp -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DAERION_BUILD_TESTS=ON
+          -DAERION_ENABLE_ASIO=NEVER
+          -DFETCHCONTENT_SOURCE_DIR_TRACKTION_ENGINE="$GITHUB_WORKSPACE/tracktion_engine-src"
+
+      - name: Build smoke tests
+        run: cmake --build build --target AerionTests --parallel
+
+      - name: Run smoke tests
+        run: xvfb-run --auto-servernum ctest --test-dir build -R "^AerionSmokeTests$" --output-on-failure --verbose
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aerion-ubuntu-test-logs
+          path: build/Testing/Temporary/*.log
+          if-no-files-found: ignore
+
   windows:
     name: Windows MSVC build + smoke tests
+    if: github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
 
     steps:
