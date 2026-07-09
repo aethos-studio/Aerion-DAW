@@ -181,7 +181,11 @@ public:
             return false;
         auto ma = a.getModifiers();
         auto mb = b.getModifiers();
+        // Compare Ctrl explicitly as well as Command: on macOS they are distinct
+        // physical keys, so "ctrl + S" must not collide with a bare "S". On
+        // Windows Ctrl maps to the command modifier, so this stays consistent.
         return ma.isCommandDown() == mb.isCommandDown()
+            && ma.isCtrlDown()    == mb.isCtrlDown()
             && ma.isShiftDown()   == mb.isShiftDown()
             && ma.isAltDown()     == mb.isAltDown();
     }
