@@ -46,12 +46,17 @@ jobs:
       - name: Configure (Debug + tests)
         shell: pwsh
         run: >
-          cmake --preset win-msvc-debug-tests -S AerionDawCpp -B build
+          cmake -S AerionDawCpp -B build -G "Visual Studio 17 2022" -A x64
+          -DAERION_BUILD_TESTS=ON
           -DFETCHCONTENT_SOURCE_DIR_TRACKTION_ENGINE="${{ github.workspace }}\tracktion_engine-src"
 
-      - name: Build app and tests
+      - name: Build app
         shell: pwsh
-        run: cmake --build build --preset win-msvc-debug-tests --parallel
+        run: cmake --build build --config Debug --target AerionDaw --parallel
+
+      - name: Build smoke tests
+        shell: pwsh
+        run: cmake --build build --config Debug --target AerionTests --parallel
 
       - name: Run smoke tests
         shell: pwsh
