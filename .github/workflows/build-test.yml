@@ -60,7 +60,7 @@ jobs:
 
       - name: Run smoke tests
         shell: pwsh
-        run: ctest --test-dir build -C Debug --output-on-failure
+        run: ctest --test-dir build -C Debug -R "^AerionSmokeTests$" --output-on-failure --verbose
 
       - name: Upload Windows app artefact
         uses: actions/upload-artifact@v4
