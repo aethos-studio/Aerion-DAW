@@ -1,8 +1,8 @@
 name: release-package
 
-# Manual, gated release packaging. The Windows (NSIS) and macOS (DMG) installer
-# jobs only run after the Debug build + smoke tests succeed on BOTH platforms,
-# so we never ship an installer for a build that fails the smoke tests.
+# Manual release packaging. Builds and (optionally) signs the Windows NSIS
+# installer and the macOS DMG. Smoke tests live in their own workflow
+# (build-test.yml); run those first if you want a pre-release check.
 
 on:
   workflow_dispatch:
@@ -18,84 +18,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  debug-windows:
-    name: Debug build + smoke tests (Windows)
-    runs-on: windows-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
-      - name: Pre-clone Tracktion Engine with HTTPS submodules
-        shell: pwsh
-        run: |
-          git clone --depth 1 --branch v3.2.0 https://github.com/Tracktion/tracktion_engine.git tracktion_engine-src
-          Push-Location tracktion_engine-src
-          git submodule set-url modules/juce https://github.com/juce-framework/JUCE.git
-          git submodule update --init --recursive --depth 1
-          Pop-Location
-
-      - name: Configure (Debug + tests)
-        shell: pwsh
-        run: >
-          cmake -S AerionDawCpp -B build -G Ninja
-          -DCMAKE_BUILD_TYPE=Debug
-          -DAERION_BUILD_TESTS=ON
-          -DFETCHCONTENT_SOURCE_DIR_TRACKTION_ENGINE="${{ github.workspace }}\tracktion_engine-src"
-
-      - name: Build app
-        shell: pwsh
-        run: cmake --build build --target AerionDaw --parallel
-
-      - name: Build smoke tests
-        shell: pwsh
-        run: cmake --build build --target AerionTests --parallel
-
-      - name: Run smoke tests
-        shell: pwsh
-        run: ctest --test-dir build -R "^AerionSmokeTests$" --output-on-failure --verbose
-
-  debug-macos:
-    name: Debug build + smoke tests (macOS)
-    runs-on: macos-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Ninja
-        run: brew install ninja
-
-      - name: Pre-clone Tracktion Engine with HTTPS submodules
-        run: |
-          git clone --depth 1 --branch v3.2.0 https://github.com/Tracktion/tracktion_engine.git tracktion_engine-src
-          cd tracktion_engine-src
-          git submodule set-url modules/juce https://github.com/juce-framework/JUCE.git
-          git submodule update --init --recursive --depth 1
-
-      - name: Configure (Debug + tests)
-        run: >
-          cmake -S AerionDawCpp -B build -G Ninja
-          -DCMAKE_BUILD_TYPE=Debug
-          -DAERION_BUILD_TESTS=ON
-          -DAERION_ENABLE_ASIO=NEVER
-          -DFETCHCONTENT_SOURCE_DIR_TRACKTION_ENGINE="$GITHUB_WORKSPACE/tracktion_engine-src"
-
-      - name: Build app
-        run: cmake --build build --target AerionDaw --parallel
-
-      - name: Build smoke tests
-        run: cmake --build build --target AerionTests --parallel
-
-      - name: Run smoke tests
-        run: ctest --test-dir build -R "^AerionSmokeTests$" --output-on-failure --verbose
-
   windows-installer:
     name: Windows installer (NSIS)
     runs-on: windows-latest
-    needs: [debug-windows, debug-macos]
 
     # Self-signed code signing is optional: when both secrets are present the
     # app + installer are signed and timestamped, otherwise signing is skipped
@@ -183,7 +108,6 @@ jobs:
   macos-installer:
     name: macOS installer (DMG)
     runs-on: macos-latest
-    needs: [debug-windows, debug-macos]
 
     steps:
       - uses: actions/checkout@v4
