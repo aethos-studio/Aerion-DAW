@@ -164,6 +164,9 @@ void ProjectData::syncWithEngine (tracktion::Edit& edit)
 
 void ProjectData::createMockData()
 {
+    projectTree.removeAllChildren (nullptr);
+    projectTree.removeAllProperties (nullptr);
+
     juce::ValueTree tracksTree (IDs::Tracks);
     juce::ValueTree auxTracksTree (IDs::AuxTracks);
     
