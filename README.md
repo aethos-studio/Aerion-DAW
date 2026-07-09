@@ -37,7 +37,7 @@ Aerion is designed to bridge the gap between high-end professional production an
 ## Recent Updates
 
 - **CI now covers Windows and macOS, manually triggered (July 2026):** `build-test.yml` runs the Debug build + `AerionTests` smoke tests on both a Windows MSVC/Ninja runner and a macOS Clang/Ninja runner. Run it from **Actions → build-test → Run workflow**.
-- **Manual release packaging:** `package-release.yml` (`release-package`) is a separate `workflow_dispatch` workflow that builds the Windows NSIS installer and macOS DMG independently of the smoke-test workflow.
+- **Manual release packaging + GitHub Releases:** `package-release.yml` (`release-package`) is a separate `workflow_dispatch` workflow that builds the Windows NSIS installer and macOS DMG independently of the smoke-test workflow, then publishes both as a GitHub Release (tag, draft/pre-release flags, and notes are set via the workflow's manual-run inputs).
 - **Optional self-signed Windows code signing:** the Windows installer job signs and timestamps the app + installer when `WINDOWS_CERT_PFX_BASE64` / `WINDOWS_CERT_PASSWORD` repo secrets are present (generate them with `AerionDawCpp/Tools/New-AerionSelfSignedCert.ps1`); packaging still succeeds unsigned if the secrets are absent.
 - **Cross-platform smoke-test fixes:** fixed a `ProjectData` mock-data seeding bug and a macOS-only Ctrl/Command keymap conflict (`AerionKeymap::sameKey`) that CI caught before it could reach users.
 - **Milestone 4 complete:** Custom keyboard shortcuts, time signature changes, per-track input/monitor persistence, mixdown + stems export, freeze/bounce, crash recovery.
