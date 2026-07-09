@@ -1,26 +1,27 @@
-name: package
+name: release-package
+
+# Manual, gated release packaging. The Windows (NSIS) and macOS (DMG) installer
+# jobs only run after the Debug build + smoke tests succeed on BOTH platforms,
+# so we never ship an installer for a build that fails the smoke tests.
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Version label to use for the artefacts (e.g. 0.2.0). Falls back to CMake project() version."
-        required: false
-        default: ""
-  push:
-    tags:
-      - "v*"
 
 permissions:
-  contents: write   # needed to create the GitHub Release on tag push
+  contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+concurrency:
+  group: release-package-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  windows:
-    name: Windows installer (NSIS)
+  debug-windows:
+    name: Debug build + smoke tests (Windows)
     runs-on: windows-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -28,18 +29,6 @@ jobs:
         with:
           arch: x64
 
-      - name: Show build tools
-        shell: pwsh
-        run: |
-          & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -products * -requires Microsoft.Component.MSBuild -property installationPath
-          cl
-          ninja --version
-          cmake --version
-
-      # Tracktion v3.2.0 references some GitHub modules via SSH submodules in
-      # its .gitmodules - that fails on the unauthenticated CI runner, so we
-      # pre-clone the repo with HTTPS submodules and feed the path to
-      # FetchContent via FETCHCONTENT_SOURCE_DIR_*.
       - name: Pre-clone Tracktion Engine with HTTPS submodules
         shell: pwsh
         run: |
@@ -49,7 +38,82 @@ jobs:
           git submodule update --init --recursive --depth 1
           Pop-Location
 
-      - name: Configure (Release, x64)
+      - name: Configure (Debug + tests)
+        shell: pwsh
+        run: >
+          cmake -S AerionDawCpp -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DAERION_BUILD_TESTS=ON
+          -DFETCHCONTENT_SOURCE_DIR_TRACKTION_ENGINE="${{ github.workspace }}\tracktion_engine-src"
+
+      - name: Build app
+        shell: pwsh
+        run: cmake --build build --target AerionDaw --parallel
+
+      - name: Build smoke tests
+        shell: pwsh
+        run: cmake --build build --target AerionTests --parallel
+
+      - name: Run smoke tests
+        shell: pwsh
+        run: ctest --test-dir build -R "^AerionSmokeTests$" --output-on-failure --verbose
+
+  debug-macos:
+    name: Debug build + smoke tests (macOS)
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: brew install ninja
+
+      - name: Pre-clone Tracktion Engine with HTTPS submodules
+        run: |
+          git clone --depth 1 --branch v3.2.0 https://github.com/Tracktion/tracktion_engine.git tracktion_engine-src
+          cd tracktion_engine-src
+          git submodule set-url modules/juce https://github.com/juce-framework/JUCE.git
+          git submodule update --init --recursive --depth 1
+
+      - name: Configure (Debug + tests)
+        run: >
+          cmake -S AerionDawCpp -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DAERION_BUILD_TESTS=ON
+          -DAERION_ENABLE_ASIO=NEVER
+          -DFETCHCONTENT_SOURCE_DIR_TRACKTION_ENGINE="$GITHUB_WORKSPACE/tracktion_engine-src"
+
+      - name: Build app
+        run: cmake --build build --target AerionDaw --parallel
+
+      - name: Build smoke tests
+        run: cmake --build build --target AerionTests --parallel
+
+      - name: Run smoke tests
+        run: ctest --test-dir build -R "^AerionSmokeTests$" --output-on-failure --verbose
+
+  windows-installer:
+    name: Windows installer (NSIS)
+    runs-on: windows-latest
+    needs: [debug-windows, debug-macos]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Pre-clone Tracktion Engine with HTTPS submodules
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch v3.2.0 https://github.com/Tracktion/tracktion_engine.git tracktion_engine-src
+          Push-Location tracktion_engine-src
+          git submodule set-url modules/juce https://github.com/juce-framework/JUCE.git
+          git submodule update --init --recursive --depth 1
+          Pop-Location
+
+      - name: Configure (Release)
         shell: pwsh
         run: >
           cmake -S AerionDawCpp -B build -G Ninja
@@ -65,6 +129,7 @@ jobs:
         run: choco install nsis -y --no-progress
 
       - name: Package (NSIS installer)
+        shell: pwsh
         run: cpack --config build/CPackConfig.cmake -G NSIS -C Release -B dist
 
       - name: Locate installer
@@ -75,28 +140,24 @@ jobs:
           if (-not $installer) { Write-Error "No NSIS installer produced under dist/"; exit 1 }
           Write-Output "Installer: $($installer.FullName)"
           "path=$($installer.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "name=$($installer.Name)"     | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      - name: Upload installer (workflow artefact)
+      - name: Upload NSIS installer
         uses: actions/upload-artifact@v4
         with:
           name: aerion-windows-installer
           path: ${{ steps.find_installer.outputs.path }}
+          if-no-files-found: error
 
-      - name: Attach installer to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: true
-          generate_release_notes: true
-          name: "Aerion DAW ${{ github.ref_name }}"
-          files: ${{ steps.find_installer.outputs.path }}
-
-  macos:
+  macos-installer:
     name: macOS installer (DMG)
     runs-on: macos-latest
+    needs: [debug-windows, debug-macos]
+
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: brew install ninja
 
       - name: Pre-clone Tracktion Engine with HTTPS submodules
         run: |
@@ -129,20 +190,11 @@ jobs:
             exit 1
           fi
           echo "DMG: $dmg"
-          echo "path=$dmg"           >> "$GITHUB_OUTPUT"
-          echo "name=$(basename $dmg)" >> "$GITHUB_OUTPUT"
+          echo "path=$dmg" >> "$GITHUB_OUTPUT"
 
-      - name: Upload DMG (workflow artefact)
+      - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
           name: aerion-macos-dmg
           path: ${{ steps.find_dmg.outputs.path }}
-
-      - name: Attach DMG to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: true
-          generate_release_notes: true
-          name: "Aerion DAW ${{ github.ref_name }}"
-          files: ${{ steps.find_dmg.outputs.path }}
+          if-no-files-found: error
