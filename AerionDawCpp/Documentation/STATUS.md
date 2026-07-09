@@ -1,7 +1,7 @@
-# Aerion DAW Project Status — July 5, 2026 (v0.3.0 Pre-Alpha)
+# Aerion DAW Project Status — July 9, 2026 (v0.3.0 Pre-Alpha)
 
 ## Overview
-Aerion DAW has closed the **Milestone 4 completion sprint** (v0.3.0). Milestones 1–4 — Editing, Mixing, Recording & Monitoring, and Project & Workflow — are **complete and verified against the source** (codebase audit, July 2026). The current focus is **Milestone 5: Polish & Stability (v0.4.0)**, where CI, smoke tests, typography scaling, and packaging scaffolds already exist in partial form.
+Aerion DAW has closed the **Milestone 4 completion sprint** (v0.3.0). Milestones 1–4 — Editing, Mixing, Recording & Monitoring, and Project & Workflow — are **complete and verified against the source** (codebase audit, July 2026). The current focus is **Milestone 5: Polish & Stability (v0.4.0)**, where CI now builds and smoke-tests on **both Windows and macOS** on every PR/push, release packaging has been split into its own manually-triggered workflow, and optional self-signed Windows code signing has landed. Typography scaling and packaging scaffolds remain partial.
 
 ## Milestone Progress
 
@@ -16,16 +16,17 @@ Aerion DAW has closed the **Milestone 4 completion sprint** (v0.3.0). Milestones
 
 ---
 
-## Milestone 5 Inventory (audited July 5, 2026)
+## Milestone 5 Inventory (audited July 9, 2026)
 
 What already exists versus what remains, verified against the source tree:
 
 | M5 Item | State | Notes |
 |---|---|---|
-| CI pipeline | **Done** | `.github/workflows/build-test.yml` — build + `ctest` on PR/push to `main` (landed June 2026, commit `830cd14`). |
-| Unit & Integration Tests | **Started** | `AerionTests`: `ProjectData` round-trip + `AerionKeymap` serialisation/conflicts. `AudioEngine` smoke tests still to come. |
-| Packaging — Windows | **~Done** | NSIS installer scaffolded in `CMakeLists.txt` (CPack, shortcuts, VC++ runtime bundling, installer icon). Production code-signing still missing. |
-| Packaging — macOS | **Partial** | DMG + universal binary (ARM64 + x86_64) built by the release workflow; signing is ad-hoc only, **notarization not implemented**. |
+| CI pipeline | **Done** | `.github/workflows/build-test.yml` — Debug build + `ctest` smoke tests on PR/push to `main`, running on **both** a Windows MSVC/Ninja runner and a macOS Clang/Ninja runner. |
+| Release packaging workflow | **Done** | `.github/workflows/package-release.yml` (`release-package`) — manual (`workflow_dispatch`) workflow, independent of the smoke-test workflow, that builds the Windows NSIS installer and macOS DMG. |
+| Unit & Integration Tests | **Started** | `AerionTests`: `ProjectData` round-trip + `AerionKeymap` serialisation/conflicts, now verified green on both Windows and macOS. `AudioEngine` smoke tests still to come. |
+| Packaging — Windows | **~Done** | NSIS installer scaffolded in `CMakeLists.txt` (CPack, shortcuts, VC++ runtime bundling, installer icon). **Optional self-signed code signing** now available (`AerionDawCpp/Tools/New-AerionSelfSignedCert.ps1` + `WINDOWS_CERT_PFX_BASE64` / `WINDOWS_CERT_PASSWORD` secrets); a paid OV/EV certificate is still required to clear the SmartScreen "unknown publisher" prompt. |
+| Packaging — macOS | **Partial** | DMG + universal binary (ARM64 + x86_64) built by the release workflow; signing is ad-hoc only, **notarization not implemented** (requires a paid Apple Developer account). |
 | High-DPI / Retina | **Partial (~40 %)** | `Theme::uiSize()` / `kUiFontScale` typography layer shipped; fixed-pixel layout audit not started. |
 | Performance Optimization | **Partial** | Splash/deferred device init, repaint scoping, tooltip/toolbar cadence done; timeline/piano-roll paint profiling outstanding. |
 | Workspace Layouts | **Missing** | No layout manager or save/restore code yet. |
@@ -37,6 +38,9 @@ What already exists versus what remains, verified against the source tree:
 
 ## Recently shipped (since last STATUS update)
 
+- **CI expanded to Windows + macOS, release packaging decoupled (July 2026):** `build-test.yml` now runs the Debug build + `AerionSmokeTests` on both a Windows MSVC/Ninja runner and a macOS Clang/Ninja runner, on every PR and push to `main`. Release packaging moved to its own manually-triggered workflow, `package-release.yml` (`release-package`), which builds the Windows NSIS installer and macOS DMG independently of the smoke-test gate.
+- **Optional self-signed Windows code signing (July 2026):** `AerionDawCpp/Tools/New-AerionSelfSignedCert.ps1` generates a self-signed code-signing certificate in the CurrentUser store (no admin rights required). When `WINDOWS_CERT_PFX_BASE64` and `WINDOWS_CERT_PASSWORD` repo secrets are set, `release-package` signs and timestamps the built app and NSIS installer with `signtool`; packaging still succeeds unsigned when the secrets are absent.
+- **Cross-platform smoke-test fixes (July 2026):** fixed `ProjectData::createMockData()` appending demo tracks onto the constructor's existing empty `Tracks`/`AuxTracks` trees instead of replacing them, which was masking test assertions. Fixed `AerionKeymap::sameKey()` to compare the Ctrl modifier explicitly (not just Command), resolving a macOS-only false conflict between `ctrl+S` (`file.save`) and bare `S` (`track.solo`) — both platforms' physical modifier keys differ from Windows.
 - **Roadmap / version / title bar alignment (July 2026):** CMake app version bumped to **0.3.0**; `Theme::windowTitle()` drives menu bar + window title (`<ProjectName> — Aerion DAW`, including on startup); About dialog uses `ProjectInfo::versionString`; ROADMAP/STATUS/README brought in sync with M5 progress.
 - **Insert bypass + drag-to-reorder (M2 polish, June 2026):** engine APIs `isExternalPluginBypassed` / `setPluginBypassed` / `moveExternalPlugin` (with freeze-state guards); `BYP` pill and drag-handle reordering in the Inspector INSERTS list, Plugin Manager window, and Mixer insert rack.
 - **Milestone 4 completion sprint (v0.3.0):** per-track input + monitor persistence, time signature changes UI, customisable keyboard shortcuts (`AerionKeymap` + `KeyboardShortcutsPanel` with conflict detection and `.aerionkeys` import/export), Mixer M/S icons via shared `drawTrackIconBtn`, freeze/tempo polish pass.
@@ -58,18 +62,18 @@ What already exists versus what remains, verified against the source tree:
 - **Presets**: `win-msvc-debug`, `win-msvc-release`, `win-msvc-debug-tests` (see root `CMakePresets.json` + `AerionDawCpp/Documentation/CURSOR_DEVELOPMENT.md`)
 - **Engine**: Tracktion Engine v3.2 / JUCE 8
 - **Build**: Clean Debug build of the **AerionDaw** target; full solution builds may still hit unrelated demo targets (e.g. LV2 helper in third-party examples).
-- **CI**: tag-triggered installer packaging (Windows NSIS, macOS DMG); PR/push build + test workflow (June 2026).
+- **CI**: `build-test.yml` runs the Debug build + `AerionSmokeTests` on Windows (MSVC/Ninja) and macOS (Clang/Ninja) on every PR/push to `main`. `package-release.yml` (`release-package`) is a separate manual (`workflow_dispatch`) workflow that builds the Windows NSIS installer and macOS DMG, with optional self-signed Windows code signing.
 
 ## Next Steps (priority order)
 
 Mirrors Milestone 5 in [`ROADMAP.md`](./ROADMAP.md) so the two documents agree.
 
-1. **CI build-on-PR + first smoke tests** — protect the codebase before the polish work churns it. *(Done — `build-test.yml` + `AerionTests`; grow `AudioEngine` coverage next.)*
+1. **CI build-on-PR + first smoke tests** — protect the codebase before the polish work churns it. *(Done — `build-test.yml` runs `AerionTests` on Windows and macOS; grow `AudioEngine` coverage next.)*
 2. **Performance profiling** — timeline/piano-roll paint profiling; eliminate hot-path allocations.
 3. **High-DPI audit** — sweep fixed pixel layouts now that the typography token layer exists.
 4. **Error reporting** — in-app console panel for DBG logs in dev builds; structured crash reporter.
 5. **Workspace layouts & accessibility** — named window layouts; screen-reader labels and keyboard-navigable mixer.
-6. **Packaging finish line** — production code-signing (Windows + macOS) and macOS notarization.
+6. **Packaging finish line** — self-signed Windows code signing is done *(`release-package` + `New-AerionSelfSignedCert.ps1`)*; production OV/EV code-signing (to clear SmartScreen) and macOS notarization still require a paid certificate/Apple Developer account.
 
 ## Trademarks
 

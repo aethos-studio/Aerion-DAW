@@ -4,7 +4,7 @@ This document outlines the development path for Aerion DAW. The strategy is simp
 
 ---
 
-## Current State (v0.3.0 Pre-Alpha — June 2026)
+## Current State (v0.3.0 Pre-Alpha — July 2026)
 
 **Milestones 1–4 are complete.** Active development is **Milestone 5 (Polish & Stability, targeting v0.4.0)**. The shipped app version is **v0.3.0** (CMake `project` version); the latest git tag may still read `v0.2.0` until the next release is tagged.
 
@@ -151,17 +151,19 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
 ---
 
 ## Milestone 5 — DAW Essentials: Polish & Stability (v0.4.0)
-*Ship-ready quality. **In progress** — CI and first smoke tests landed June 2026; see inventory below.*
+*Ship-ready quality. **In progress** — CI now covers Windows + macOS and release packaging is a separate gated workflow; see inventory below.*
 
 - [ ] **Performance Optimization:** Multi-threaded audio graph; minimize UI thread blocking; profile and eliminate hot-path allocations. *Partial: splash/deferred device init, repaint scoping, tooltip/toolbar cadence done — timeline/piano-roll paint profiling still outstanding.*
 - [ ] **High-DPI / Retina Support:** All custom-drawn components scale correctly at 150 % / 200 % display scaling. *Partial (~40 %): typography tokens (`Theme::uiSize` / `kUiFontScale`) shipped; fixed-pixel layout audit not started.*
 - [ ] **Workspace Layouts:** Save and switch between named window layouts (Editing, Mixing, Recording).
 - [ ] **Accessibility:** Screen-reader labels on all interactive controls; keyboard-navigable mixer.
 - [ ] **Error Reporting:** Structured in-app crash reporter; DBG logs surfaced to a `Console` panel in dev builds.
-- [x] **CI pipeline (GitHub Actions):** `.github/workflows/build-test.yml` — Release build of `AerionDaw` + `AerionTests` on every PR and push to `main` (`ctest`). Tag-triggered installer packaging remains in `package-release.yml`.
-- [x] **Unit & Integration Tests (smoke):** `AerionTests` — `ProjectData` XML round-trip, track lookup, and `AerionKeymap` serialisation/conflict/import tests. *Grow toward `AudioEngine` smoke coverage next.*
-- [ ] **macOS Packaging:** DMG built by the release workflow; production code-signing and notarization for Gatekeeper still outstanding (local builds use ad-hoc signing only).
-- [ ] **Windows Packaging:** NSIS installer scaffolded in CMake (CPack, shortcuts, VC++ runtime); production code-signed binary still outstanding.
+- [x] **CI pipeline (GitHub Actions):** `.github/workflows/build-test.yml` — Debug build of `AerionDaw` + `AerionTests` smoke tests on every PR and push to `main`, on **both** a Windows MSVC/Ninja runner and a macOS Clang/Ninja runner.
+- [x] **Unit & Integration Tests (smoke):** `AerionTests` — `ProjectData` XML round-trip, track lookup, and `AerionKeymap` serialisation/conflict/import tests, green on both platforms. *Grow toward `AudioEngine` smoke coverage next.*
+- [x] **Release packaging workflow:** `.github/workflows/package-release.yml` (`release-package`) — standalone manual (`workflow_dispatch`) workflow, decoupled from the smoke-test workflow, that builds the Windows NSIS installer and macOS DMG on demand.
+- [x] **Windows self-signed code signing:** `AerionDawCpp/Tools/New-AerionSelfSignedCert.ps1` generates a no-admin-required self-signed certificate; `release-package` signs + timestamps the app and installer when `WINDOWS_CERT_PFX_BASE64` / `WINDOWS_CERT_PASSWORD` secrets are configured, and still packages unsigned otherwise. Does not clear the SmartScreen "unknown publisher" prompt — that needs a paid OV/EV certificate.
+- [ ] **macOS Packaging:** DMG built by the release workflow; production code-signing and notarization for Gatekeeper still outstanding (local builds use ad-hoc signing only; requires a paid Apple Developer account).
+- [ ] **Windows Packaging:** NSIS installer scaffolded in CMake (CPack, shortcuts, VC++ runtime); self-signed signing available now, but a paid OV/EV certificate is still needed to clear SmartScreen.
 
 ---
 
@@ -241,7 +243,7 @@ All M4 completion-sprint items shipped:
 4. ✅ **Mixer M/S Icons** — `Mixer::drawSideButtonColumn` renders mute/solo via `Timeline::drawTrackIconBtn` using `BinaryData::aerion_mute_svg` / `aerion_Solo_svg`, matching Timeline and Inspector.
 5. ✅ **Freeze/Tempo Polish Pass** — Tempo lane now shows a resize cursor and a brighter highlight on hover (`hoveredTempoNodeIndex`); non-root tempo nodes are clamped between their neighbours during drag so ordering can no longer flip; freeze/unfreeze guards (empty track, already-freezing, missing freeze WAV) verified.
 
-**Next (M5):** performance profiling, high-DPI audit, workspace layouts, error reporting, grow test coverage (`AudioEngine` smoke tests), and packaging finish line (production signing + macOS notarization).
+**Next (M5):** performance profiling, high-DPI audit, workspace layouts, error reporting, grow test coverage (`AudioEngine` smoke tests), and the packaging finish line — production OV/EV code-signing (to clear SmartScreen; self-signed already done) and macOS notarization.
 
 ---
 

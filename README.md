@@ -6,6 +6,8 @@
 
 **Development status:** v0.3.0 Pre-Alpha — Milestones 1–4 complete; Milestone 5 (Polish & Stability) in progress. See [`AerionDawCpp/Documentation/ROADMAP.md`](AerionDawCpp/Documentation/ROADMAP.md) and [`STATUS.md`](AerionDawCpp/Documentation/STATUS.md).
 
+[![Build & Smoke Tests](https://github.com/aethos-studio/Aerion-DAW/actions/workflows/build-test.yml/badge.svg)](https://github.com/aethos-studio/Aerion-DAW/actions/workflows/build-test.yml)
+
 ---
 
 ## Why Aerion DAW?
@@ -34,7 +36,10 @@ Aerion is designed to bridge the gap between high-end professional production an
 
 ## Recent Updates
 
-- **Milestone 5 kick-off:** CI build-on-PR workflow (`build-test.yml`) and first smoke tests (`AerionTests`).
+- **CI now covers Windows and macOS (July 2026):** `build-test.yml` runs the Debug build + `AerionTests` smoke tests on every PR and push to `main`, on both a Windows MSVC/Ninja runner and a macOS Clang/Ninja runner.
+- **Manual, gated release packaging:** `package-release.yml` (`release-package`) is a standalone `workflow_dispatch` workflow that builds the Windows NSIS installer and macOS DMG independently of the smoke-test workflow.
+- **Optional self-signed Windows code signing:** the Windows installer job signs and timestamps the app + installer when `WINDOWS_CERT_PFX_BASE64` / `WINDOWS_CERT_PASSWORD` repo secrets are present (generate them with `AerionDawCpp/Tools/New-AerionSelfSignedCert.ps1`); packaging still succeeds unsigned if the secrets are absent.
+- **Cross-platform smoke-test fixes:** fixed a `ProjectData` mock-data seeding bug and a macOS-only Ctrl/Command keymap conflict (`AerionKeymap::sameKey`) that CI caught before it could reach users.
 - **Milestone 4 complete:** Custom keyboard shortcuts, time signature changes, per-track input/monitor persistence, mixdown + stems export, freeze/bounce, crash recovery.
 - **Docs & versioning:** Roadmap/STATUS aligned to v0.3.0; window title bar shows `<ProjectName> — Aerion DAW` on startup; About dialog reads the CMake app version.
 
@@ -57,6 +62,7 @@ Aerion-DAW/
     Documentation/     Roadmap, status, release notes, manual test checklist, Cursor dev guide (Windows)
     Resources/         SVG assets, fonts, icons
     External/          Third-party SDKs (e.g. Steinberg ASIO on Windows)
+    Tools/             Local dev helper scripts (e.g. self-signed cert generator)
     Source/            Application code (Main, AudioEngine, UI, Export, …)
 ```
 
