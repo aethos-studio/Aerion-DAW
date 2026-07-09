@@ -151,14 +151,14 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
 ---
 
 ## Milestone 5 — DAW Essentials: Polish & Stability (v0.4.0)
-*Ship-ready quality. **In progress** — CI now covers Windows + macOS and release packaging is a separate gated workflow; see inventory below.*
+*Ship-ready quality. **In progress** — CI now covers Windows + macOS and release packaging is a separate workflow; both are manual (`workflow_dispatch`) only; see inventory below.*
 
 - [ ] **Performance Optimization:** Multi-threaded audio graph; minimize UI thread blocking; profile and eliminate hot-path allocations. *Partial: splash/deferred device init, repaint scoping, tooltip/toolbar cadence done — timeline/piano-roll paint profiling still outstanding.*
 - [ ] **High-DPI / Retina Support:** All custom-drawn components scale correctly at 150 % / 200 % display scaling. *Partial (~40 %): typography tokens (`Theme::uiSize` / `kUiFontScale`) shipped; fixed-pixel layout audit not started.*
 - [ ] **Workspace Layouts:** Save and switch between named window layouts (Editing, Mixing, Recording).
 - [ ] **Accessibility:** Screen-reader labels on all interactive controls; keyboard-navigable mixer.
 - [ ] **Error Reporting:** Structured in-app crash reporter; DBG logs surfaced to a `Console` panel in dev builds.
-- [x] **CI pipeline (GitHub Actions):** `.github/workflows/build-test.yml` — Debug build of `AerionDaw` + `AerionTests` smoke tests on every PR and push to `main`, on **both** a Windows MSVC/Ninja runner and a macOS Clang/Ninja runner.
+- [x] **CI pipeline (GitHub Actions):** `.github/workflows/build-test.yml` — Debug build of `AerionDaw` + `AerionTests` smoke tests, **manually triggered** (`workflow_dispatch`), on **both** a Windows MSVC/Ninja runner and a macOS Clang/Ninja runner.
 - [x] **Unit & Integration Tests (smoke):** `AerionTests` — `ProjectData` XML round-trip, track lookup, and `AerionKeymap` serialisation/conflict/import tests, green on both platforms. *Grow toward `AudioEngine` smoke coverage next.*
 - [x] **Release packaging workflow:** `.github/workflows/package-release.yml` (`release-package`) — standalone manual (`workflow_dispatch`) workflow, decoupled from the smoke-test workflow, that builds the Windows NSIS installer and macOS DMG on demand.
 - [x] **Windows self-signed code signing:** `AerionDawCpp/Tools/New-AerionSelfSignedCert.ps1` generates a no-admin-required self-signed certificate; `release-package` signs + timestamps the app and installer when `WINDOWS_CERT_PFX_BASE64` / `WINDOWS_CERT_PASSWORD` secrets are configured, and still packages unsigned otherwise. Does not clear the SmartScreen "unknown publisher" prompt — that needs a paid OV/EV certificate.

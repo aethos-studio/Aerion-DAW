@@ -1,11 +1,9 @@
 name: build-test
 
+# Manual only. Run from Actions -> build-test -> Run workflow before merging
+# or packaging a release.
 on:
   workflow_dispatch:
-  pull_request:
-  push:
-    branches:
-      - main
 
 permissions:
   contents: read
