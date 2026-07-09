@@ -97,6 +97,14 @@ jobs:
     runs-on: windows-latest
     needs: [debug-windows, debug-macos]
 
+    # Self-signed code signing is optional: when both secrets are present the
+    # app + installer are signed and timestamped, otherwise signing is skipped
+    # and the unsigned installer is still produced. Generate the secrets with
+    # AerionDawCpp/Tools/New-AerionSelfSignedCert.ps1.
+    env:
+      CERT_B64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+      CERT_PW: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -124,6 +132,21 @@ jobs:
         shell: pwsh
         run: cmake --build build --target AerionDaw --parallel
 
+      # Sign the built executable in place before CPack packages it, so the exe
+      # inside the installer is signed too. CPack copies the artefact as-is.
+      - name: Sign application (self-signed)
+        if: ${{ env.CERT_B64 != '' }}
+        shell: pwsh
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "aerion-codesign.pfx"
+          [System.IO.File]::WriteAllBytes($pfx, [System.Convert]::FromBase64String($env:CERT_B64))
+          $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+          if (-not $signtool) { Write-Error "signtool.exe not found on runner"; exit 1 }
+          $exe = (Get-ChildItem -Path build\AerionDaw_artefacts -Recurse -Filter "Aerion DAW.exe" | Select-Object -First 1).FullName
+          if (-not $exe) { Write-Error "Built 'Aerion DAW.exe' not found"; exit 1 }
+          & $signtool sign /f $pfx /p $env:CERT_PW /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "$exe"
+          & $signtool verify /pa "$exe"
+
       - name: Install NSIS (for CPack)
         shell: pwsh
         run: choco install nsis -y --no-progress
@@ -140,6 +163,15 @@ jobs:
           if (-not $installer) { Write-Error "No NSIS installer produced under dist/"; exit 1 }
           Write-Output "Installer: $($installer.FullName)"
           "path=$($installer.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Sign installer (self-signed)
+        if: ${{ env.CERT_B64 != '' }}
+        shell: pwsh
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "aerion-codesign.pfx"
+          $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+          & $signtool sign /f $pfx /p $env:CERT_PW /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "${{ steps.find_installer.outputs.path }}"
+          & $signtool verify /pa "${{ steps.find_installer.outputs.path }}"
 
       - name: Upload NSIS installer
         uses: actions/upload-artifact@v4
