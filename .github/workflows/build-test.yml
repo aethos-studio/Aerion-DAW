@@ -20,10 +20,16 @@ concurrency:
 jobs:
   windows:
     name: Windows MSVC build + smoke tests
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Show Visual Studio installations
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -products * -requires Microsoft.Component.MSBuild -property installationPath
+          cmake --version
 
       # Tracktion v3.2.0 references some GitHub modules via SSH submodules in
       # its .gitmodules. Pre-clone with HTTPS submodule URLs so unauthenticated
