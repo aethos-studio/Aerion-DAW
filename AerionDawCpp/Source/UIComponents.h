@@ -2963,6 +2963,7 @@ public:
         detachBtn.onClick = [this] { if (onDetachRequested) onDetachRequested(); };
         addAndMakeVisible (detachBtn);
 
+        setWantsKeyboardFocus (true);
         setMouseCursor (juce::MouseCursor::NormalCursor);
     }
 
@@ -3399,6 +3400,8 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override
     {
+        grabKeyboardFocus();
+
         // Transport button clicks (toolbar)
         if (e.y < kToolbarH && e.x >= kKeyW)
         {
@@ -4361,6 +4364,7 @@ public:
         setContentNonOwned (editor.get(), true);
         centreWithSize (960, 560);
         setVisible (true);
+        editor->grabKeyboardFocus();
     }
 
     void closeButtonPressed() override { delete this; }

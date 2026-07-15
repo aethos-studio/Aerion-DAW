@@ -537,7 +537,12 @@ MainComponent::MainComponent()
         resized();
     };
     tabPianoRoll.onClick = [this] {
-        if (embeddedPianoRoll != nullptr) { bottomPanel = BottomPanel::PianoRoll; resized(); }
+        if (embeddedPianoRoll != nullptr)
+        {
+            bottomPanel = BottomPanel::PianoRoll;
+            resized();
+            embeddedPianoRoll->grabKeyboardFocus();
+        }
     };
 
     // MIDI clip double-click callback for embedded editor
@@ -548,6 +553,7 @@ MainComponent::MainComponent()
         {
             bottomPanel = BottomPanel::PianoRoll;
             resized();
+            embeddedPianoRoll->grabKeyboardFocus();
             return;
         }
 
@@ -583,6 +589,7 @@ MainComponent::MainComponent()
 
         bottomPanel = BottomPanel::PianoRoll;
         resized();
+        embeddedPianoRoll->grabKeyboardFocus();
     };
 
     setSize (1400, 860);
@@ -604,9 +611,20 @@ MainComponent::~MainComponent()
     removeKeyListener (this);
 }
 
-bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component*)
+bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component* origin)
 {
     auto& km = audioEngine.getKeymap();
+
+    if (embeddedPianoRoll != nullptr && embeddedPianoRoll->isVisible())
+    {
+        const bool keyCameFromPianoRoll =
+            origin == embeddedPianoRoll.get()
+            || (origin != nullptr && embeddedPianoRoll->isParentOf (origin))
+            || embeddedPianoRoll->hasKeyboardFocus (true);
+
+        if (keyCameFromPianoRoll && embeddedPianoRoll->keyPressed (key))
+            return true;
+    }
 
     if (km.matches ("edit.undo", key)) { audioEngine.undo(); return true; }
     if (km.matches ("edit.redo", key)) { audioEngine.redo(); return true; }
