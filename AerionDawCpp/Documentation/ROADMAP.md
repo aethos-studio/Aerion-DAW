@@ -155,7 +155,7 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
 
 - [ ] **Performance Optimization:** Multi-threaded audio graph; minimize UI thread blocking; profile and eliminate hot-path allocations. *Partial: splash/deferred device init, repaint scoping, tooltip/toolbar cadence done — timeline/piano-roll paint profiling still outstanding.*
 - [ ] **High-DPI / Retina Support:** All custom-drawn components scale correctly at 150 % / 200 % display scaling. *Partial (~40 %): typography tokens (`Theme::uiSize` / `kUiFontScale`) shipped; fixed-pixel layout audit not started.*
-- [ ] **Workspace Layouts:** Save and switch between named window layouts (Editing, Mixing, Recording).
+- [x] **Workspace Layouts:** Named window layouts under **View → Workspace**. Three built-in presets (Editing, Mixing, Recording) plus "Save Current Layout…" for custom layouts and "Delete Layout". A layout captures inspector/browser collapse state, mixer dock/detach, the active bottom panel (Mixer / Piano Roll), and the console height. Custom layouts and the last-active layout persist app-wide via `appProperties` and the active layout is restored on launch (`MainComponent::applyWorkspaceLayout` / `captureCurrentLayout` / `loadWorkspaceLayouts`).
 - [ ] **Accessibility:** Screen-reader labels on all interactive controls; keyboard-navigable mixer.
 - [ ] **Error Reporting:** Structured in-app crash reporter; DBG logs surfaced to a `Console` panel in dev builds.
 - [x] **CI pipeline (GitHub Actions):** `.github/workflows/build-test.yml` — Debug build of `AerionDaw` + `AerionTests` smoke tests, **manually triggered** (`workflow_dispatch`), on **both** a Windows MSVC/Ninja runner and a macOS Clang/Ninja runner.

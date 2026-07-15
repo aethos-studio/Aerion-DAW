@@ -52,6 +52,28 @@ private:
 
     void detachMixer();
     void reattachMixer();
+
+    // Workspace layouts — a named snapshot of the arrangement of panels/windows.
+    // Persisted app-wide (not per-project) via appProperties, alongside the keymap.
+    struct WorkspaceLayout
+    {
+        juce::String name;
+        bool inspectorCollapsed = false;
+        bool browserCollapsed   = false;
+        bool mixerDetached      = false;
+        int  bottomPanel        = 0;   // 0 = Mixer, 1 = Piano Roll
+        int  mixerHeight        = 320;
+    };
+
+    static std::vector<WorkspaceLayout> builtInLayouts();
+    WorkspaceLayout captureCurrentLayout (juce::String name) const;
+    void applyWorkspaceLayout (const WorkspaceLayout& layout);
+    void applyWorkspaceLayoutByName (const juce::String& name);
+    void saveCurrentWorkspaceLayout();
+    void deleteWorkspaceLayout (const juce::String& name);
+    void loadWorkspaceLayouts();
+    void persistWorkspaceLayouts();
+
     void updateTitleBar();
     void syncToolbarFromEngine();
     void syncMenuBarState();
@@ -169,6 +191,9 @@ private:
 
     int autoSaveElapsedMs = 0;
     int autoSaveIntervalMs = 5 * 60 * 1000;  // 5 min default
+
+    std::vector<WorkspaceLayout> customLayouts;
+    juce::String activeLayoutName;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };

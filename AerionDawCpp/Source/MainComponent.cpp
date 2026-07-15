@@ -343,6 +343,9 @@ MainComponent::MainComponent()
         if (mixer.detached) reattachMixer();
         else                detachMixer();
     };
+    menuBar.onApplyWorkspace  = [this] (juce::String n) { applyWorkspaceLayoutByName (n); };
+    menuBar.onSaveWorkspace   = [this] { saveCurrentWorkspaceLayout(); };
+    menuBar.onDeleteWorkspace = [this] (juce::String n) { deleteWorkspaceLayout (n); };
     menuBar.onShowKeyboardShortcuts = [this] {
         KeyboardShortcutsDialog::launch (audioEngine.getKeymap(), audioEngine.getUserSettings());
     };
@@ -594,6 +597,12 @@ MainComponent::MainComponent()
 
     setSize (1400, 860);
     updateTitleBar();
+
+    // Restore the last-used workspace layout (built-in or custom) from settings.
+    loadWorkspaceLayouts();
+    if (activeLayoutName.isNotEmpty())
+        applyWorkspaceLayoutByName (activeLayoutName);
+
     // 25 Hz: playhead + meters; avoids piling on top of other ~30 Hz component timers.
     startTimerHz (25);
 
@@ -870,6 +879,14 @@ void MainComponent::syncMenuBarState()
     menuBar.inspectorVisible = ! inspectorToggle.collapsed;
     menuBar.browserVisible   = ! browserToggle.collapsed;
     menuBar.mixerDetached    = (mixerWindow != nullptr);
+
+    menuBar.builtInWorkspaceNames.clearQuick();
+    for (const auto& l : builtInLayouts())
+        menuBar.builtInWorkspaceNames.add (l.name);
+    menuBar.customWorkspaceNames.clearQuick();
+    for (const auto& l : customLayouts)
+        menuBar.customWorkspaceNames.add (l.name);
+    menuBar.activeWorkspaceName = activeLayoutName;
 
     auto sel = timeline.getSelectedTracks();
     menuBar.hasSelectedTrack = ! sel.isEmpty();
@@ -1410,6 +1427,183 @@ void MainComponent::reattachMixer()
     mixer.detached = false;
     addAndMakeVisible (mixer);
     resized();
+}
+
+//==============================================================================
+// Workspace layouts
+
+std::vector<MainComponent::WorkspaceLayout> MainComponent::builtInLayouts()
+{
+    std::vector<WorkspaceLayout> v;
+
+    // Editing — everything visible, compact console under the arrangement.
+    v.push_back ({ "Editing",   false, false, false, 0, 240 });
+    // Mixing — hide the browser, give the console more room.
+    v.push_back ({ "Mixing",    false, true,  false, 0, 480 });
+    // Recording — inspector for input/monitor, browser hidden, small console.
+    v.push_back ({ "Recording", false, true,  false, 0, 220 });
+
+    return v;
+}
+
+MainComponent::WorkspaceLayout MainComponent::captureCurrentLayout (juce::String name) const
+{
+    WorkspaceLayout l;
+    l.name               = name;
+    l.inspectorCollapsed = inspectorToggle.collapsed;
+    l.browserCollapsed   = browserToggle.collapsed;
+    l.mixerDetached      = mixer.detached;
+    l.bottomPanel        = (bottomPanel == BottomPanel::PianoRoll) ? 1 : 0;
+    l.mixerHeight        = mixerHeight;
+    return l;
+}
+
+void MainComponent::applyWorkspaceLayout (const WorkspaceLayout& layout)
+{
+    inspectorToggle.collapsed = layout.inspectorCollapsed;
+    toolbar.inspectorVisible  = ! layout.inspectorCollapsed;
+    browserToggle.collapsed   = layout.browserCollapsed;
+    toolbar.browserVisible    = ! layout.browserCollapsed;
+
+    bottomPanel = (layout.bottomPanel == 1) ? BottomPanel::PianoRoll : BottomPanel::Mixer;
+
+    const int maxMixerH = juce::jmax (140, getHeight() - 400);
+    mixerHeight = juce::jlimit (100, maxMixerH, layout.mixerHeight);
+
+    if (layout.mixerDetached && ! mixer.detached)      detachMixer();
+    else if (! layout.mixerDetached && mixer.detached) reattachMixer();
+
+    activeLayoutName = layout.name;
+
+    toolbar.repaint();
+    resized();
+    syncMenuBarState();
+
+    if (auto* s = audioEngine.getUserSettings())
+    {
+        s->setValue ("activeWorkspaceLayout", activeLayoutName);
+        s->saveIfNeeded();
+    }
+}
+
+void MainComponent::applyWorkspaceLayoutByName (const juce::String& name)
+{
+    for (const auto& l : builtInLayouts())
+        if (l.name == name) { applyWorkspaceLayout (l); return; }
+
+    for (const auto& l : customLayouts)
+        if (l.name == name) { applyWorkspaceLayout (l); return; }
+}
+
+void MainComponent::saveCurrentWorkspaceLayout()
+{
+    auto* aw = new juce::AlertWindow ("Save Workspace Layout",
+                                      "Enter a name for this layout:",
+                                      juce::AlertWindow::NoIcon);
+    aw->addTextEditor ("name", "My Layout");
+    aw->addButton ("Save",   1);
+    aw->addButton ("Cancel", 0);
+
+    juce::Component::SafePointer<MainComponent> safe (this);
+    aw->enterModalState (true,
+        juce::ModalCallbackFunction::create ([safe, aw] (int result) mutable
+        {
+            std::unique_ptr<juce::AlertWindow> owned (aw);
+            if (safe == nullptr || result != 1) return;
+
+            auto name = owned->getTextEditorContents ("name").trim();
+            if (name.isEmpty()) return;
+
+            auto& self = *safe;
+
+            // Built-in names are reserved.
+            for (const auto& b : MainComponent::builtInLayouts())
+                if (b.name.equalsIgnoreCase (name)) return;
+
+            // Replace any existing custom layout with the same name.
+            for (size_t i = 0; i < self.customLayouts.size(); ++i)
+                if (self.customLayouts[i].name.equalsIgnoreCase (name))
+                {
+                    self.customLayouts.erase (self.customLayouts.begin() + (long) i);
+                    break;
+                }
+
+            self.customLayouts.push_back (self.captureCurrentLayout (name));
+            self.activeLayoutName = name;
+            self.persistWorkspaceLayouts();
+            self.syncMenuBarState();
+        }), false);
+}
+
+void MainComponent::deleteWorkspaceLayout (const juce::String& name)
+{
+    for (size_t i = 0; i < customLayouts.size(); ++i)
+        if (customLayouts[i].name == name)
+        {
+            customLayouts.erase (customLayouts.begin() + (long) i);
+            break;
+        }
+
+    if (activeLayoutName == name)
+        activeLayoutName = {};
+
+    persistWorkspaceLayouts();
+    syncMenuBarState();
+}
+
+void MainComponent::persistWorkspaceLayouts()
+{
+    auto* s = audioEngine.getUserSettings();
+    if (s == nullptr) return;
+
+    juce::XmlElement root ("Workspaces");
+    for (const auto& l : customLayouts)
+    {
+        auto* e = root.createNewChildElement ("Layout");
+        e->setAttribute ("name",               l.name);
+        e->setAttribute ("inspectorCollapsed", l.inspectorCollapsed ? 1 : 0);
+        e->setAttribute ("browserCollapsed",   l.browserCollapsed   ? 1 : 0);
+        e->setAttribute ("mixerDetached",      l.mixerDetached      ? 1 : 0);
+        e->setAttribute ("bottomPanel",        l.bottomPanel);
+        e->setAttribute ("mixerHeight",        l.mixerHeight);
+    }
+
+    s->setValue ("workspaceLayouts", root.toString());
+    s->setValue ("activeWorkspaceLayout", activeLayoutName);
+    s->saveIfNeeded();
+}
+
+void MainComponent::loadWorkspaceLayouts()
+{
+    customLayouts.clear();
+
+    auto* s = audioEngine.getUserSettings();
+    if (s == nullptr) return;
+
+    const auto xmlStr = s->getValue ("workspaceLayouts");
+    if (xmlStr.isNotEmpty())
+    {
+        if (auto xml = juce::XmlDocument::parse (xmlStr))
+        {
+            for (auto* e : xml->getChildIterator())
+            {
+                if (! e->hasTagName ("Layout")) continue;
+
+                WorkspaceLayout l;
+                l.name               = e->getStringAttribute ("name");
+                l.inspectorCollapsed = e->getIntAttribute ("inspectorCollapsed", 0) != 0;
+                l.browserCollapsed   = e->getIntAttribute ("browserCollapsed",   0) != 0;
+                l.mixerDetached      = e->getIntAttribute ("mixerDetached",       0) != 0;
+                l.bottomPanel        = e->getIntAttribute ("bottomPanel", 0);
+                l.mixerHeight        = e->getIntAttribute ("mixerHeight", 320);
+
+                if (l.name.isNotEmpty())
+                    customLayouts.push_back (l);
+            }
+        }
+    }
+
+    activeLayoutName = s->getValue ("activeWorkspaceLayout");
 }
 
 void MainComponent::editStateChanged()

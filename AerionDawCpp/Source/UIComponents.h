@@ -1095,6 +1095,9 @@ public:
     bool   inspectorVisible = true;
     bool   browserVisible   = true;
     bool   mixerDetached    = false;
+    juce::StringArray builtInWorkspaceNames;
+    juce::StringArray customWorkspaceNames;
+    juce::String      activeWorkspaceName;
     bool   hasSelectedTrack = false;
     bool   hasSelectedClip  = false;
     bool   trackArmed       = false;
@@ -1122,6 +1125,9 @@ public:
     std::function<void()> onPlay, onStop, onRecord, onGoToStart;
     std::function<void()> onToggleLoop, onTogglePunch;
     std::function<void()> onToggleInspector, onToggleBrowser, onToggleMixerDetach;
+    std::function<void(juce::String)> onApplyWorkspace;
+    std::function<void()>             onSaveWorkspace;
+    std::function<void(juce::String)> onDeleteWorkspace;
     std::function<void(juce::File)>   onOpenRecent;
     std::function<void()>             onClearRecent;
     std::function<void()>             onCollectSaveAs;
@@ -1422,10 +1428,46 @@ private:
         m.addItem (2, "Browser",   true, browserVisible);
         m.addSeparator();
         m.addItem (3, mixerDetached ? "Dock Mixer" : "Detach Mixer");
+        m.addSeparator();
+
+        juce::PopupMenu wsSub;
+        for (int i = 0; i < builtInWorkspaceNames.size(); ++i)
+            wsSub.addItem (100 + i, builtInWorkspaceNames[i], true,
+                           activeWorkspaceName == builtInWorkspaceNames[i]);
+
+        if (customWorkspaceNames.size() > 0)
+        {
+            wsSub.addSeparator();
+            for (int i = 0; i < customWorkspaceNames.size(); ++i)
+                wsSub.addItem (200 + i, customWorkspaceNames[i], true,
+                               activeWorkspaceName == customWorkspaceNames[i]);
+        }
+
+        wsSub.addSeparator();
+        wsSub.addItem (300, "Save Current Layout...");
+
+        if (customWorkspaceNames.size() > 0)
+        {
+            juce::PopupMenu delSub;
+            for (int i = 0; i < customWorkspaceNames.size(); ++i)
+                delSub.addItem (400 + i, customWorkspaceNames[i]);
+            wsSub.addSubMenu ("Delete Layout", delSub);
+        }
+
+        m.addSubMenu ("Workspace", wsSub);
+
         m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
             if (r == 1 && onToggleInspector)   onToggleInspector();
             if (r == 2 && onToggleBrowser)     onToggleBrowser();
             if (r == 3 && onToggleMixerDetach) onToggleMixerDetach();
+            if (r >= 100 && r < 200 && onApplyWorkspace && (r - 100) < builtInWorkspaceNames.size())
+                onApplyWorkspace (builtInWorkspaceNames[r - 100]);
+            if (r >= 200 && r < 300 && onApplyWorkspace && (r - 200) < customWorkspaceNames.size())
+                onApplyWorkspace (customWorkspaceNames[r - 200]);
+            if (r == 300 && onSaveWorkspace)
+                onSaveWorkspace();
+            if (r >= 400 && r < 500 && onDeleteWorkspace && (r - 400) < customWorkspaceNames.size())
+                onDeleteWorkspace (customWorkspaceNames[r - 400]);
         });
     }
 
