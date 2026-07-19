@@ -4392,14 +4392,17 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoRollEditor)
 };
 
-class PianoRollWindow : public juce::DocumentWindow
+class PianoRollWindow : public juce::DocumentWindow,
+                        private juce::ValueTree::Listener
 {
 public:
     PianoRollWindow (tracktion::MidiClip& clip, tracktion::Edit& edit,
                      ProjectData& pd, AudioEngineManager& ae)
         : DocumentWindow (clip.getName() + "   -   Piano Roll",
-                          Theme::bgBase, DocumentWindow::allButtons, true)
+                          Theme::bgBase, DocumentWindow::allButtons, true),
+          clipState (clip.state)
     {
+        clipState.addListener (this);
         editor.reset (new PianoRollEditor (clip, edit, pd, ae));
         setUsingNativeTitleBar (false);
         setResizable (true, false);
@@ -4409,10 +4412,43 @@ public:
         editor->grabKeyboardFocus();
     }
 
+    ~PianoRollWindow() override
+    {
+        clipState.removeListener (this);
+    }
+
     void closeButtonPressed() override { delete this; }
 
 private:
+    void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override {}
+    void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override {}
+    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override {}
+    void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override {}
+
+    void valueTreeParentChanged (juce::ValueTree& tree) override
+    {
+        if (closing || tree != clipState || clipState.getParent().isValid())
+            return;
+
+        closing = true;
+
+        // Release the editor while Tracktion's MidiClip is still alive. Once the
+        // state-removal callback returns, the editor's MidiClip reference may dangle.
+        clearContentComponent();
+        editor.reset();
+        setVisible (false);
+
+        juce::Component::SafePointer<PianoRollWindow> safe (this);
+        juce::MessageManager::callAsync ([safe]
+        {
+            if (safe != nullptr)
+                delete safe.getComponent();
+        });
+    }
+
+    juce::ValueTree clipState;
     std::unique_ptr<PianoRollEditor> editor;
+    bool closing = false;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoRollWindow)
 };
 
