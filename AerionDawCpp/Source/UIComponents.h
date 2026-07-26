@@ -4550,8 +4550,28 @@ public:
     ~Timeline() override
     {
         cancelPendingUpdate();
+        if (selectedClipState.isValid())
+            selectedClipState.removeListener (this);
         projectData.getProjectTree().removeListener (this);
         audioEngine.removeListener (this);
+    }
+
+    void setSelectedClip (tracktion::Clip* clip)
+    {
+        if (selectedClipState.isValid())
+            selectedClipState.removeListener (this);
+
+        selectedClip = clip;
+        selectedClipState = (clip != nullptr ? clip->state : juce::ValueTree());
+
+        if (selectedClipState.isValid())
+            selectedClipState.addListener (this);
+    }
+
+    void clearSelectedClip()
+    {
+        setSelectedClip (nullptr);
+        dragMode = DragMode::none;
     }
 
     /** Scroll the timeline so bar 1 aligns with the start of the content area. */
@@ -7147,7 +7167,7 @@ public:
             return;
         }
 
-        selectedClip = getClipAt(e.getPosition());
+        setSelectedClip (getClipAt (e.getPosition()));
         if (selectedClip)
         {
             dragOffset = selectedClip->getPosition().getStart().inSeconds() - xToTime((float)e.x);
@@ -7238,6 +7258,10 @@ public:
                 else if (chosen == 2)
                 {
                     selectedIds.removeString (track->itemID.toString());
+                    // Clear selection before delete: clips on this track are destroyed and
+                    // selectedClip would otherwise dangle until parentChanged runs.
+                    if (selectedClip != nullptr && selectedClip->getTrack() == track)
+                        clearSelectedClip();
                     audioEngine.deleteTrack (track);
                     if (onTrackSelected) onTrackSelected (nullptr);
                     repaint();
@@ -7563,6 +7587,7 @@ public:
     double snapInterval = 1.0;
     EditTool activeTool = EditTool::select;
     tracktion::Clip* selectedClip = nullptr;
+    juce::ValueTree selectedClipState;
     tracktion::Track* trackBeingRenamed = nullptr;
     juce::TextEditor  trackNameEditor;
     juce::TextEditor  rulerValueEditor;
@@ -7848,6 +7873,17 @@ public:
     void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { requestTimelineRefresh (true); }
     void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { requestTimelineRefresh (true); }
     void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override { requestTimelineRefresh (true); }
+    void valueTreeParentChanged (juce::ValueTree& tree) override
+    {
+        // Clip deleted / moved off its parent (track delete, freeze completion, etc.)
+        if (tree == selectedClipState && ! selectedClipState.getParent().isValid())
+        {
+            selectedClipState.removeListener (this);
+            selectedClip = nullptr;
+            selectedClipState = {};
+            dragMode = DragMode::none;
+        }
+    }
 
     void editStateChanged() override { requestTimelineRefresh (false); }
 
