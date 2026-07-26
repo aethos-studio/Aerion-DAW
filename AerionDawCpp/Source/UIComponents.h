@@ -4550,8 +4550,43 @@ public:
     ~Timeline() override
     {
         cancelPendingUpdate();
+        if (selectedClipState.isValid())
+            selectedClipState.removeListener (this);
         projectData.getProjectTree().removeListener (this);
         audioEngine.removeListener (this);
+    }
+
+    void setSelectedClip (tracktion::Clip* clip)
+    {
+        if (selectedClipState.isValid())
+            selectedClipState.removeListener (this);
+
+        selectedClip = clip;
+        selectedClipState = (clip != nullptr ? clip->state : juce::ValueTree());
+        selectedClipRebindPending = false;
+
+        if (selectedClipState.isValid())
+            selectedClipState.addListener (this);
+    }
+
+    void clearSelectedClip()
+    {
+        setSelectedClip (nullptr);
+        dragMode = DragMode::none;
+    }
+
+    tracktion::Clip* findClipWithState (const juce::ValueTree& state) const
+    {
+        if (! state.isValid())
+            return nullptr;
+
+        for (auto* t : tracktion::getAllTracks (audioEngine.getEdit()))
+            if (auto* a = dynamic_cast<tracktion::AudioTrack*> (t))
+                for (auto* c : a->getClips())
+                    if (c != nullptr && c->state == state)
+                        return c;
+
+        return nullptr;
     }
 
     /** Scroll the timeline so bar 1 aligns with the start of the content area. */
@@ -7147,7 +7182,7 @@ public:
             return;
         }
 
-        selectedClip = getClipAt(e.getPosition());
+        setSelectedClip (getClipAt (e.getPosition()));
         if (selectedClip)
         {
             dragOffset = selectedClip->getPosition().getStart().inSeconds() - xToTime((float)e.x);
@@ -7238,6 +7273,10 @@ public:
                 else if (chosen == 2)
                 {
                     selectedIds.removeString (track->itemID.toString());
+                    // Clear selection before delete: clips on this track are destroyed and
+                    // selectedClip would otherwise dangle until parentChanged runs.
+                    if (selectedClip != nullptr && selectedClip->getTrack() == track)
+                        clearSelectedClip();
                     audioEngine.deleteTrack (track);
                     if (onTrackSelected) onTrackSelected (nullptr);
                     repaint();
@@ -7563,6 +7602,8 @@ public:
     double snapInterval = 1.0;
     EditTool activeTool = EditTool::select;
     tracktion::Clip* selectedClip = nullptr;
+    juce::ValueTree selectedClipState;
+    bool selectedClipRebindPending = false;
     tracktion::Track* trackBeingRenamed = nullptr;
     juce::TextEditor  trackNameEditor;
     juce::TextEditor  rulerValueEditor;
@@ -7848,6 +7889,49 @@ public:
     void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { requestTimelineRefresh (true); }
     void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { requestTimelineRefresh (true); }
     void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override { requestTimelineRefresh (true); }
+    void valueTreeParentChanged (juce::ValueTree& tree) override
+    {
+        if (tree != selectedClipState)
+            return;
+
+        // Tracktion clip moves briefly detach then re-parent the ValueTree. Drop the
+        // raw pointer immediately (object may be destroyed when this returns), then
+        // asynchronously recover selection if the node was reattached.
+        if (! selectedClipState.getParent().isValid())
+        {
+            selectedClip = nullptr;
+            dragMode = DragMode::none;
+            selectedClipRebindPending = true;
+
+            juce::Component::SafePointer<Timeline> safe (this);
+            const auto state = selectedClipState;
+            juce::MessageManager::callAsync ([safe, state]
+            {
+                if (safe == nullptr || safe->selectedClipState != state
+                    || ! safe->selectedClipRebindPending)
+                    return;
+
+                safe->selectedClipRebindPending = false;
+
+                if (state.getParent().isValid())
+                {
+                    safe->selectedClip = safe->findClipWithState (state);
+                    return;
+                }
+
+                if (safe->selectedClipState.isValid())
+                    safe->selectedClipState.removeListener (safe.getComponent());
+                safe->selectedClipState = {};
+            });
+            return;
+        }
+
+        if (selectedClipRebindPending)
+        {
+            selectedClipRebindPending = false;
+            selectedClip = findClipWithState (selectedClipState);
+        }
+    }
 
     void editStateChanged() override { requestTimelineRefresh (false); }
 
