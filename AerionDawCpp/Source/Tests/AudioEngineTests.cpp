@@ -1,5 +1,34 @@
 #include <JuceHeader.h>
 #include "../AudioEngine.h"
+#include "../ProjectData.h"
+
+namespace
+{
+    juce::File createScratchWav (const juce::String& name, double seconds)
+    {
+        auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                        .getChildFile (name);
+        file.deleteFile();
+
+        const double sampleRate = 44100.0;
+        const int numSamples = (int) (seconds * sampleRate);
+        juce::AudioBuffer<float> buffer (1, juce::jmax (1, numSamples));
+        buffer.clear();
+
+        juce::WavAudioFormat format;
+        if (auto out = std::unique_ptr<juce::FileOutputStream> (file.createOutputStream()))
+        {
+            if (auto writer = std::unique_ptr<juce::AudioFormatWriter> (
+                    format.createWriterFor (out.get(), sampleRate, 1, 16, {}, 0)))
+            {
+                out.release();
+                writer->writeFromAudioSampleBuffer (buffer, 0, buffer.getNumSamples());
+            }
+        }
+
+        return file;
+    }
+}
 
 //==============================================================================
 // AudioEngineManager smoke tests (Milestone 5).
@@ -16,9 +45,10 @@
 //   - Constructing tracktion::Engine is expensive, so the whole suite shares a
 //     single AudioEngineManager and cleans up the tracks it creates.
 //
-// Deliberately not covered: freeze/unfreeze guard behaviour, which is being
-// changed by the open freeze-lifetime work. Asserting today's behaviour here
-// would just have to be rewritten.
+// Freeze *guards* (rejecting edits while a render is in flight) are still
+// exercised in the UI, not here: those paths need an async MixdownExportJob.
+// Unfreeze restore of trimmed audio *is* covered below, because that path is
+// synchronous and is how freeze/unfreeze can silently discard clip placement.
 //
 // Expected noise: tearing the suite down logs two Debug-only JUCE assertions
 // (juce_WeakReference.h and tracktion_SelectionManager.cpp). They fire inside
@@ -213,6 +243,88 @@ public:
             expect (! engine.isTrackFreezing (track));
 
             engine.deleteTrack (track);
+        }
+
+        beginTest ("unfreeze restores trimmed audio clip placement from full snapshot");
+        {
+            auto source = createScratchWav ("aerion_unfreeze_full.wav", 4.0);
+            expect (source.existsAsFile());
+
+            auto* track = engine.addAudioTrack();
+            auto* clip = engine.insertAudioClipOnTrack (track, source, 1.0);
+            expect (clip != nullptr);
+
+            clip->setLength (tracktion::TimeDuration::fromSeconds (1.5), true);
+            clip->setOffset (tracktion::TimeDuration::fromSeconds (0.5));
+            clip->setFadeIn (tracktion::TimeDuration::fromSeconds (0.1));
+            clip->setFadeOut (tracktion::TimeDuration::fromSeconds (0.2));
+
+            juce::ValueTree preFreeze (IDs::preFreeze);
+            juce::ValueTree cs ("ClipState");
+            cs.setProperty ("file", source.getFullPathName(), nullptr);
+            cs.setProperty (IDs::preFreezeClipType, "audio", nullptr);
+            cs.setProperty ("startBeat", clip->getStartBeat().inBeats(), nullptr);
+            cs.setProperty ("endBeat", clip->getEndBeat().inBeats(), nullptr);
+            cs.setProperty ("offsetSeconds", clip->getPosition().getOffset().inSeconds(), nullptr);
+            cs.setProperty ("fadeInSeconds", clip->getFadeIn().inSeconds(), nullptr);
+            cs.setProperty ("fadeOutSeconds", clip->getFadeOut().inSeconds(), nullptr);
+            cs.appendChild (clip->state.createCopy(), nullptr);
+            preFreeze.addChild (cs, -1, nullptr);
+            track->state.addChild (preFreeze, -1, nullptr);
+            track->state.setProperty (IDs::frozen, true, nullptr);
+
+            engine.unfreezeTrack (track);
+
+            expect (! engine.isTrackFrozen (track));
+            expectEquals (track->getClips().size(), 1);
+            auto* restored = dynamic_cast<tracktion::WaveAudioClip*> (track->getClips()[0]);
+            expect (restored != nullptr);
+            expectWithinAbsoluteError (restored->getPosition().getStart().inSeconds(), 1.0, 0.02);
+            expectWithinAbsoluteError (restored->getPosition().getLength().inSeconds(), 1.5, 0.02);
+            expectWithinAbsoluteError (restored->getPosition().getOffset().inSeconds(), 0.5, 0.02);
+            expectWithinAbsoluteError (restored->getFadeIn().inSeconds(), 0.1, 0.02);
+            expectWithinAbsoluteError (restored->getFadeOut().inSeconds(), 0.2, 0.02);
+
+            engine.deleteTrack (track);
+            source.deleteFile();
+        }
+
+        beginTest ("unfreeze restores legacy audio snapshot trim and offset");
+        {
+            auto source = createScratchWav ("aerion_unfreeze_legacy.wav", 4.0);
+            expect (source.existsAsFile());
+
+            auto* track = engine.addAudioTrack();
+            auto* clip = engine.insertAudioClipOnTrack (track, source, 2.0);
+            expect (clip != nullptr);
+
+            clip->setLength (tracktion::TimeDuration::fromSeconds (1.25), true);
+            clip->setOffset (tracktion::TimeDuration::fromSeconds (0.75));
+
+            // Pre-fix snapshots stored file + start/end beat only. The end beat
+            // was written and then ignored, which re-inserted the whole file.
+            juce::ValueTree preFreeze (IDs::preFreeze);
+            juce::ValueTree cs ("ClipState");
+            cs.setProperty ("file", source.getFullPathName(), nullptr);
+            cs.setProperty (IDs::preFreezeClipType, "audio", nullptr);
+            cs.setProperty ("startBeat", clip->getStartBeat().inBeats(), nullptr);
+            cs.setProperty ("endBeat", clip->getEndBeat().inBeats(), nullptr);
+            cs.setProperty ("offsetSeconds", clip->getPosition().getOffset().inSeconds(), nullptr);
+            preFreeze.addChild (cs, -1, nullptr);
+            track->state.addChild (preFreeze, -1, nullptr);
+            track->state.setProperty (IDs::frozen, true, nullptr);
+
+            engine.unfreezeTrack (track);
+
+            expectEquals (track->getClips().size(), 1);
+            auto* restored = dynamic_cast<tracktion::WaveAudioClip*> (track->getClips()[0]);
+            expect (restored != nullptr);
+            expectWithinAbsoluteError (restored->getPosition().getStart().inSeconds(), 2.0, 0.02);
+            expectWithinAbsoluteError (restored->getPosition().getLength().inSeconds(), 1.25, 0.02);
+            expectWithinAbsoluteError (restored->getPosition().getOffset().inSeconds(), 0.75, 0.02);
+
+            engine.deleteTrack (track);
+            source.deleteFile();
         }
 
         beginTest ("mix snapshots capture and restore fader state");
