@@ -5798,34 +5798,42 @@ public:
             g.reduceClipRegion (0, laneTop(), getWidth() - kVScrollW, laneBottom() - laneTop());
 
             // Draw vertical bar/beat grid lines through the track lane body
-            g.setColour (Theme::border.withAlpha (0.15f));
-            for (int bar = startBar; bar <= endBar + 1; ++bar)
             {
-                const float gx = barBeatToX (ts, bar, 0);
-                if (gx < (float) kHeaderWidth || gx > (float) getWidth())
-                    continue;
-                g.drawVerticalLine ((int) gx, (float) laneTop(), (float) laneBottom());
-            }
+                AERION_PROFILE_SCOPE ("Timeline.grid");
 
-            if (showBeatGrid)
-            {
-                g.setColour (Theme::border.withAlpha (0.07f));
-                for (int bar = startBar; bar <= endBar; ++bar)
+                g.setColour (Theme::border.withAlpha (0.15f));
+                for (int bar = startBar; bar <= endBar + 1; ++bar)
                 {
-                    const int beatsPerBar = beatsPerBarAt (ts, bar);
-                    for (int beatInBar = 1; beatInBar < beatsPerBar; ++beatInBar)
+                    const float gx = barBeatToX (ts, bar, 0);
+                    if (gx < (float) kHeaderWidth || gx > (float) getWidth())
+                        continue;
+                    g.drawVerticalLine ((int) gx, (float) laneTop(), (float) laneBottom());
+                }
+
+                if (showBeatGrid)
+                {
+                    g.setColour (Theme::border.withAlpha (0.07f));
+                    for (int bar = startBar; bar <= endBar; ++bar)
                     {
-                        const float gx = barBeatToX (ts, bar, beatInBar);
-                        if (gx < (float) kHeaderWidth || gx > (float) getWidth())
-                            continue;
-                        g.drawVerticalLine ((int) gx, (float) laneTop(), (float) laneBottom());
+                        const int beatsPerBar = beatsPerBarAt (ts, bar);
+                        for (int beatInBar = 1; beatInBar < beatsPerBar; ++beatInBar)
+                        {
+                            const float gx = barBeatToX (ts, bar, beatInBar);
+                            if (gx < (float) kHeaderWidth || gx > (float) getWidth())
+                                continue;
+                            g.drawVerticalLine ((int) gx, (float) laneTop(), (float) laneBottom());
+                        }
                     }
                 }
             }
 
-            int y = laneTop() - scrollY;
-            for (int i = 0; i < top.size(); ++i)
-                y = drawTrackRow (g, top[i], i, /*indent*/ 0, y);
+            {
+                AERION_PROFILE_SCOPE ("Timeline.rows");
+
+                int y = laneTop() - scrollY;
+                for (int i = 0; i < top.size(); ++i)
+                    y = drawTrackRow (g, top[i], i, /*indent*/ 0, y);
+            }
 
             if (top.isEmpty()) {
                 g.setColour (Theme::textMuted);
