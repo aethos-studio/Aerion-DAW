@@ -105,10 +105,10 @@ Every 5 seconds the app writes a table to the JUCE log listing, per zone, the ca
 average and worst-case milliseconds, milliseconds spent per wall-clock second, and how many
 items each pass iterated over.
 
-The counters matter as much as the timings. `Timeline.rowsDrawn` versus `Timeline.rowsInClip`
-shows how many track rows were painted against how many the invalidated region actually
-needed — the gap between those two numbers is wasted work, and it is the metric to drive
-down when adding viewport culling.
+The counters matter as much as the timings. `Timeline.rowsVisited` versus `Timeline.rowsDrawn`
+shows how many track rows the paint loop walked against how many it actually painted, and
+`Timeline.clipsVisited` does the same for clips. The gap between visited and drawn is the
+work viewport culling removes.
 
 To profile a new hot path, add one line and rebuild:
 
@@ -123,6 +123,31 @@ void MyComponent::paint (juce::Graphics& g)
 
 These probes are **message-thread only** — reporting formats strings and writes to the
 logger, so never put them on the audio thread.
+
+### Headless paint benchmark
+
+`AerionBench` renders the real `Timeline` into an offscreen image, so paint cost is
+measurable without a display. It is built by the test presets but deliberately **not**
+registered with `ctest`: timings are machine-dependent, so it is a tool you run and read,
+not a pass/fail gate.
+
+```powershell
+cmake --preset win-msvc-debug-tests -S AerionDawCpp -B build
+cmake --build build --preset win-msvc-debug-tests
+& '.\build\AerionBench_artefacts\Debug\AerionBench.exe' --tracks=32 --clips=20 --frames=100
+```
+
+It reports two scenarios: a `full repaint` (scroll, zoom, any edit) and a `playhead strip`
+(the 16 px invalidation `MainComponent::timerCallback` issues 25 times a second during
+playback), each against the 40 ms budget of a 25 Hz tick.
+
+`--png=<path>` dumps a full repaint to disk. Two runs that should render identically — a
+pure culling change, say — can then be compared byte-for-byte, which is the closest thing
+to a visual regression test available without a display.
+
+Caveat: `SmartThumbnail` loads waveforms asynchronously and the benchmark does not pump the
+message loop, so clips render without waveforms and these numbers **exclude** waveform
+rasterisation. Treat them as a floor on real paint cost.
 
 ### Manual configure (without presets)
 

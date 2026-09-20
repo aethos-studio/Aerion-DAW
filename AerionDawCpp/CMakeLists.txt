@@ -347,6 +347,54 @@ if (AERION_BUILD_TESTS)
     target_compile_features(AerionTests PRIVATE cxx_std_20)
 
     add_test(NAME AerionSmokeTests COMMAND AerionTests)
+
+    # --- Headless paint benchmark ----------------------------------------------
+    # Renders the real Timeline offscreen so paint cost is measurable without a
+    # display. Deliberately NOT registered with add_test: timings are machine
+    # dependent, so this is a tool you run and read, not a pass/fail gate.
+    #
+    #   .\build\AerionBench_artefacts\Release\AerionBench.exe --tracks=32 --clips=20
+    juce_add_console_app(AerionBench PRODUCT_NAME "AerionBench")
+    juce_generate_juce_header(AerionBench)
+
+    target_sources(AerionBench PRIVATE
+        Source/Tests/PaintBenchmark.cpp
+        Source/ProjectData.cpp
+        Source/AudioEngine.cpp
+        Source/GoogleDriveClient.cpp
+        Source/AerionTooltipWindow.cpp
+        Source/Export/MixdownExportJob.cpp
+    )
+
+    target_link_libraries(AerionBench PRIVATE
+        juce::juce_core
+        juce::juce_data_structures
+        juce::juce_events
+        juce::juce_graphics
+        juce::juce_gui_basics
+        juce::juce_gui_extra
+        juce::juce_audio_basics
+        juce::juce_audio_devices
+        juce::juce_audio_formats
+        juce::juce_audio_processors
+        juce::juce_audio_utils
+        juce::juce_cryptography
+        tracktion_core
+        tracktion_graph
+        tracktion_engine
+        AerionDawResources
+    )
+
+    target_compile_features(AerionBench PRIVATE cxx_std_20)
+
+    target_compile_definitions(AerionBench PRIVATE
+        JUCE_PLUGINHOST_VST3=1
+        $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=1>
+    )
+
+    if (AERION_ENABLE_PROFILING)
+        target_compile_definitions(AerionBench PRIVATE AERION_ENABLE_PROFILING=1)
+    endif()
 endif()
 
 # --- Packaging ----------------------------------------------------------------

@@ -93,6 +93,7 @@ namespace Aerion::Profiling
               << juce::String ("avg ms").paddedLeft (' ', 9)
               << juce::String ("max ms").paddedLeft (' ', 9)
               << juce::String ("ms/s").paddedLeft (' ', 8)
+              << juce::String ("items").paddedLeft (' ', 12)
               << juce::String ("items/call").paddedLeft (' ', 12) << "\n";
 
             for (int i = 0; i < numZones; ++i)
@@ -111,7 +112,9 @@ namespace Aerion::Profiling
                   << juce::String (perCall, 3).paddedLeft (' ', 9)
                   << juce::String (z.maxMs, 3).paddedLeft (' ', 9)
                   << juce::String (windowSeconds > 0.0 ? z.totalMs / windowSeconds : 0.0, 2).paddedLeft (' ', 8)
-                  << juce::String (itemsPerCall, 1).paddedLeft (' ', 12) << "\n";
+                  << juce::String (z.count).paddedLeft (' ', 12)
+                  << (calls > 0.0 ? juce::String (itemsPerCall, 1) : juce::String ("-"))
+                         .paddedLeft (' ', 12) << "\n";
 
                 z.calls = 0;
                 z.totalMs = 0.0;
