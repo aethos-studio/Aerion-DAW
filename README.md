@@ -75,8 +75,6 @@ Work landed on `main` as part of the Milestone 5 performance push:
 - **AudioEngine smoke tests** — 13 headless tests covering tracks, mute/solo, tempo map, snapshots, and transport flags
 - **Stability fixes** — clip/piano-roll lifetime safety and guards against editing tracks while freeze is in progress
 
-Full developer context: [`AerionDawCpp/Documentation/CLAUDE_CODE_HANDOFF.md`](AerionDawCpp/Documentation/CLAUDE_CODE_HANDOFF.md)
-
 ---
 
 ## What's still in progress (M5)
