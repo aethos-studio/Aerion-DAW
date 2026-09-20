@@ -1,4 +1,5 @@
 #include "ProjectData.h"
+#include "UI/Profiling.h"
 #include <map>
 
 ProjectData::ProjectData()
@@ -41,6 +42,8 @@ juce::ValueTree ProjectData::getTrackTree (const juce::String& id) const
 
 void ProjectData::syncWithEngine (tracktion::Edit& edit)
 {
+    AERION_PROFILE_SCOPE ("ProjectData::syncWithEngine");
+
     auto tracksTree = projectTree.getChildWithName (IDs::Tracks);
     if (! tracksTree.isValid())
     {

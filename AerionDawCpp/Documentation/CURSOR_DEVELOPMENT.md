@@ -66,6 +66,7 @@ Aerion-DAW/                    ← open this folder in Cursor
 | `win-msvc-debug` | Debug | Daily development |
 | `win-msvc-release` | Release | Performance / shipping builds |
 | `win-msvc-debug-tests` | Debug + `AERION_BUILD_TESTS=ON` | Smoke tests via `ctest` |
+| `win-msvc-profiling` | Release + `AERION_ENABLE_PROFILING=ON` | Paint / hot-path measurement |
 
 ```powershell
 # Debug (daily development)
@@ -81,7 +82,47 @@ cmake --build build --preset win-msvc-debug-tests
 ctest --test-dir build -C Debug --output-on-failure
 ```
 
-All Windows presets use **Visual Studio 17 2022**, **x64**, and write output under `build/`.
+All Windows presets use **Visual Studio 17 2022**, **x64**, and write output under `build/`
+(`win-msvc-profiling` uses `build-profiling/` so it never clobbers your daily build tree).
+
+---
+
+## Measuring paint performance (Milestone 5)
+
+Performance work starts with numbers, not guesses. `AERION_ENABLE_PROFILING` compiles in
+the `AERION_PROFILE_*` probes from `Source/UI/Profiling.h`; with the option off every probe
+expands to nothing, so profiled call sites are free in shipping builds.
+
+Always profile a **Release** build — Debug paint timings are meaningless.
+
+```powershell
+cmake --preset win-msvc-profiling -S AerionDawCpp -B build-profiling
+cmake --build build-profiling --preset win-msvc-profiling
+& '.\build-profiling\AerionDaw_artefacts\Release\Aerion DAW.exe'
+```
+
+Every 5 seconds the app writes a table to the JUCE log listing, per zone, the call rate,
+average and worst-case milliseconds, milliseconds spent per wall-clock second, and how many
+items each pass iterated over.
+
+The counters matter as much as the timings. `Timeline.rowsDrawn` versus `Timeline.rowsInClip`
+shows how many track rows were painted against how many the invalidated region actually
+needed — the gap between those two numbers is wasted work, and it is the metric to drive
+down when adding viewport culling.
+
+To profile a new hot path, add one line and rebuild:
+
+```cpp
+void MyComponent::paint (juce::Graphics& g)
+{
+    AERION_PROFILE_SCOPE ("MyComponent::paint");
+    AERION_PROFILE_COUNT ("MyComponent.items", items.size());
+    ...
+}
+```
+
+These probes are **message-thread only** — reporting formats strings and writes to the
+logger, so never put them on the audio thread.
 
 ### Manual configure (without presets)
 

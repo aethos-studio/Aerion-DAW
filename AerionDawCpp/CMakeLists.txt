@@ -146,6 +146,20 @@ target_compile_definitions(AerionDaw PRIVATE
     $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=1>
 )
 
+# --- Paint / hot-path profiling (opt-in) ---------------------------------------
+# Turns on the AERION_PROFILE_* probes in Source/UI/Profiling.h, which report
+# paint timings and per-pass item counts to the JUCE log every few seconds.
+# OFF by default: with the option off the macros expand to nothing, so profiled
+# call sites cost nothing in shipping builds.
+#
+#   cmake --preset win-msvc-release -S AerionDawCpp -B build -DAERION_ENABLE_PROFILING=ON
+option(AERION_ENABLE_PROFILING "Enable Aerion paint/hot-path profiling probes" OFF)
+
+if (AERION_ENABLE_PROFILING)
+    target_compile_definitions(AerionDaw PRIVATE AERION_ENABLE_PROFILING=1)
+    message(STATUS "Aerion DAW: paint profiling ENABLED - timings will be written to the app log.")
+endif()
+
 # --- Audio backends ------------------------------------------------------------
 # JUCE's juce_audio_devices already enables the platform-native backends by
 # default (WASAPI + DirectSound on Windows, CoreAudio on macOS, ALSA on Linux).

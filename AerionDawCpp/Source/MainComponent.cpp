@@ -1230,6 +1230,8 @@ void MainComponent::exportMixdown()
 
 void MainComponent::timerCallback()
 {
+    AERION_PROFILE_TICK (profileReporter);
+
     const double pos = audioEngine.getTransportPosition();
     const bool playing = audioEngine.isPlaying();
 
@@ -1608,6 +1610,8 @@ void MainComponent::loadWorkspaceLayouts()
 
 void MainComponent::editStateChanged()
 {
+    AERION_PROFILE_SCOPE ("MainComponent::editStateChanged");
+
     const auto syncStartMs = juce::Time::getMillisecondCounterHiRes();
 
     hasUnsavedChanges = true;

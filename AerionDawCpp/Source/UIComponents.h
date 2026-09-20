@@ -7,6 +7,7 @@
 #include "UI/Primitives.h"
 #include "UI/LookAndFeel.h"
 #include "UI/ThemeTypefaces.h"
+#include "UI/Profiling.h"
 #include <limits>
 
 enum class EditTool { select, razor, comp };
@@ -3119,6 +3120,8 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        AERION_PROFILE_SCOPE ("PianoRollEditor::paint");
+
         g.fillAll (Theme::bgBase);
         auto ga = gridArea();
         auto ca = ccLaneArea();
@@ -5449,6 +5452,8 @@ public:
 
     void paint(juce::Graphics& g) override
     {
+        AERION_PROFILE_SCOPE ("Timeline::paint");
+
         trackButtonCache.clear();  // Clear button bounds cache before repainting
         currentTooltip.isValid = false;
         Theme::fillBackgroundGradient (g, getLocalBounds());
@@ -5909,6 +5914,14 @@ public:
         auto* folder = dynamic_cast<tracktion::FolderTrack*>(track);
         auto* audio  = dynamic_cast<tracktion::AudioTrack*>(track);
         int   rowH   = getTrackHeight(track);
+
+        // Rows drawn vs rows the invalidated region actually needs. A large gap
+        // between these two counters is the cost of painting every track row for
+        // partial repaints such as the playhead strip.
+        AERION_PROFILE_COUNT ("Timeline.rowsDrawn", 1);
+        AERION_PROFILE_COUNT ("Timeline.rowsInClip",
+                              g.getClipBounds().intersects (juce::Rectangle<int> (0, y, getWidth(), rowH)) ? 1 : 0);
+
         juce::Colour tColor = Theme::colourForTrack(topIndex);
         bool isSel = selectedIds.contains(track->itemID.toString());
         bool isAuto = automationVisibleTracks.contains (track->itemID.toString());
@@ -6058,6 +6071,8 @@ public:
             }
             else
             {
+                AERION_PROFILE_COUNT ("Timeline.clipsVisited", audio->getClips().size());
+
                 for (auto* clip : audio->getClips())
                 {
                     auto start = (float)clip->getPosition().getStart().inSeconds();
@@ -8094,6 +8109,8 @@ public:
 
     void paint(juce::Graphics& g) override
     {
+        AERION_PROFILE_SCOPE ("Mixer::paint");
+
         Theme::fillBackgroundGradient (g, getLocalBounds());
 
         // Header strip.
@@ -8791,6 +8808,8 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        AERION_PROFILE_SCOPE ("Transport::paint");
+
         Theme::fillBackgroundGradient (g, getLocalBounds());
         g.setColour (Theme::border.withAlpha (0.6f));
         g.drawLine (0.0f, 0.0f, (float)getWidth(), 0.0f);

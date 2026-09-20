@@ -178,6 +178,10 @@ private:
     float lastPlayheadX = -10000.0f;
     uint32_t idleCpuRefreshTick = 0;
 
+    // Drives periodic profiling reports off the existing 25 Hz timer; compiles
+    // away entirely unless AERION_ENABLE_PROFILING is on.
+    AERION_PROFILE_REPORTER (profileReporter);
+
     class MixerWindow;
     std::unique_ptr<MixerWindow> mixerWindow;
 
