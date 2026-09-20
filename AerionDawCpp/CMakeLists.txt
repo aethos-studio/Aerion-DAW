@@ -309,9 +309,21 @@ if (AERION_BUILD_TESTS)
 
     target_sources(AerionTests PRIVATE
         Source/Tests/TestsMain.cpp
+        Source/Tests/AudioEngineTests.cpp
         Source/ProjectData.h
         Source/ProjectData.cpp
+        Source/AudioEngine.h
+        Source/AudioEngine.cpp
+        Source/Export/MixdownExportJob.h
+        Source/Export/MixdownExportJob.cpp
         Source/Keymap.h
+    )
+
+    # AudioEngine.cpp hosts VST3 the same way the app does; without this the
+    # format manager is empty and engine construction differs from the real app.
+    target_compile_definitions(AerionTests PRIVATE
+        JUCE_PLUGINHOST_VST3=1
+        $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=1>
     )
 
     target_link_libraries(AerionTests PRIVATE
