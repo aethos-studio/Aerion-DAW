@@ -5915,12 +5915,37 @@ public:
         auto* audio  = dynamic_cast<tracktion::AudioTrack*>(track);
         int   rowH   = getTrackHeight(track);
 
-        // Rows drawn vs rows the invalidated region actually needs. A large gap
-        // between these two counters is the cost of painting every track row for
-        // partial repaints such as the playhead strip.
+        AERION_PROFILE_COUNT ("Timeline.rowsVisited", 1);
+
+        // mouseDown hit-tests the M/S/R/A buttons through this cache, so it has
+        // to be populated even for rows we are about to skip drawing - otherwise
+        // culling would silently stop those buttons responding.
+        const int textX = 14 + indent;
+        const int btnY  = y + 32;
+        trackButtonCache[track->itemID.toString()] = {
+            juce::Rectangle<int> (textX,      btnY, 24, 22),
+            juce::Rectangle<int> (textX + 28, btnY, 24, 22),
+            juce::Rectangle<int> (textX + 56, btnY, 24, 22),
+            juce::Rectangle<int> (textX + 84, btnY, 24, 22)
+        };
+
+        // Rows outside the invalidated region still cost a full walk of their
+        // clips, waveform cache lookups and engine queries even though every
+        // drawing call is thrown away by the clip. Skip that work, but keep
+        // advancing y and still descend into folder children, which may be
+        // visible even when their parent row is not.
+        if (! g.getClipBounds().intersects (juce::Rectangle<int> (0, y, getWidth(), rowH)))
+        {
+            y += rowH;
+
+            if (folder != nullptr)
+                for (auto* child : folder->getAllAudioSubTracks (false))
+                    y = drawTrackRow (g, child, topIndex, indent + 16, y);
+
+            return y;
+        }
+
         AERION_PROFILE_COUNT ("Timeline.rowsDrawn", 1);
-        AERION_PROFILE_COUNT ("Timeline.rowsInClip",
-                              g.getClipBounds().intersects (juce::Rectangle<int> (0, y, getWidth(), rowH)) ? 1 : 0);
 
         juce::Colour tColor = Theme::colourForTrack(topIndex);
         bool isSel = selectedIds.contains(track->itemID.toString());
@@ -5945,7 +5970,6 @@ public:
         const float barW = submixFolder ? 3.0f : 4.0f;
         g.fillRect((float)indent, (float)y, barW, (float)rowH);
 
-        const int textX = 14 + indent;
         g.setColour(Theme::textMain);
         g.setFont (Theme::uiSize (13.0f).withStyle (juce::Font::bold));
         
@@ -5983,15 +6007,13 @@ public:
             g.drawText ("S", br, juce::Justification::centred);
         }
 
-        // M / S / R / A buttons (top row), FX button below.
-        int btnY = y + 32;
-        auto mB = juce::Rectangle<int>(textX,        btnY, 24, 22);
-        auto sB = juce::Rectangle<int>(textX + 28,   btnY, 24, 22);
-        auto rB = juce::Rectangle<int>(textX + 56,   btnY, 24, 22);
-        auto aB = juce::Rectangle<int>(textX + 84,   btnY, 24, 22);
-
-        // Cache button bounds for hit-testing in mouseDown
-        trackButtonCache[track->itemID.toString()] = { mB, sB, rB, aB };
+        // M / S / R / A buttons (top row), FX button below. Bounds were cached
+        // for hit-testing above, before the row-culling early-out.
+        const auto& btns = trackButtonCache[track->itemID.toString()];
+        const auto mB = btns.m;
+        const auto sB = btns.s;
+        const auto rB = btns.r;
+        const auto aB = btns.a;
 
         bool isMute = track->isMuted(false);
         bool isSolo = track->isSolo(false);
