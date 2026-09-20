@@ -2,102 +2,111 @@
   <img src="AerionDawCpp/Resources/aerion_logo_horizontal.svg" alt="Aerion DAW Logo" width="800">
 </p>
 
-**A modern Digital Audio Workstation built with C++20, JUCE 8, and the Tracktion Engine.**
+**Aerion DAW** is a native digital audio workstation built in **C++20** with **JUCE 8** and the **Tracktion Engine v3.2**. It targets serious home and project-studio production on **Windows 11** first, with **macOS** builds supported through CI and release packaging.
 
-**Development status:** v0.3.0 Pre-Alpha — Milestones 1–4 complete; Milestone 5 (Polish & Stability) in progress. See [`AerionDawCpp/Documentation/ROADMAP.md`](AerionDawCpp/Documentation/ROADMAP.md) and [`STATUS.md`](AerionDawCpp/Documentation/STATUS.md).
+**Current version:** v0.3.0 Pre-Alpha · **Active milestone:** [M5 — Polish & Stability](AerionDawCpp/Documentation/ROADMAP.md) (targeting v0.4.0)
 
 [![Build & Smoke Tests](https://github.com/aethos-studio/Aerion-DAW/actions/workflows/build-test.yml/badge.svg)](https://github.com/aethos-studio/Aerion-DAW/actions/workflows/build-test.yml)
 
 ---
 
-## Why Aerion DAW?
+## What Aerion is today
 
-Aerion is designed to bridge the gap between high-end professional production and modern, cloud-connected workflows.
+Aerion is a **working pre-alpha DAW**, not a demo shell. You can record, edit, mix, and export a complete song session on Windows today. Milestones 1–4 — editing, mixing, recording, and project workflow — are implemented and in daily use. Milestone 5 adds stability, packaging, tests, and performance work toward a shippable v0.4.0.
 
-- **⚡ Native Performance:** Built in C++20 with JUCE 8 and the Tracktion Engine for rock-solid, low-latency audio processing.
-- **🎨 High-Polish UI:** Features a unique dark theme, animated splash screens, and Studio One-style position-aware drag-and-drop.
-- **🤖 AI-Ready:** Foundation laid for future AI-enhanced workflows including audio-to-MIDI transcription and stem separation.
+The long-term vision includes AI-assisted workflows and cloud project sync, but those are **scaffolding only** right now. The current focus is making the core DAW fast, stable, and trustworthy.
 
 ---
 
-## Key Features
+## What you can do
 
+### Arrange and edit
 
-| Area             | Features                                                                                                               |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| **Audio Engine** | Multi-track audio/folder support, automation lanes (vol/pan), 24-bit/32-bit float support, and VST3/AU plugin hosting. |
-| **Timeline**     | Studio One-style drag & drop with ghost previews, multi-file consecutive placement, and grid-snapping clip editing.    |
-| **Piano Roll**   | Comprehensive MIDI editor with note quantization, snap-to-grid, and high-performance scrolling.                        |                             |
-| **Mixer**        | Real-time level meters, detachable mixer window, and per-track fader/pan control with branded JUCE-rendered windowing. |
-| **Browser**      | Waveform previews for local files, plugin category browsing, and a dedicated "Cloud" tab for remote projects.          |
-| **Export**       | Professional audio mixdown to WAV/AIFF/FLAC/OGG with bounds selection, format presets, wildcard templates, waveform display with clip detection (Reaper-style), and configurable sample rates/channels. |
+- Multi-track **audio**, **MIDI**, and **folder** tracks with free reordering and submix folders
+- **Studio One-style** drag-and-drop: ghost previews, grid snap, consecutive multi-file import
+- Clip trim, split, move, nudge, fades, comps, loop regions, and markers
+- **Piano roll** with note editing, velocity lane, MIDI CC / pitch-bend lanes, quantize, and snap
+- **Tempo map** and **time signature** changes on the timeline ruler
+- **Automation** lanes for volume and pan
 
----
+### Record
 
-## Recent Updates
+- Per-track **record arm**, input routing, and monitor modes (Auto / On / Off)
+- **ASIO**, WASAPI, and DirectSound on Windows; CoreAudio on macOS
+- Metronome, count-in, punch in/out, plugin delay compensation
+- Live recording waveform that grows under the playhead
 
-- **CI now covers Windows and macOS, manually triggered (July 2026):** `build-test.yml` runs the Debug build + `AerionTests` smoke tests on both a Windows MSVC/Ninja runner and a macOS Clang/Ninja runner. Run it from **Actions → build-test → Run workflow**.
-- **Manual release packaging + GitHub Releases:** `package-release.yml` (`release-package`) is a separate `workflow_dispatch` workflow that builds the Windows NSIS installer and macOS DMG independently of the smoke-test workflow, then publishes both as a GitHub Release (tag, draft/pre-release flags, and notes are set via the workflow's manual-run inputs).
-- **Optional self-signed Windows code signing:** the Windows installer job signs and timestamps the app + installer when `WINDOWS_CERT_PFX_BASE64` / `WINDOWS_CERT_PASSWORD` repo secrets are present (generate them with `AerionDawCpp/Tools/New-AerionSelfSignedCert.ps1`); packaging still succeeds unsigned if the secrets are absent.
-- **Cross-platform smoke-test fixes:** fixed a `ProjectData` mock-data seeding bug and a macOS-only Ctrl/Command keymap conflict (`AerionKeymap::sameKey`) that CI caught before it could reach users.
-- **Milestone 4 complete:** Custom keyboard shortcuts, time signature changes, per-track input/monitor persistence, mixdown + stems export, freeze/bounce, crash recovery.
-- **Docs & versioning:** Roadmap/STATUS aligned to v0.3.0; window title bar shows `<ProjectName> — Aerion DAW` on startup; About dialog reads the CMake app version.
+### Mix
 
----
+- Real-time level meters, faders, pan, mute, and solo
+- **Detachable mixer** window and per-track inspector
+- Phase invert, mono sum, HPF/LPF quick filters
+- Serial **insert** chain with bypass and drag-to-reorder
+- **Sends**, plugin presets, and mix **snapshots**
+- **VST3** hosting (Windows/Linux) and **AU** (macOS)
 
-## Repository layout
+### Project and export
 
-Only the items needed to build and ship the app are tracked. Everything else (IDE caches, AI tooling folders, build output, installers, scratch notes) is gitignored so the repo root stays minimal.
-
-```
-Aerion-DAW/
-  README.md            This file (the only loose markdown at the root)
-  LICENSE              GPLv3
-  .gitignore
-  .github/             CI workflows and community docs (Code of Conduct)
-  AerionDawCpp/        CMake project, C++ sources, assets, bundled docs
-    CMakeLists.txt
-    CMakePresets.json  Windows CMake presets (optional)
-    CMake/             CPack helper scripts
-    Documentation/     Roadmap, status, release notes, manual test checklist, Cursor dev guide (Windows)
-    Resources/         SVG assets, fonts, icons
-    External/          Third-party SDKs (e.g. Steinberg ASIO on Windows)
-    Tools/             Local dev helper scripts (e.g. self-signed cert generator)
-    Source/            Application code (Main, AudioEngine, UI, Export, …)
-```
-
-Anything else you see locally (e.g. `build/`, `dist/`, `_CPack_Packages/`, `.cursor/`, `.claude/`, `Cursor-AI/`, `Gemini/`, `.vs/`, etc.) is **gitignored** — see `.gitignore` for the full list.
+- Save and load **`.aerion`** project files with full round-trip state
+- Collect & save, auto-save, and crash recovery
+- **Freeze / bounce** tracks; mixdown and **stems** export to WAV / AIFF / FLAC / OGG
+- Customisable **keyboard shortcuts** (`.aerionkeys` import/export)
+- **Workspace layouts** — built-in Editing / Mixing / Recording presets plus saved custom layouts
 
 ---
 
-## System Requirements
+## Platforms
 
-
-| Requirement  | Minimum                     | Recommended                    |
-| ------------ | --------------------------- | ------------------------------ |
-| **OS**       | Windows 10 (64-bit)         | Windows 11 (64-bit)            |
-| **CPU**      | Intel Core i5 / AMD Ryzen 5 | Intel Core i7 / AMD Ryzen 7    |
-| **RAM**      | 4 GB                        | 16 GB                          |
-| **Graphics** | OpenGL 3.2 compatible       | Dedicated GPU                  |
-| **Audio**    | Windows Audio / ASIO4ALL    | Dedicated ASIO Audio Interface |
-
+| Platform | Status |
+|---|---|
+| **Windows 11 / 10 (x64)** | Primary development and daily-use target. Visual Studio 2022 + MSVC. |
+| **macOS** | Secondary. Built and packaged via GitHub Actions (universal ARM64 + Intel DMG). |
+| **Linux** | Not a supported product target. Engine code has ALSA/JACK hooks via JUCE, but there is no Linux installer or CI preset on `main`. |
 
 ---
 
-## Getting Started
+## Recent progress (September 2025)
+
+Work landed on `main` as part of the Milestone 5 performance push:
+
+- **Timeline row culling** — playback playhead repaints skip off-screen track rows, roughly halving paint cost on the hot path during transport
+- **Paint profiling** — opt-in `AERION_PROFILE_*` probes and a `win-msvc-profiling` CMake preset for measuring UI cost in Release builds
+- **Headless benchmark** — `AerionBench` renders the Timeline offscreen for repeatable paint timings
+- **AudioEngine smoke tests** — 13 headless tests covering tracks, mute/solo, tempo map, snapshots, and transport flags
+- **Stability fixes** — clip/piano-roll lifetime safety and guards against editing tracks while freeze is in progress
+
+Full developer context: [`AerionDawCpp/Documentation/CLAUDE_CODE_HANDOFF.md`](AerionDawCpp/Documentation/CLAUDE_CODE_HANDOFF.md)
+
+---
+
+## What's still in progress (M5)
+
+| Area | State |
+|---|---|
+| UI performance | Profiling infrastructure in place; static chrome caching and edit-driven repaint storms remain |
+| High-DPI / Retina | Typography tokens shipped (~40%); fixed-pixel layout audit not started |
+| Tests | `ProjectData`, `AerionKeymap`, and `AudioEngineManager` smoke tests; no GUI or audio-thread tests yet |
+| Packaging | Windows NSIS + optional self-signed signing; macOS DMG without notarization |
+| Accessibility | Not started |
+| AI / Cloud | `AIManager` is a mock; Google Drive client has placeholder OAuth credentials |
+
+See [`STATUS.md`](AerionDawCpp/Documentation/STATUS.md) and [`ROADMAP.md`](AerionDawCpp/Documentation/ROADMAP.md) for the full milestone breakdown.
+
+---
+
+## Getting started (Windows)
 
 ### Prerequisites
 
 - **CMake** 3.20+
-- **Visual Studio 2022** (MSVC, x64 — workload *Desktop development with C++*)
+- **Visual Studio 2022** with the *Desktop development with C++* workload (MSVC, x64)
 - **Git** (Tracktion Engine is fetched on first configure)
-- **PowerShell 7** (optional; Windows PowerShell also works)
 
-Open the **repository root** in Cursor/VS Code — root `CMakePresets.json` includes the Aerion presets and `.vscode/settings.json` points CMake Tools at `AerionDawCpp/`. See [`AerionDawCpp/Documentation/CURSOR_DEVELOPMENT.md`](AerionDawCpp/Documentation/CURSOR_DEVELOPMENT.md) for the full Windows dev guide.
+Open the **repository root** in your editor. Root `CMakePresets.json` includes the Aerion presets; `.vscode/settings.json` points CMake Tools at `AerionDawCpp/`.
 
-### Building (Windows / PowerShell)
+### Build
 
-From the **repository root**:
+From the repository root in **PowerShell**:
 
 ```powershell
 # Configure + build (Debug)
@@ -107,34 +116,79 @@ cmake --build build --preset win-msvc-debug
 # Release
 cmake --build build --preset win-msvc-release
 
-# Smoke tests (optional)
+# Smoke tests
 cmake --preset win-msvc-debug-tests -S AerionDawCpp -B build
 cmake --build build --preset win-msvc-debug-tests
 ctest --test-dir build -C Debug --output-on-failure
-
-# ---- Manual alternative ----
-cmake -S AerionDawCpp -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Debug --target AerionDaw
 ```
 
-The executable is written to:
+The app binary:
 
-`build\AerionDaw_artefacts\Debug\Aerion DAW.exe` (or `Release` when you build that configuration).
+```text
+build\AerionDaw_artefacts\Debug\Aerion DAW.exe
+```
+
+For profiling builds, release packaging, and the paint benchmark, see [`CURSOR_DEVELOPMENT.md`](AerionDawCpp/Documentation/CURSOR_DEVELOPMENT.md).
+
+### CI and releases
+
+Both GitHub Actions workflows are **manual only** (`workflow_dispatch`):
+
+- **build-test** — Debug build + smoke tests on Windows and macOS
+- **release-package** — Windows NSIS installer and macOS DMG published to a GitHub Release
+
+Run them from the [Actions tab](https://github.com/aethos-studio/Aerion-DAW/actions).
 
 ---
 
 ## Architecture
 
-Aerion DAW follows a strict **Model-View-Controller (MVC)** separation:
+Aerion follows strict **Model–View–Controller** separation:
 
-- **Model:** `ProjectData` owns the project `juce::ValueTree`, which acts as the single source of truth for the project state.
-- **Controller:** `AudioEngineManager` wraps the Tracktion `Edit` and manages the real-time audio graph and transport.
-- **View:** Native JUCE components in `UIComponents.h` observe the `ValueTree` and repaint only when the underlying state changes.
+| Layer | Component | Role |
+|---|---|---|
+| Model | `ProjectData` | `juce::ValueTree` is the single source of truth for project state |
+| Controller | `AudioEngineManager` | Wraps the Tracktion `Edit`, transport, and real-time audio graph |
+| View | JUCE components | Observe the ValueTree; UI repaints when state changes |
 
-See `AerionDawCpp/Documentation/` for the roadmap, status, release procedure, manual test checklist, and [`CURSOR_DEVELOPMENT.md`](AerionDawCpp/Documentation/CURSOR_DEVELOPMENT.md) (Windows build + Cursor guardrails).
+Application code lives under `AerionDawCpp/Source/`. The largest UI surface is currently consolidated in `UIComponents.h` (a known refactor target as M5 performance work continues).
+
+---
+
+## Repository layout
+
+```text
+Aerion-DAW/
+  README.md                 This file
+  LICENSE                   GPLv3
+  CMakePresets.json         Includes AerionDawCpp presets
+  .github/                  CI workflows
+  AerionDawCpp/             CMake project root
+    Source/                 Application code
+    Resources/              Icons, fonts, SVG assets
+    External/               Third-party SDKs (e.g. Steinberg ASIO on Windows)
+    Documentation/          Roadmap, status, dev guides
+    Tools/                  Dev helper scripts
+```
+
+Build output (`build/`), IDE caches, and local scratch folders are gitignored.
+
+---
+
+## System requirements
+
+| | Minimum | Recommended |
+|---|---|---|
+| **OS** | Windows 10 (64-bit) | Windows 11 (64-bit) |
+| **CPU** | Intel Core i5 / AMD Ryzen 5 | Intel Core i7 / AMD Ryzen 7 |
+| **RAM** | 4 GB | 16 GB |
+| **Graphics** | OpenGL 3.2 compatible | Dedicated GPU |
+| **Audio** | Windows Audio / ASIO4ALL | Dedicated ASIO interface |
 
 ---
 
 ## License
 
-This project is licensed under the terms found in the `LICENSE` file.
+This project is licensed under the terms in [`LICENSE`](LICENSE).
+
+**Trademarks:** ASIO is a trademark of Steinberg Media Technologies GmbH. JUCE is a trademark of Raw Material Software Limited. VST is a trademark of Steinberg Media Technologies GmbH. Aerion uses VST3 plugin hosting only.
