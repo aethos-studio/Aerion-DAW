@@ -1,7 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 
-// Centralized design tokens for Aerion's Studio One-inspired theme.
+// Centralized design tokens for Aerion's dark theme.
 // This is intentionally lightweight and header-only for now.
 namespace Theme
 {
@@ -108,7 +108,7 @@ namespace Theme
 
     inline void fillBackgroundGradient (juce::Graphics& g, juce::Rectangle<int> area)
     {
-        // Subtle depth (Studio One-ish): slightly lighter towards the top.
+        // Subtle depth: slightly lighter towards the top.
         juce::ColourGradient cg (bgBase.brighter (0.10f), 0.0f, (float) area.getY(),
                                  bgBase.darker   (0.05f), 0.0f, (float) area.getBottom(), false);
         g.setGradientFill (cg);

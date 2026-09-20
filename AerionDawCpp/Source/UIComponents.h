@@ -4569,7 +4569,7 @@ public:
     std::function<void()> onAddMidiTrack;
     std::function<void()> onAddFolder;
     std::function<void(const juce::File&)> onImportFile; // legacy single-file path (menu import)
-    // Studio-One-style drop: files + target track (nullptr = create new) + time position
+    // Position-aware drop: files + target track (nullptr = create new) + time position
     std::function<void(const juce::Array<juce::File>&,
                        tracktion::AudioTrack*,
                        double)> onImportFiles;
@@ -4873,7 +4873,7 @@ public:
         return DragMode::move;
     }
 
-    // Studio One-style: when two wave events overlap, auto-create a crossfade by setting
+    // When two wave events overlap, auto-create a crossfade by setting
     // the left event's fade-out and right event's fade-in to the overlap duration.
     static bool shouldOverwriteFadeIn (tracktion::WaveAudioClip& clip)
     {
@@ -6260,7 +6260,7 @@ public:
 
                     if (cb.getRight() < kHeaderWidth || cb.getX() > getWidth()) continue;
 
-                    // Studio One-ish clip styling: subtle shadow, rich gradient, crisp highlight.
+                    // Clip styling: subtle shadow, rich gradient, crisp highlight.
                     {
                         auto shadow = cb.translated (0.0f, 1.0f);
                         g.setColour (juce::Colours::black.withAlpha (0.35f));
@@ -6487,7 +6487,7 @@ public:
         // Live-recording overlay: while the engine is actively writing to this track,
         // Tracktion only commits the WaveAudioClip on stop, so getClips() is empty during
         // capture. Render the in-flight RecordingThumbnailManager::Thumbnail directly so
-        // the user sees the waveform grow live (Studio One / Reaper behaviour).
+        // the user sees the waveform grow live during recording.
         if (audio != nullptr && audioEngine.isRecording())
         {
             juce::Graphics::ScopedSaveState s (g);

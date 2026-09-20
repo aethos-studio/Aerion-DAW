@@ -600,7 +600,7 @@ void AudioEngineManager::setupInitialEdit()
         for (int i = master->pluginList.size(); --i >= 0;)
             master->pluginList.getPlugins()[i]->deleteFromParent();
 
-        // Studio One-style: default master bus at 0.0 dB (Tracktion often starts lower).
+        // Default master bus at 0.0 dB (Tracktion often starts lower).
         setTrackVolumeDb (master, 0.0f);
     }
 }

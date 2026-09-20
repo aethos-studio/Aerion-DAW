@@ -680,7 +680,7 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component* orig
         return true;
     }
 
-    // Force a crossfade on the selected clip with any overlapping neighbor (Studio One-style quick action).
+    // Force a crossfade on the selected clip with any overlapping neighbor.
     if (km.matches ("audio.crossfade", key))
     {
         if ((bool) projectData.getProjectTree().getProperty (IDs::autoCrossfadeEnabled, true))

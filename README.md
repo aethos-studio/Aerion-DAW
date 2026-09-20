@@ -23,7 +23,7 @@ The long-term vision includes AI-assisted workflows and cloud project sync, but 
 ### Arrange and edit
 
 - Multi-track **audio**, **MIDI**, and **folder** tracks with free reordering and submix folders
-- **Studio One-style** drag-and-drop: ghost previews, grid snap, consecutive multi-file import
+- **Position-aware drag-and-drop**: ghost previews, grid snap, consecutive multi-file import
 - Clip trim, split, move, nudge, fades, comps, loop regions, and markers
 - **Piano roll** with note editing, velocity lane, MIDI CC / pitch-bend lanes, quantize, and snap
 - **Tempo map** and **time signature** changes on the timeline ruler

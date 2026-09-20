@@ -168,7 +168,7 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
 ---
 
 ## Milestone 6 — Pro Composition & Audio Editing (v0.5.0)
-*Close the Logic / Cubase / Studio One gaps for songwriters, composers, and vocal producers.*
+*Close pro-composition DAW gaps for songwriters, composers, and vocal producers.*
 
 *Custom keyboard shortcuts shipped in Milestone 4 — see `AerionKeymap` / `KeyboardShortcutsPanel`.*
 
