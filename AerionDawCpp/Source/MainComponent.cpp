@@ -79,9 +79,9 @@ MainComponent::MainComponent()
 
         double pos = audioEngine.getTransportPosition();
         if (targetTrack != nullptr) {
-            if (audioEngine.isTrackFrozen(targetTrack)) {
+            if (audioEngine.isTrackFrozen(targetTrack) || audioEngine.isTrackFreezing(targetTrack)) {
                 juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
-                    "Track Frozen", "Cannot add clips to frozen tracks. Unfreeze the track first.");
+                    "Track Unavailable", "Cannot add clips to frozen tracks or tracks that are currently freezing.");
                 return;
             }
             audioEngine.insertAudioClipOnTrack (targetTrack, f, pos);
@@ -236,6 +236,9 @@ MainComponent::MainComponent()
     menuBar.onNudgeLeft  = [this] {
         if (auto* clip = timeline.selectedClip)
         {
+            if (isClipTrackFrozenOrFreezing (audioEngine, clip))
+                return;
+
             double iv = (bool) projectData.getProjectTree().getProperty (IDs::snapEnabled)
                         ? (double) projectData.getProjectTree().getProperty (IDs::snapInterval) : 0.1;
             auto& ts = audioEngine.getEdit().tempoSequence;
@@ -247,6 +250,9 @@ MainComponent::MainComponent()
     menuBar.onNudgeRight = [this] {
         if (auto* clip = timeline.selectedClip)
         {
+            if (isClipTrackFrozenOrFreezing (audioEngine, clip))
+                return;
+
             double iv = (bool) projectData.getProjectTree().getProperty (IDs::snapEnabled)
                         ? (double) projectData.getProjectTree().getProperty (IDs::snapInterval) : 0.1;
             auto& ts = audioEngine.getEdit().tempoSequence;
@@ -258,6 +264,9 @@ MainComponent::MainComponent()
     menuBar.onTrimLeft   = [this] {
         if (auto* clip = timeline.selectedClip)
         {
+            if (isClipTrackFrozenOrFreezing (audioEngine, clip))
+                return;
+
             double iv = (bool) projectData.getProjectTree().getProperty (IDs::snapEnabled)
                         ? (double) projectData.getProjectTree().getProperty (IDs::snapInterval) : 0.1;
             auto& ts  = audioEngine.getEdit().tempoSequence;
@@ -272,6 +281,9 @@ MainComponent::MainComponent()
     menuBar.onTrimRight  = [this] {
         if (auto* clip = timeline.selectedClip)
         {
+            if (isClipTrackFrozenOrFreezing (audioEngine, clip))
+                return;
+
             double iv = (bool) projectData.getProjectTree().getProperty (IDs::snapEnabled)
                         ? (double) projectData.getProjectTree().getProperty (IDs::snapInterval) : 0.1;
             auto& ts  = audioEngine.getEdit().tempoSequence;
@@ -286,6 +298,9 @@ MainComponent::MainComponent()
     menuBar.onDeleteEvent = [this] {
         if (timeline.selectedClip != nullptr)
         {
+            if (isClipTrackFrozenOrFreezing (audioEngine, timeline.selectedClip))
+                return;
+
             timeline.selectedClip->removeFromParent();
             timeline.clearSelectedClip();
             timeline.repaint();
@@ -399,6 +414,15 @@ MainComponent::MainComponent()
                                       double insertTime)
     {
         namespace te = tracktion;
+
+        if (targetTrack != nullptr
+            && (audioEngine.isTrackFrozen (targetTrack) || audioEngine.isTrackFreezing (targetTrack)))
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
+                "Track Unavailable",
+                "Cannot add clips to frozen tracks or tracks that are currently freezing.");
+            return;
+        }
 
         // If only one file, just insert it sequentially on the target track
         if (files.size() == 1)
@@ -663,6 +687,9 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component* orig
         {
             if (auto* clip = timeline.selectedClip)
             {
+                if (isClipTrackFrozenOrFreezing (audioEngine, clip))
+                    return true;
+
                 if (auto* t = clip->getTrack())
                     timeline.applyAutoCrossfadesForTrack (*t);
             }
@@ -679,6 +706,9 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component* orig
     {
         if (auto* clip = timeline.selectedClip)
         {
+            if (isClipTrackFrozenOrFreezing (audioEngine, clip))
+                return true;
+
             double interval = projectData.getProjectTree().getProperty (IDs::snapInterval);
             if (! (bool) projectData.getProjectTree().getProperty (IDs::snapEnabled))
                 interval = 0.1; // small nudge if snap is off
@@ -725,6 +755,9 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component* orig
     {
         if (timeline.selectedClip != nullptr)
         {
+            if (isClipTrackFrozenOrFreezing (audioEngine, timeline.selectedClip))
+                return true;
+
             timeline.selectedClip->removeFromParent();
             timeline.clearSelectedClip();
             timeline.repaint();
