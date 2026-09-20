@@ -146,6 +146,20 @@ target_compile_definitions(AerionDaw PRIVATE
     $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=1>
 )
 
+# --- Paint / hot-path profiling (opt-in) ---------------------------------------
+# Turns on the AERION_PROFILE_* probes in Source/UI/Profiling.h, which report
+# paint timings and per-pass item counts to the JUCE log every few seconds.
+# OFF by default: with the option off the macros expand to nothing, so profiled
+# call sites cost nothing in shipping builds.
+#
+#   cmake --preset win-msvc-release -S AerionDawCpp -B build -DAERION_ENABLE_PROFILING=ON
+option(AERION_ENABLE_PROFILING "Enable Aerion paint/hot-path profiling probes" OFF)
+
+if (AERION_ENABLE_PROFILING)
+    target_compile_definitions(AerionDaw PRIVATE AERION_ENABLE_PROFILING=1)
+    message(STATUS "Aerion DAW: paint profiling ENABLED - timings will be written to the app log.")
+endif()
+
 # --- Audio backends ------------------------------------------------------------
 # JUCE's juce_audio_devices already enables the platform-native backends by
 # default (WASAPI + DirectSound on Windows, CoreAudio on macOS, ALSA on Linux).
@@ -295,9 +309,21 @@ if (AERION_BUILD_TESTS)
 
     target_sources(AerionTests PRIVATE
         Source/Tests/TestsMain.cpp
+        Source/Tests/AudioEngineTests.cpp
         Source/ProjectData.h
         Source/ProjectData.cpp
+        Source/AudioEngine.h
+        Source/AudioEngine.cpp
+        Source/Export/MixdownExportJob.h
+        Source/Export/MixdownExportJob.cpp
         Source/Keymap.h
+    )
+
+    # AudioEngine.cpp hosts VST3 the same way the app does; without this the
+    # format manager is empty and engine construction differs from the real app.
+    target_compile_definitions(AerionTests PRIVATE
+        JUCE_PLUGINHOST_VST3=1
+        $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=1>
     )
 
     target_link_libraries(AerionTests PRIVATE
@@ -321,6 +347,54 @@ if (AERION_BUILD_TESTS)
     target_compile_features(AerionTests PRIVATE cxx_std_20)
 
     add_test(NAME AerionSmokeTests COMMAND AerionTests)
+
+    # --- Headless paint benchmark ----------------------------------------------
+    # Renders the real Timeline offscreen so paint cost is measurable without a
+    # display. Deliberately NOT registered with add_test: timings are machine
+    # dependent, so this is a tool you run and read, not a pass/fail gate.
+    #
+    #   .\build\AerionBench_artefacts\Release\AerionBench.exe --tracks=32 --clips=20
+    juce_add_console_app(AerionBench PRODUCT_NAME "AerionBench")
+    juce_generate_juce_header(AerionBench)
+
+    target_sources(AerionBench PRIVATE
+        Source/Tests/PaintBenchmark.cpp
+        Source/ProjectData.cpp
+        Source/AudioEngine.cpp
+        Source/GoogleDriveClient.cpp
+        Source/AerionTooltipWindow.cpp
+        Source/Export/MixdownExportJob.cpp
+    )
+
+    target_link_libraries(AerionBench PRIVATE
+        juce::juce_core
+        juce::juce_data_structures
+        juce::juce_events
+        juce::juce_graphics
+        juce::juce_gui_basics
+        juce::juce_gui_extra
+        juce::juce_audio_basics
+        juce::juce_audio_devices
+        juce::juce_audio_formats
+        juce::juce_audio_processors
+        juce::juce_audio_utils
+        juce::juce_cryptography
+        tracktion_core
+        tracktion_graph
+        tracktion_engine
+        AerionDawResources
+    )
+
+    target_compile_features(AerionBench PRIVATE cxx_std_20)
+
+    target_compile_definitions(AerionBench PRIVATE
+        JUCE_PLUGINHOST_VST3=1
+        $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=1>
+    )
+
+    if (AERION_ENABLE_PROFILING)
+        target_compile_definitions(AerionBench PRIVATE AERION_ENABLE_PROFILING=1)
+    endif()
 endif()
 
 # --- Packaging ----------------------------------------------------------------

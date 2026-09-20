@@ -34,9 +34,9 @@ public:
     // juce::ValueTree::Listener
     void valueTreePropertyChanged (juce::ValueTree& v, const juce::Identifier& i) override;
     void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override {}
-    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override;
+    void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override {}
     void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override {}
-    void valueTreeParentChanged (juce::ValueTree&) override {}
+    void valueTreeParentChanged (juce::ValueTree&) override;
 
 private:
     void doCreateNewProject();
@@ -163,6 +163,10 @@ private:
     BottomPanel bottomPanel = BottomPanel::Mixer;
     std::unique_ptr<PianoRollEditor> embeddedPianoRoll;
     tracktion::MidiClip* embeddedClip = nullptr;
+    juce::ValueTree embeddedClipState; // listened for parent-change so we can close before UAF
+    void attachEmbeddedClipListener (tracktion::MidiClip& clip);
+    void detachEmbeddedClipListener();
+    void closeEmbeddedPianoRoll();
     juce::TextButton tabMixer     { "MIXER" };
     juce::TextButton tabPianoRoll { "PIANO ROLL" };
 
@@ -177,6 +181,10 @@ private:
     bool lastIsPlaying = false;
     float lastPlayheadX = -10000.0f;
     uint32_t idleCpuRefreshTick = 0;
+
+    // Drives periodic profiling reports off the existing 25 Hz timer; compiles
+    // away entirely unless AERION_ENABLE_PROFILING is on.
+    AERION_PROFILE_REPORTER (profileReporter);
 
     class MixerWindow;
     std::unique_ptr<MixerWindow> mixerWindow;

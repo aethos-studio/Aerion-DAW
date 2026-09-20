@@ -7,6 +7,7 @@
 #include "UI/Primitives.h"
 #include "UI/LookAndFeel.h"
 #include "UI/ThemeTypefaces.h"
+#include "UI/Profiling.h"
 #include <limits>
 
 enum class EditTool { select, razor, comp };
@@ -99,11 +100,22 @@ inline bool isInsertTrackFrozen (AudioEngineManager& audioEngine, tracktion::Tra
     return false;
 }
 
+inline bool isClipTrackFrozenOrFreezing (AudioEngineManager& audioEngine, tracktion::Clip* clip)
+{
+    if (clip == nullptr)
+        return false;
+
+    if (auto* at = dynamic_cast<tracktion::AudioTrack*> (clip->getTrack()))
+        return audioEngine.isTrackFrozen (at) || audioEngine.isTrackFreezing (at);
+
+    return false;
+}
+
 inline void showFrozenTrackInsertAlert()
 {
     juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
-                                            "Track Frozen",
-                                            "Cannot modify plugins on frozen tracks. Unfreeze the track first.");
+                                            "Track Unavailable",
+                                            "Cannot modify plugins on frozen tracks or tracks that are currently freezing.");
 }
 
 inline InsertRowHitAreas paintInsertRow (juce::Graphics& g, juce::Rectangle<int> row,
@@ -445,12 +457,9 @@ private:
         {
             if (addBtnBounds.contains (e.getPosition()))
             {
-                if (auto* at = dynamic_cast<tracktion::AudioTrack*>(track)) {
-                    if (audioEngine.isTrackFrozen(at)) {
-                        juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
-                            "Track Frozen", "Cannot add plugins to frozen tracks. Unfreeze the track first.");
-                        return;
-                    }
+                if (isInsertTrackFrozen (audioEngine, track)) {
+                    showFrozenTrackInsertAlert();
+                    return;
                 }
                 auto screen = localAreaToGlobal (addBtnBounds);
                 PluginPicker::show (audioEngine, screen, [this] (const juce::PluginDescription& d) {
@@ -3048,6 +3057,12 @@ public:
 
         if (box != &ccTypeCombo) return;
 
+        if (! canEditMidiClip())
+        {
+            syncCCSelectorFromClipState();
+            return;
+        }
+
         const int id = ccTypeCombo.getSelectedId();
         if (id == 7)
         {
@@ -3082,6 +3097,13 @@ public:
     /** Called from modal dialog (must be public for non-member callback). */
     void handleCustomCCAlert (int result, juce::String ccText)
     {
+        if (! canEditMidiClip())
+        {
+            syncCCSelectorFromClipState();
+            repaint();
+            return;
+        }
+
         if (result == 1)
         {
             int v = juce::jlimit (0, 127, ccText.getIntValue());
@@ -3119,6 +3141,8 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        AERION_PROFILE_SCOPE ("PianoRollEditor::paint");
+
         g.fillAll (Theme::bgBase);
         auto ga = gridArea();
         auto ca = ccLaneArea();
@@ -3193,9 +3217,9 @@ public:
 
         if (km.matches ("pianoRoll.selectAll", key)) { selectAllNotes();    return true; }
         if (km.matches ("pianoRoll.copy",      key)) { copySelection();     return true; }
-        if (km.matches ("pianoRoll.cut",       key)) { cutSelection();      return true; }
-        if (km.matches ("pianoRoll.paste",     key)) { pasteClipboard();    return true; }
-        if (km.matches ("pianoRoll.duplicate", key)) { duplicateSelection(); return true; }
+        if (km.matches ("pianoRoll.cut",       key)) { if (canEditMidiClip()) cutSelection();       return true; }
+        if (km.matches ("pianoRoll.paste",     key)) { if (canEditMidiClip()) pasteClipboard();     return true; }
+        if (km.matches ("pianoRoll.duplicate", key)) { if (canEditMidiClip()) duplicateSelection(); return true; }
 
         if (km.matches ("transport.playStop", key))
         {
@@ -3221,7 +3245,8 @@ public:
 
         if (km.matches ("pianoRoll.delete", key))
         {
-            deleteSelectedNotes ("Delete MIDI notes");
+            if (canEditMidiClip())
+                deleteSelectedNotes ("Delete MIDI notes");
             return true;
         }
 
@@ -3229,6 +3254,9 @@ public:
         const bool nudgeR = km.matches ("pianoRoll.nudgeRight", key);
         if (nudgeL || nudgeR)
         {
+            if (! canEditMidiClip())
+                return true;
+
             double delta = nudgeL ? -snapInterval : snapInterval;
             if (! snapEnabled)
                 delta *= 0.1;
@@ -3241,13 +3269,15 @@ public:
         const bool transDn = km.matches ("pianoRoll.transposeDown", key);
         if (transUp || transDn)
         {
-            transposeSelectedNotes (transUp ? 1 : -1);
+            if (canEditMidiClip())
+                transposeSelectedNotes (transUp ? 1 : -1);
             return true;
         }
 
         if (km.matches ("pianoRoll.quantize", key))
         {
-            quantizeSelectedNotes();
+            if (canEditMidiClip())
+                quantizeSelectedNotes();
             return true;
         }
 
@@ -3256,7 +3286,8 @@ public:
 
     void quantize()
     {
-        quantizeSelectedNotes();
+        if (canEditMidiClip())
+            quantizeSelectedNotes();
     }
 
     void notifyMidiContentChanged()
@@ -3264,8 +3295,16 @@ public:
         audioEngine.notifyEditContentChanged();
     }
 
+    bool canEditMidiClip()
+    {
+        return ! isClipTrackFrozenOrFreezing (audioEngine, &midiClip);
+    }
+
     void deleteSelectedNotes (const juce::String& transactionName)
     {
+        if (! canEditMidiClip())
+            return;
+
         auto notes = getSelectedNotes();
         if (notes.isEmpty())
             return;
@@ -3282,6 +3321,9 @@ public:
 
     void nudgeSelectedNotes (double delta)
     {
+        if (! canEditMidiClip())
+            return;
+
         auto notes = getSelectedNotes();
         if (notes.isEmpty())
             return;
@@ -3302,6 +3344,9 @@ public:
 
     void transposeSelectedNotes (int delta)
     {
+        if (! canEditMidiClip())
+            return;
+
         auto notes = getSelectedNotes();
         if (notes.isEmpty())
             return;
@@ -3318,6 +3363,9 @@ public:
 
     void quantizeSelectedNotes()
     {
+        if (! canEditMidiClip())
+            return;
+
         auto notes = getSelectedNotes();
         if (notes.isEmpty())
             return;
@@ -3362,12 +3410,18 @@ public:
 
     void cutSelection()
     {
+        if (! canEditMidiClip())
+            return;
+
         copySelection();
         deleteSelectedNotes ("Cut MIDI notes");
     }
 
     tracktion::MidiNote* insertCopiedNote (const CopiedNote& copied, double baseBeat)
     {
+        if (! canEditMidiClip())
+            return nullptr;
+
         auto before = midiClip.getSequence().getNotes();
         const double start = juce::jmax (0.0, baseBeat + copied.start);
 
@@ -3387,6 +3441,9 @@ public:
 
     void pasteClipboard()
     {
+        if (! canEditMidiClip())
+            return;
+
         if (noteClipboard.isEmpty())
             return;
 
@@ -3405,6 +3462,9 @@ public:
 
     void duplicateSelection()
     {
+        if (! canEditMidiClip())
+            return;
+
         auto notes = getSelectedNotes();
         if (notes.isEmpty())
             return;
@@ -3462,6 +3522,12 @@ public:
         if (e.x < kKeyW)
         {
             setAuditionNote (yToNote (e.y));
+            return;
+        }
+
+        if (! canEditMidiClip())
+        {
+            dragMode = PRDragMode::none;
             return;
         }
 
@@ -3577,6 +3643,13 @@ public:
             return;
         }
 
+        if (! canEditMidiClip())
+        {
+            dragMode = PRDragMode::none;
+            draggingNote = nullptr;
+            return;
+        }
+
         if (dragMode == PRDragMode::ccLane)
         {
             if (! e.mods.isRightButtonDown())
@@ -3642,7 +3715,8 @@ public:
 
         if (dragMode == PRDragMode::marquee)
         {
-            if (marqueeBounds.getWidth() < 4 && marqueeBounds.getHeight() < 4 && ! marqueeAdditive)
+            if (canEditMidiClip()
+                && marqueeBounds.getWidth() < 4 && marqueeBounds.getHeight() < 4 && ! marqueeAdditive)
                 addNoteAt (marqueeAnchor);
 
             marqueeBounds = {};
@@ -3662,6 +3736,9 @@ public:
 
     void updateVelocityAt (int x, int y)
     {
+        if (! canEditMidiClip())
+            return;
+
         auto va = velocityArea();
         float vel  = juce::jlimit (0.0f, 1.0f, (float) (va.getBottom() - y) / (float) juce::jmax (1, va.getHeight()));
         int velInt = (int) (vel * 127.0f);
@@ -3827,6 +3904,9 @@ private:
 
     void applyCCValueAt (int x, int y, bool force)
     {
+        if (! canEditMidiClip())
+            return;
+
         auto ca = ccLaneArea();
         const double b = snapBeat ((double) xToBeat (x));
         if (! force && std::abs (b - lastCCPaintBeat) < 1.0e-7)
@@ -3845,6 +3925,9 @@ private:
 
     void tryRemoveCCEventAt (const juce::MouseEvent& e)
     {
+        if (! canEditMidiClip())
+            return;
+
         auto ca = ccLaneArea();
         const int ctype = activeControllerType();
         tracktion::MidiControllerEvent* hit = nullptr;
@@ -4122,6 +4205,9 @@ private:
 
     tracktion::MidiNote* addNoteAt (juce::Point<int> pos)
     {
+        if (! canEditMidiClip())
+            return nullptr;
+
         if (! gridArea().contains (pos))
             return nullptr;
 
@@ -4550,8 +4636,43 @@ public:
     ~Timeline() override
     {
         cancelPendingUpdate();
+        if (selectedClipState.isValid())
+            selectedClipState.removeListener (this);
         projectData.getProjectTree().removeListener (this);
         audioEngine.removeListener (this);
+    }
+
+    void setSelectedClip (tracktion::Clip* clip)
+    {
+        if (selectedClipState.isValid())
+            selectedClipState.removeListener (this);
+
+        selectedClip = clip;
+        selectedClipState = (clip != nullptr ? clip->state : juce::ValueTree());
+        selectedClipRebindPending = false;
+
+        if (selectedClipState.isValid())
+            selectedClipState.addListener (this);
+    }
+
+    void clearSelectedClip()
+    {
+        setSelectedClip (nullptr);
+        dragMode = DragMode::none;
+    }
+
+    tracktion::Clip* findClipWithState (const juce::ValueTree& state) const
+    {
+        if (! state.isValid())
+            return nullptr;
+
+        for (auto* t : tracktion::getAllTracks (audioEngine.getEdit()))
+            if (auto* a = dynamic_cast<tracktion::AudioTrack*> (t))
+                for (auto* c : a->getClips())
+                    if (c != nullptr && c->state == state)
+                        return c;
+
+        return nullptr;
     }
 
     /** Scroll the timeline so bar 1 aligns with the start of the content area. */
@@ -4607,7 +4728,8 @@ public:
             if (e.x >= kHeaderWidth && e.y >= kRulerH && e.y < laneBottom() && e.x < getWidth() - kVScrollW)
             {
                 if (auto* clip = getClipAt (e.getPosition()))
-                    newHover = getSmartToolDragModeFor (*clip, e.getPosition());
+                    if (! isClipTrackFrozenOrFreezing (audioEngine, clip))
+                        newHover = getSmartToolDragModeFor (*clip, e.getPosition());
             }
 
             if (newHover != hoverDragMode)
@@ -4768,6 +4890,9 @@ public:
     {
         auto* audio = dynamic_cast<tracktion::AudioTrack*> (&track);
         if (audio == nullptr)
+            return;
+
+        if (audioEngine.isTrackFrozen (audio) || audioEngine.isTrackFreezing (audio))
             return;
 
         juce::Array<tracktion::WaveAudioClip*> waves;
@@ -5449,6 +5574,8 @@ public:
 
     void paint(juce::Graphics& g) override
     {
+        AERION_PROFILE_SCOPE ("Timeline::paint");
+
         trackButtonCache.clear();  // Clear button bounds cache before repainting
         currentTooltip.isValid = false;
         Theme::fillBackgroundGradient (g, getLocalBounds());
@@ -5671,34 +5798,42 @@ public:
             g.reduceClipRegion (0, laneTop(), getWidth() - kVScrollW, laneBottom() - laneTop());
 
             // Draw vertical bar/beat grid lines through the track lane body
-            g.setColour (Theme::border.withAlpha (0.15f));
-            for (int bar = startBar; bar <= endBar + 1; ++bar)
             {
-                const float gx = barBeatToX (ts, bar, 0);
-                if (gx < (float) kHeaderWidth || gx > (float) getWidth())
-                    continue;
-                g.drawVerticalLine ((int) gx, (float) laneTop(), (float) laneBottom());
-            }
+                AERION_PROFILE_SCOPE ("Timeline.grid");
 
-            if (showBeatGrid)
-            {
-                g.setColour (Theme::border.withAlpha (0.07f));
-                for (int bar = startBar; bar <= endBar; ++bar)
+                g.setColour (Theme::border.withAlpha (0.15f));
+                for (int bar = startBar; bar <= endBar + 1; ++bar)
                 {
-                    const int beatsPerBar = beatsPerBarAt (ts, bar);
-                    for (int beatInBar = 1; beatInBar < beatsPerBar; ++beatInBar)
+                    const float gx = barBeatToX (ts, bar, 0);
+                    if (gx < (float) kHeaderWidth || gx > (float) getWidth())
+                        continue;
+                    g.drawVerticalLine ((int) gx, (float) laneTop(), (float) laneBottom());
+                }
+
+                if (showBeatGrid)
+                {
+                    g.setColour (Theme::border.withAlpha (0.07f));
+                    for (int bar = startBar; bar <= endBar; ++bar)
                     {
-                        const float gx = barBeatToX (ts, bar, beatInBar);
-                        if (gx < (float) kHeaderWidth || gx > (float) getWidth())
-                            continue;
-                        g.drawVerticalLine ((int) gx, (float) laneTop(), (float) laneBottom());
+                        const int beatsPerBar = beatsPerBarAt (ts, bar);
+                        for (int beatInBar = 1; beatInBar < beatsPerBar; ++beatInBar)
+                        {
+                            const float gx = barBeatToX (ts, bar, beatInBar);
+                            if (gx < (float) kHeaderWidth || gx > (float) getWidth())
+                                continue;
+                            g.drawVerticalLine ((int) gx, (float) laneTop(), (float) laneBottom());
+                        }
                     }
                 }
             }
 
-            int y = laneTop() - scrollY;
-            for (int i = 0; i < top.size(); ++i)
-                y = drawTrackRow (g, top[i], i, /*indent*/ 0, y);
+            {
+                AERION_PROFILE_SCOPE ("Timeline.rows");
+
+                int y = laneTop() - scrollY;
+                for (int i = 0; i < top.size(); ++i)
+                    y = drawTrackRow (g, top[i], i, /*indent*/ 0, y);
+            }
 
             if (top.isEmpty()) {
                 g.setColour (Theme::textMuted);
@@ -5909,6 +6044,39 @@ public:
         auto* folder = dynamic_cast<tracktion::FolderTrack*>(track);
         auto* audio  = dynamic_cast<tracktion::AudioTrack*>(track);
         int   rowH   = getTrackHeight(track);
+
+        AERION_PROFILE_COUNT ("Timeline.rowsVisited", 1);
+
+        // mouseDown hit-tests the M/S/R/A buttons through this cache, so it has
+        // to be populated even for rows we are about to skip drawing - otherwise
+        // culling would silently stop those buttons responding.
+        const int textX = 14 + indent;
+        const int btnY  = y + 32;
+        trackButtonCache[track->itemID.toString()] = {
+            juce::Rectangle<int> (textX,      btnY, 24, 22),
+            juce::Rectangle<int> (textX + 28, btnY, 24, 22),
+            juce::Rectangle<int> (textX + 56, btnY, 24, 22),
+            juce::Rectangle<int> (textX + 84, btnY, 24, 22)
+        };
+
+        // Rows outside the invalidated region still cost a full walk of their
+        // clips, waveform cache lookups and engine queries even though every
+        // drawing call is thrown away by the clip. Skip that work, but keep
+        // advancing y and still descend into folder children, which may be
+        // visible even when their parent row is not.
+        if (! g.getClipBounds().intersects (juce::Rectangle<int> (0, y, getWidth(), rowH)))
+        {
+            y += rowH;
+
+            if (folder != nullptr)
+                for (auto* child : folder->getAllAudioSubTracks (false))
+                    y = drawTrackRow (g, child, topIndex, indent + 16, y);
+
+            return y;
+        }
+
+        AERION_PROFILE_COUNT ("Timeline.rowsDrawn", 1);
+
         juce::Colour tColor = Theme::colourForTrack(topIndex);
         bool isSel = selectedIds.contains(track->itemID.toString());
         bool isAuto = automationVisibleTracks.contains (track->itemID.toString());
@@ -5932,7 +6100,6 @@ public:
         const float barW = submixFolder ? 3.0f : 4.0f;
         g.fillRect((float)indent, (float)y, barW, (float)rowH);
 
-        const int textX = 14 + indent;
         g.setColour(Theme::textMain);
         g.setFont (Theme::uiSize (13.0f).withStyle (juce::Font::bold));
         
@@ -5970,15 +6137,13 @@ public:
             g.drawText ("S", br, juce::Justification::centred);
         }
 
-        // M / S / R / A buttons (top row), FX button below.
-        int btnY = y + 32;
-        auto mB = juce::Rectangle<int>(textX,        btnY, 24, 22);
-        auto sB = juce::Rectangle<int>(textX + 28,   btnY, 24, 22);
-        auto rB = juce::Rectangle<int>(textX + 56,   btnY, 24, 22);
-        auto aB = juce::Rectangle<int>(textX + 84,   btnY, 24, 22);
-
-        // Cache button bounds for hit-testing in mouseDown
-        trackButtonCache[track->itemID.toString()] = { mB, sB, rB, aB };
+        // M / S / R / A buttons (top row), FX button below. Bounds were cached
+        // for hit-testing above, before the row-culling early-out.
+        const auto& btns = trackButtonCache[track->itemID.toString()];
+        const auto mB = btns.m;
+        const auto sB = btns.s;
+        const auto rB = btns.r;
+        const auto aB = btns.a;
 
         bool isMute = track->isMuted(false);
         bool isSolo = track->isSolo(false);
@@ -6058,6 +6223,8 @@ public:
             }
             else
             {
+                AERION_PROFILE_COUNT ("Timeline.clipsVisited", audio->getClips().size());
+
                 for (auto* clip : audio->getClips())
                 {
                     auto start = (float)clip->getPosition().getStart().inSeconds();
@@ -7130,6 +7297,9 @@ public:
         {
             if (auto* clip = getClipAt(e.getPosition()))
             {
+                if (isClipTrackFrozenOrFreezing (audioEngine, clip))
+                    return;
+
                 if (auto* ct = clip->getClipTrack())
                 {
                     double t = xToTime ((float) e.x);
@@ -7147,13 +7317,15 @@ public:
             return;
         }
 
-        selectedClip = getClipAt(e.getPosition());
+        setSelectedClip (getClipAt (e.getPosition()));
         if (selectedClip)
         {
             dragOffset = selectedClip->getPosition().getStart().inSeconds() - xToTime((float)e.x);
 
             // Use the same decision as hover so the UI feels "smart tool" consistent.
-            dragMode = getSmartToolDragModeFor (*selectedClip, e.getPosition());
+            dragMode = isClipTrackFrozenOrFreezing (audioEngine, selectedClip)
+                ? DragMode::none
+                : getSmartToolDragModeFor (*selectedClip, e.getPosition());
 
             if (auto* wave = dynamic_cast<tracktion::WaveAudioClip*> (selectedClip))
             {
@@ -7238,6 +7410,10 @@ public:
                 else if (chosen == 2)
                 {
                     selectedIds.removeString (track->itemID.toString());
+                    // Clear selection before delete: clips on this track are destroyed and
+                    // selectedClip would otherwise dangle until parentChanged runs.
+                    if (selectedClip != nullptr && selectedClip->getTrack() == track)
+                        clearSelectedClip();
                     audioEngine.deleteTrack (track);
                     if (onTrackSelected) onTrackSelected (nullptr);
                     repaint();
@@ -7473,6 +7649,12 @@ public:
         }
 
         if (selectedClip && dragMode != DragMode::none) {
+            if (isClipTrackFrozenOrFreezing (audioEngine, selectedClip))
+            {
+                dragMode = DragMode::none;
+                return;
+            }
+
             double mouseTime = xToTime((float)e.x);
 
             if (dragMode == DragMode::move)
@@ -7563,6 +7745,8 @@ public:
     double snapInterval = 1.0;
     EditTool activeTool = EditTool::select;
     tracktion::Clip* selectedClip = nullptr;
+    juce::ValueTree selectedClipState;
+    bool selectedClipRebindPending = false;
     tracktion::Track* trackBeingRenamed = nullptr;
     juce::TextEditor  trackNameEditor;
     juce::TextEditor  rulerValueEditor;
@@ -7762,6 +7946,9 @@ public:
 
             if (auto* a = dynamic_cast<tracktion::AudioTrack*>(row.track))
             {
+                if (audioEngine.isTrackFrozen (a) || audioEngine.isTrackFreezing (a))
+                    return;
+
                 // Check if this is a MIDI-only track
                 bool isMidiTrack = (bool) a->state.getProperty(IDs::isMidiTrack, false);
 
@@ -7848,6 +8035,49 @@ public:
     void valueTreeChildAdded (juce::ValueTree&, juce::ValueTree&) override { requestTimelineRefresh (true); }
     void valueTreeChildRemoved (juce::ValueTree&, juce::ValueTree&, int) override { requestTimelineRefresh (true); }
     void valueTreeChildOrderChanged (juce::ValueTree&, int, int) override { requestTimelineRefresh (true); }
+    void valueTreeParentChanged (juce::ValueTree& tree) override
+    {
+        if (tree != selectedClipState)
+            return;
+
+        // Tracktion clip moves briefly detach then re-parent the ValueTree. Drop the
+        // raw pointer immediately (object may be destroyed when this returns), then
+        // asynchronously recover selection if the node was reattached.
+        if (! selectedClipState.getParent().isValid())
+        {
+            selectedClip = nullptr;
+            dragMode = DragMode::none;
+            selectedClipRebindPending = true;
+
+            juce::Component::SafePointer<Timeline> safe (this);
+            const auto state = selectedClipState;
+            juce::MessageManager::callAsync ([safe, state]
+            {
+                if (safe == nullptr || safe->selectedClipState != state
+                    || ! safe->selectedClipRebindPending)
+                    return;
+
+                safe->selectedClipRebindPending = false;
+
+                if (state.getParent().isValid())
+                {
+                    safe->selectedClip = safe->findClipWithState (state);
+                    return;
+                }
+
+                if (safe->selectedClipState.isValid())
+                    safe->selectedClipState.removeListener (safe.getComponent());
+                safe->selectedClipState = {};
+            });
+            return;
+        }
+
+        if (selectedClipRebindPending)
+        {
+            selectedClipRebindPending = false;
+            selectedClip = findClipWithState (selectedClipState);
+        }
+    }
 
     void editStateChanged() override { requestTimelineRefresh (false); }
 
@@ -8094,6 +8324,8 @@ public:
 
     void paint(juce::Graphics& g) override
     {
+        AERION_PROFILE_SCOPE ("Mixer::paint");
+
         Theme::fillBackgroundGradient (g, getLocalBounds());
 
         // Header strip.
@@ -8791,6 +9023,8 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        AERION_PROFILE_SCOPE ("Transport::paint");
+
         Theme::fillBackgroundGradient (g, getLocalBounds());
         g.setColour (Theme::border.withAlpha (0.6f));
         g.drawLine (0.0f, 0.0f, (float)getWidth(), 0.0f);

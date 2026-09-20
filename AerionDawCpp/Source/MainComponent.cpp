@@ -79,9 +79,9 @@ MainComponent::MainComponent()
 
         double pos = audioEngine.getTransportPosition();
         if (targetTrack != nullptr) {
-            if (audioEngine.isTrackFrozen(targetTrack)) {
+            if (audioEngine.isTrackFrozen(targetTrack) || audioEngine.isTrackFreezing(targetTrack)) {
                 juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
-                    "Track Frozen", "Cannot add clips to frozen tracks. Unfreeze the track first.");
+                    "Track Unavailable", "Cannot add clips to frozen tracks or tracks that are currently freezing.");
                 return;
             }
             audioEngine.insertAudioClipOnTrack (targetTrack, f, pos);
@@ -142,6 +142,8 @@ MainComponent::MainComponent()
     {
         auto doOpen = [this, f]()
         {
+            closeEmbeddedPianoRoll();
+            timeline.clearSelectedClip();
             detachFromObservedEditState();
             audioEngine.loadProject (f, &projectData);
             attachToCurrentEditState();
@@ -209,6 +211,7 @@ MainComponent::MainComponent()
     menuBar.onAddMidiTrack   = [this] { audioEngine.addMidiTrack();    timeline.repaint(); mixer.repaint(); };
     menuBar.onAddFolderTrack = [this] { audioEngine.addFolderTrack(); audioEngine.syncFolderRouting(); timeline.repaint(); mixer.repaint(); };
     menuBar.onDeleteTrack    = [this] {
+        timeline.clearSelectedClip();
         for (auto* t : timeline.getSelectedTracks()) audioEngine.deleteTrack (t);
         syncInspectorToTrack (nullptr);
         timeline.repaint(); mixer.repaint();
@@ -233,6 +236,9 @@ MainComponent::MainComponent()
     menuBar.onNudgeLeft  = [this] {
         if (auto* clip = timeline.selectedClip)
         {
+            if (isClipTrackFrozenOrFreezing (audioEngine, clip))
+                return;
+
             double iv = (bool) projectData.getProjectTree().getProperty (IDs::snapEnabled)
                         ? (double) projectData.getProjectTree().getProperty (IDs::snapInterval) : 0.1;
             auto& ts = audioEngine.getEdit().tempoSequence;
@@ -244,6 +250,9 @@ MainComponent::MainComponent()
     menuBar.onNudgeRight = [this] {
         if (auto* clip = timeline.selectedClip)
         {
+            if (isClipTrackFrozenOrFreezing (audioEngine, clip))
+                return;
+
             double iv = (bool) projectData.getProjectTree().getProperty (IDs::snapEnabled)
                         ? (double) projectData.getProjectTree().getProperty (IDs::snapInterval) : 0.1;
             auto& ts = audioEngine.getEdit().tempoSequence;
@@ -255,6 +264,9 @@ MainComponent::MainComponent()
     menuBar.onTrimLeft   = [this] {
         if (auto* clip = timeline.selectedClip)
         {
+            if (isClipTrackFrozenOrFreezing (audioEngine, clip))
+                return;
+
             double iv = (bool) projectData.getProjectTree().getProperty (IDs::snapEnabled)
                         ? (double) projectData.getProjectTree().getProperty (IDs::snapInterval) : 0.1;
             auto& ts  = audioEngine.getEdit().tempoSequence;
@@ -269,6 +281,9 @@ MainComponent::MainComponent()
     menuBar.onTrimRight  = [this] {
         if (auto* clip = timeline.selectedClip)
         {
+            if (isClipTrackFrozenOrFreezing (audioEngine, clip))
+                return;
+
             double iv = (bool) projectData.getProjectTree().getProperty (IDs::snapEnabled)
                         ? (double) projectData.getProjectTree().getProperty (IDs::snapInterval) : 0.1;
             auto& ts  = audioEngine.getEdit().tempoSequence;
@@ -283,8 +298,11 @@ MainComponent::MainComponent()
     menuBar.onDeleteEvent = [this] {
         if (timeline.selectedClip != nullptr)
         {
+            if (isClipTrackFrozenOrFreezing (audioEngine, timeline.selectedClip))
+                return;
+
             timeline.selectedClip->removeFromParent();
-            timeline.selectedClip = nullptr;
+            timeline.clearSelectedClip();
             timeline.repaint();
         }
     };
@@ -397,6 +415,15 @@ MainComponent::MainComponent()
     {
         namespace te = tracktion;
 
+        if (targetTrack != nullptr
+            && (audioEngine.isTrackFrozen (targetTrack) || audioEngine.isTrackFreezing (targetTrack)))
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
+                "Track Unavailable",
+                "Cannot add clips to frozen tracks or tracks that are currently freezing.");
+            return;
+        }
+
         // If only one file, just insert it sequentially on the target track
         if (files.size() == 1)
         {
@@ -505,6 +532,8 @@ MainComponent::MainComponent()
                 {
                     if (result == 1)
                     {
+                        closeEmbeddedPianoRoll();
+                        timeline.clearSelectedClip();
                         detachFromObservedEditState();
                         audioEngine.loadProject(audioEngine.getRecoveryFile(), &projectData);
                         attachToCurrentEditState();
@@ -561,10 +590,10 @@ MainComponent::MainComponent()
         }
 
         // New clip — destroy old editor
-        if (embeddedPianoRoll != nullptr)
-            removeChildComponent (embeddedPianoRoll.get());
+        closeEmbeddedPianoRoll();
 
         embeddedClip = &clip;
+        attachEmbeddedClipListener (clip);
         embeddedPianoRoll = std::make_unique<PianoRollEditor> (clip, audioEngine.getEdit(), projectData, audioEngine);
         addAndMakeVisible (*embeddedPianoRoll);
 
@@ -576,10 +605,7 @@ MainComponent::MainComponent()
             auto* clipPtr = embeddedClip;
             juce::MessageManager::callAsync ([this, clipPtr]
             {
-                if (embeddedPianoRoll != nullptr)
-                    removeChildComponent (embeddedPianoRoll.get());
-                embeddedPianoRoll.reset();
-                embeddedClip = nullptr;
+                closeEmbeddedPianoRoll();
                 bottomPanel = BottomPanel::Mixer;
                 resized();
                 if (clipPtr != nullptr)
@@ -614,6 +640,7 @@ MainComponent::MainComponent()
 MainComponent::~MainComponent()
 {
     stopTimer();
+    closeEmbeddedPianoRoll();
     detachFromObservedEditState();
     projectData.getProjectTree().removeListener (this);
     audioEngine.removeListener (this);
@@ -660,6 +687,9 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component* orig
         {
             if (auto* clip = timeline.selectedClip)
             {
+                if (isClipTrackFrozenOrFreezing (audioEngine, clip))
+                    return true;
+
                 if (auto* t = clip->getTrack())
                     timeline.applyAutoCrossfadesForTrack (*t);
             }
@@ -676,6 +706,9 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component* orig
     {
         if (auto* clip = timeline.selectedClip)
         {
+            if (isClipTrackFrozenOrFreezing (audioEngine, clip))
+                return true;
+
             double interval = projectData.getProjectTree().getProperty (IDs::snapInterval);
             if (! (bool) projectData.getProjectTree().getProperty (IDs::snapEnabled))
                 interval = 0.1; // small nudge if snap is off
@@ -722,8 +755,11 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component* orig
     {
         if (timeline.selectedClip != nullptr)
         {
+            if (isClipTrackFrozenOrFreezing (audioEngine, timeline.selectedClip))
+                return true;
+
             timeline.selectedClip->removeFromParent();
-            timeline.selectedClip = nullptr;
+            timeline.clearSelectedClip();
             timeline.repaint();
             return true;
         }
@@ -744,6 +780,7 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component* orig
     }
     if (km.matches ("clip.delete", key))
     {
+        timeline.clearSelectedClip();
         for (auto* track : selected)
             audioEngine.deleteTrack (track);
         syncInspectorToTrack (nullptr);
@@ -757,6 +794,8 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component* orig
 
 void MainComponent::doCreateNewProject()
 {
+    closeEmbeddedPianoRoll();
+    timeline.clearSelectedClip();
     detachFromObservedEditState();
     audioEngine.createNewProject();
     attachToCurrentEditState();
@@ -913,6 +952,8 @@ void MainComponent::doOpenProjectChooser()
                               auto file = fc.getResult();
                               if (file.existsAsFile())
                               {
+                                  closeEmbeddedPianoRoll();
+                                  timeline.clearSelectedClip();
                                   detachFromObservedEditState();
                                   audioEngine.loadProject (file, &projectData);
                                   attachToCurrentEditState();
@@ -1230,6 +1271,8 @@ void MainComponent::exportMixdown()
 
 void MainComponent::timerCallback()
 {
+    AERION_PROFILE_TICK (profileReporter);
+
     const double pos = audioEngine.getTransportPosition();
     const bool playing = audioEngine.isPlaying();
 
@@ -1608,6 +1651,8 @@ void MainComponent::loadWorkspaceLayouts()
 
 void MainComponent::editStateChanged()
 {
+    AERION_PROFILE_SCOPE ("MainComponent::editStateChanged");
+
     const auto syncStartMs = juce::Time::getMillisecondCounterHiRes();
 
     hasUnsavedChanges = true;
@@ -1691,16 +1736,47 @@ void MainComponent::valueTreePropertyChanged (juce::ValueTree& v, const juce::Id
     }
 }
 
-void MainComponent::valueTreeChildRemoved (juce::ValueTree& /*parent*/,
-                                           juce::ValueTree& child, int)
+void MainComponent::attachEmbeddedClipListener (tracktion::MidiClip& clip)
 {
-    // If the embedded MIDI clip is deleted, close the Piano Roll and revert to Mixer
-    if (embeddedPianoRoll && embeddedClip && child == embeddedClip->state)
+    detachEmbeddedClipListener();
+    embeddedClipState = clip.state;
+    embeddedClipState.addListener (this);
+}
+
+void MainComponent::detachEmbeddedClipListener()
+{
+    if (embeddedClipState.isValid())
+    {
+        embeddedClipState.removeListener (this);
+        embeddedClipState = {};
+    }
+}
+
+void MainComponent::closeEmbeddedPianoRoll()
+{
+    detachEmbeddedClipListener();
+
+    if (embeddedPianoRoll != nullptr)
     {
         removeChildComponent (embeddedPianoRoll.get());
         embeddedPianoRoll.reset();
-        embeddedClip = nullptr;
-        bottomPanel = BottomPanel::Mixer;
-        resized();
     }
+
+    embeddedClip = nullptr;
 }
+
+void MainComponent::valueTreeParentChanged (juce::ValueTree& tree)
+{
+    // Embedded PianoRollEditor holds a raw MidiClip&. Close it synchronously while
+    // the clip object is still alive — the same pattern as PianoRollWindow.
+    if (embeddedPianoRoll == nullptr || tree != embeddedClipState)
+        return;
+
+    if (embeddedClipState.getParent().isValid())
+        return;
+
+    closeEmbeddedPianoRoll();
+    bottomPanel = BottomPanel::Mixer;
+    resized();
+}
+

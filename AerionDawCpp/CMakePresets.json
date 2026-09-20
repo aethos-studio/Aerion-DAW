@@ -34,6 +34,15 @@
       }
     },
     {
+      "name": "win-msvc-profiling",
+      "displayName": "Windows MSVC + Paint Profiling (x64)",
+      "inherits": "win-msvc-base",
+      "binaryDir": "${sourceDir}/../build-profiling",
+      "cacheVariables": {
+        "AERION_ENABLE_PROFILING": "ON"
+      }
+    },
+    {
       "name": "mac-clang-debug",
       "displayName": "macOS Clang Debug (ARM64)",
       "generator": "Ninja Multi-Config",
@@ -91,6 +100,12 @@
       "displayName": "Build Debug + Tests",
       "configurePreset": "win-msvc-debug-tests",
       "configuration": "Debug"
+    },
+    {
+      "name": "win-msvc-profiling",
+      "displayName": "Build Release + Paint Profiling",
+      "configurePreset": "win-msvc-profiling",
+      "configuration": "Release"
     },
     {
       "name": "mac-clang-debug",
