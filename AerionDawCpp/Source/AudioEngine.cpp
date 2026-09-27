@@ -1977,16 +1977,22 @@ void AudioEngineManager::freezeTrack (te::AudioTrack* track)
 
     if (rangeEnd <= rangeStart) return;
 
-    // Serialize pre-freeze clip state into track->state
+    // Serialize pre-freeze clip state. The clip ValueTree is the source of truth
+    // (trim, offset, fades, MIDI notes). Numeric fields remain so snapshots
+    // written before that copy existed can still be restored.
     juce::ValueTree preFreeze(IDs::preFreeze);
     for (auto* clip : clips) {
         juce::ValueTree cs("ClipState");
+        cs.appendChild (clip->state.createCopy(), nullptr);
+
         if (auto* wc = dynamic_cast<te::WaveAudioClip*>(clip)) {
             cs.setProperty("file", wc->getSourceFileReference().getFile().getFullPathName(), nullptr);
             cs.setProperty(IDs::preFreezeClipType, "audio", nullptr);
-        } else if (auto* mc = dynamic_cast<te::MidiClip*>(clip)) {
+            cs.setProperty("offset", wc->getPosition().getOffset().inSeconds(), nullptr);
+            cs.setProperty("fadeIn", wc->getFadeIn().inSeconds(), nullptr);
+            cs.setProperty("fadeOut", wc->getFadeOut().inSeconds(), nullptr);
+        } else if (dynamic_cast<te::MidiClip*>(clip) != nullptr) {
             cs.setProperty(IDs::preFreezeClipType, "midi", nullptr);
-            cs.appendChild(mc->state.createCopy(), nullptr);
         }
         cs.setProperty("startBeat", clip->getStartBeat().inBeats(), nullptr);
         cs.setProperty("endBeat", clip->getEndBeat().inBeats(), nullptr);
@@ -2020,6 +2026,68 @@ void AudioEngineManager::freezeTrack (te::AudioTrack* track)
     job->start();
 }
 
+namespace
+{
+    juce::ValueTree savedClipStateFrom (const juce::ValueTree& clipSnapshot)
+    {
+        for (int i = 0; i < clipSnapshot.getNumChildren(); ++i)
+        {
+            auto child = clipSnapshot.getChild (i);
+            if (te::Clip::isClipState (child))
+                return child;
+        }
+
+        return {};
+    }
+
+    void restorePreFreezeClip (AudioEngineManager& owner, te::AudioTrack& track, const juce::ValueTree& cs)
+    {
+        const double startBeat = cs.getProperty ("startBeat", 0.0);
+        const double endBeat   = cs.getProperty ("endBeat", startBeat);
+        auto& ts = owner.getEdit().tempoSequence;
+        const auto startTime = ts.beatsToTime (te::BeatPosition::fromBeats (startBeat));
+        const auto endTime   = ts.beatsToTime (te::BeatPosition::fromBeats (endBeat));
+
+        // A detached copy: insertClipWithState rejects a node that already has a parent.
+        if (auto saved = savedClipStateFrom (cs); saved.isValid())
+        {
+            if (auto* restored = track.insertClipWithState (saved.createCopy()))
+            {
+                // Musical position comes from the snapshot. keepLength retains the
+                // trimmed duration; preserveSync left false so the source offset stays.
+                restored->setStart (startTime, false, true);
+                return;
+            }
+        }
+
+        const auto clipType = cs.getProperty (IDs::preFreezeClipType, "audio").toString();
+        if (clipType == "midi")
+            return;
+
+        const auto file = juce::File (cs.getProperty ("file").toString());
+        if (! file.existsAsFile())
+            return;
+
+        auto* restored = owner.insertAudioClipOnTrack (&track, file, startTime.inSeconds());
+        if (restored == nullptr)
+            return;
+
+        const double lengthSecs = juce::jmax (0.01, (endTime - startTime).inSeconds());
+        restored->setLength (te::TimeDuration::fromSeconds (lengthSecs), true);
+
+        if (cs.hasProperty ("offset"))
+            restored->setOffset (te::TimeDuration::fromSeconds ((double) cs.getProperty ("offset")));
+
+        if (auto* wave = dynamic_cast<te::WaveAudioClip*> (restored))
+        {
+            if (cs.hasProperty ("fadeIn"))
+                wave->setFadeIn (te::TimeDuration::fromSeconds ((double) cs.getProperty ("fadeIn")));
+            if (cs.hasProperty ("fadeOut"))
+                wave->setFadeOut (te::TimeDuration::fromSeconds ((double) cs.getProperty ("fadeOut")));
+        }
+    }
+}
+
 void AudioEngineManager::unfreezeTrack (te::AudioTrack* track)
 {
     if (track == nullptr || !isTrackFrozen(track)) return;
@@ -2037,30 +2105,8 @@ void AudioEngineManager::unfreezeTrack (te::AudioTrack* track)
     track->state.setProperty(IDs::frozen, false, nullptr);
 
     // Re-insert original clips from preFreeze state
-    for (int i = 0; i < preFreeze.getNumChildren(); ++i) {
-        auto cs = preFreeze.getChild(i);
-        juce::String clipType = cs.getProperty(IDs::preFreezeClipType, "audio").toString();
-        double startBeat = cs.getProperty("startBeat", 0.0);
-
-        if (clipType == "midi") {
-            // Restore MIDI clip from saved state
-            if (cs.getNumChildren() > 0) {
-                auto midiState = cs.getChild(0);
-                if (auto* midiClip = dynamic_cast<te::MidiClip*>(track->insertClipWithState(midiState))) {
-                    auto startTime = edit->tempoSequence.beatsToTime(te::BeatPosition::fromBeats(startBeat));
-                    midiClip->setStart(startTime, false, false);
-                }
-            }
-        } else {
-            // Restore audio clip
-            auto file = juce::File(cs.getProperty("file").toString());
-            if (edit != nullptr && file.existsAsFile()) {
-                auto startPos = te::BeatPosition::fromBeats(startBeat);
-                auto startTime = edit->tempoSequence.beatsToTime(startPos);
-                insertAudioClipOnTrack(track, file, startTime.inSeconds());
-            }
-        }
-    }
+    for (int i = 0; i < preFreeze.getNumChildren(); ++i)
+        restorePreFreezeClip (*this, *track, preFreeze.getChild (i));
 
     // Re-enable ExternalPlugins
     for (auto* p : track->getAllPlugins())
