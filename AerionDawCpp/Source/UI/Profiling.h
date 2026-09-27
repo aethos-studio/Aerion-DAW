@@ -156,8 +156,101 @@ namespace Aerion::Profiling
         JUCE_DECLARE_NON_COPYABLE (ScopedZone)
     };
 
+    /** Measures message-thread responsiveness, the thing a user feels as input
+        delay. A background thread posts a ping to the message queue every
+        100 ms and times how long it waits to be serviced; any wait over
+        kStallMs means clicks, keys and repaints queued behind it waited too.
+
+        Pings are posted one at a time, so a long freeze shows up as a single
+        long latency sample rather than a pile of queued pings. */
+    class MessageThreadWatchdog : private juce::Thread
+    {
+    public:
+        static constexpr double kStallMs     = 50.0;
+        static constexpr int    kPingEveryMs = 100;
+
+        MessageThreadWatchdog() : juce::Thread ("Aerion message-thread watchdog")
+        {
+            startThread (juce::Thread::Priority::low);
+        }
+
+        ~MessageThreadWatchdog() override { stopThread (2000); }
+
+        juce::String flushReport()
+        {
+            const juce::SpinLock::ScopedLockType lock (statsLock);
+
+            juce::String s;
+            s << "message thread: " << pings << " pings, avg latency "
+              << juce::String (pings > 0 ? totalMs / (double) pings : 0.0, 2) << " ms, max "
+              << juce::String (maxMs, 1) << " ms, " << stalls << " stalls > "
+              << juce::String (kStallMs, 0) << " ms";
+
+            if (stalls > 0)
+                s << " (worst stall " << juce::String (maxMs, 1) << " ms)";
+
+            pings = 0;
+            stalls = 0;
+            totalMs = 0.0;
+            maxMs = 0.0;
+            return s;
+        }
+
+    private:
+        void run() override
+        {
+            while (! threadShouldExit())
+            {
+                auto serviced = std::make_shared<std::atomic<bool>> (false);
+                const double sentMs = juce::Time::getMillisecondCounterHiRes();
+
+                if (! juce::MessageManager::callAsync ([serviced] { serviced->store (true); }))
+                    return; // message manager is shutting down
+
+                bool reportedFreeze = false;
+
+                while (! serviced->load() && ! threadShouldExit())
+                {
+                    wait (1);
+
+                    // A freeze this long may never end (deadlock), so say so now
+                    // instead of waiting for a sample that might not arrive.
+                    if (! reportedFreeze && juce::Time::getMillisecondCounterHiRes() - sentMs > 1000.0)
+                    {
+                        juce::Logger::writeToLog ("Aerion watchdog: message thread unresponsive for > 1 s");
+                        reportedFreeze = true;
+                    }
+                }
+
+                if (threadShouldExit())
+                    return;
+
+                record (juce::Time::getMillisecondCounterHiRes() - sentMs);
+                wait (kPingEveryMs);
+            }
+        }
+
+        void record (double latencyMs)
+        {
+            const juce::SpinLock::ScopedLockType lock (statsLock);
+            ++pings;
+            totalMs += latencyMs;
+            maxMs = juce::jmax (maxMs, latencyMs);
+
+            if (latencyMs > kStallMs)
+                ++stalls;
+        }
+
+        juce::SpinLock statsLock;
+        juce::int64 pings = 0, stalls = 0;
+        double totalMs = 0.0, maxMs = 0.0;
+
+        JUCE_DECLARE_NON_COPYABLE (MessageThreadWatchdog)
+    };
+
     /** Drives periodic reporting from an existing UI timer, so profiling adds no
-        timer of its own. Logs at most once per interval. */
+        timer of its own. Logs at most once per interval, and owns the
+        message-thread watchdog so its numbers land in the same report. */
     class PeriodicReporter
     {
     public:
@@ -176,11 +269,13 @@ namespace Aerion::Profiling
                 return;
 
             lastReportMs = now;
-            juce::Logger::writeToLog (Registry::get().flushReport (elapsedSeconds));
+            juce::Logger::writeToLog (Registry::get().flushReport (elapsedSeconds)
+                                      + watchdog.flushReport() + "\n");
         }
 
     private:
         double lastReportMs = 0.0;
+        MessageThreadWatchdog watchdog;
     };
 }
 

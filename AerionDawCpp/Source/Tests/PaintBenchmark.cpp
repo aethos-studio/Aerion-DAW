@@ -2,25 +2,31 @@
 #include "../UIComponents.h"
 
 //==============================================================================
-// Headless Timeline paint benchmark (Milestone 5).
+// Headless paint benchmark (Milestone 5).
 //
-// Renders the real Timeline component into an offscreen image so paint cost can
-// be measured without a display, a mouse, or a human. Two scenarios:
+// Renders the real Timeline and Mixer components into offscreen images so paint
+// cost can be measured without a display, a mouse, or a human. Scenarios:
 //
-//   full      - the whole component is invalidated (scroll, zoom, edit)
-//   playhead  - only a 16 px strip is invalidated, which is what
-//               MainComponent::timerCallback actually does 25 times a second
-//               during playback
+//   timeline full      - the whole component is invalidated (scroll, zoom, edit)
+//   timeline playhead  - only a 16 px strip is invalidated, which is what
+//                        MainComponent::timerCallback does during playback
+//   mixer full / meters - full console vs the strip body repainted for meters
+//   clip drag          - what one mouse move costs while dragging a clip:
+//                        the Edit update plus the full Timeline repaint
 //
-// The playhead scenario is the interesting one. If Timeline::paint scales with
-// the invalidated area, its cost should be a small fraction of the full repaint.
-// If it instead walks every track and every clip regardless, the two numbers
-// converge - and that gap is the thing Milestone 5 needs to close.
+// Each scenario runs once per renderer: "native" (Direct2D on Windows, which is
+// what app windows use) and "software" (JUCE's CPU rasteriser). Direct2D work
+// is submitted when the Graphics context ends; GPU execution that completes
+// after that is not included, so native numbers are message-thread cost.
+//
+// The clip drag model update is synchronous cost only. With no audio device
+// there is no playback graph, so the rebuild the app triggers after an edit is
+// not captured here.
 //
 // Not registered with ctest: timings are machine-dependent, so this is a tool
 // you run and read, not a pass/fail gate.
 //
-//   AerionBench --tracks=32 --clips=20 --frames=200
+//   AerionBench --tracks=32 --clips=20 --frames=200 [--renderer=both|native|software]
 //==============================================================================
 
 namespace
@@ -105,10 +111,23 @@ namespace
         return false;
     }
 
-    Result timePaint (juce::Component& c, int width, int height, int frames,
-                      juce::Rectangle<int> clipRegion)
+    double elapsedMsSince (juce::int64 startTicks)
     {
-        juce::Image image (juce::Image::ARGB, width, height, true);
+        return 1000.0 * (double) (juce::Time::getHighResolutionTicks() - startTicks)
+                      / (double) juce::Time::getHighResolutionTicksPerSecond();
+    }
+
+    void accumulate (Result& r, double& total, double elapsedMs)
+    {
+        total += elapsedMs;
+        r.minMs = juce::jmin (r.minMs, elapsedMs);
+        r.maxMs = juce::jmax (r.maxMs, elapsedMs);
+    }
+
+    Result timePaint (juce::Component& c, int width, int height, int frames,
+                      juce::Rectangle<int> clipRegion, const juce::ImageType& imageType)
+    {
+        juce::Image image (juce::Image::ARGB, width, height, true, imageType);
 
         // One untimed pass so lazily-built caches (thumbnails, fonts) are warm
         // and the measured frames reflect steady state rather than first paint.
@@ -130,27 +149,102 @@ namespace
                 g.reduceClipRegion (clipRegion);
                 c.paintEntireComponent (g, false);
             }
-            const auto elapsedMs = 1000.0 * (double) (juce::Time::getHighResolutionTicks() - start)
-                                         / (double) juce::Time::getHighResolutionTicksPerSecond();
-
-            total += elapsedMs;
-            r.minMs = juce::jmin (r.minMs, elapsedMs);
-            r.maxMs = juce::jmax (r.maxMs, elapsedMs);
+            accumulate (r, total, elapsedMsSince (start));
         }
 
         r.avgMs = frames > 0 ? total / (double) frames : 0.0;
         return r;
     }
 
-    void report (const juce::String& label, const Result& r, double budgetMs)
+    /** Mirrors Timeline::mouseDrag in DragMode::move: every mouse event moves the
+        clip in the live Edit, then invalidates the whole Timeline. The two halves
+        are timed separately so the report shows whether input delay comes from
+        the model update or from the repaint that follows it. */
+    struct DragResult
     {
-        std::cout << label.paddedRight (' ', 22)
+        Result modelUpdate, repaint, total;
+    };
+
+    DragResult timeClipDrag (juce::Component& timeline, tracktion::Clip& clip,
+                             int width, int height, int frames, const juce::ImageType& imageType)
+    {
+        juce::Image image (juce::Image::ARGB, width, height, true, imageType);
+        const double originalStart = clip.getPosition().getStart().inSeconds();
+
+        DragResult r;
+        for (auto* res : { &r.modelUpdate, &r.repaint, &r.total })
+            res->minMs = std::numeric_limits<double>::max();
+
+        double modelTotal = 0.0, paintTotal = 0.0, allTotal = 0.0;
+
+        for (int i = 0; i < frames; ++i)
+        {
+            // Sweep back and forth over ~2 s, like a user nudging a clip around.
+            const double offset = 0.01 * (double) ((i % 200) < 100 ? (i % 100) : 100 - (i % 100));
+
+            const auto start = juce::Time::getHighResolutionTicks();
+            clip.setStart (tracktion::TimePosition::fromSeconds (originalStart + offset), false, true);
+            const double modelMs = elapsedMsSince (start);
+
+            const auto paintStart = juce::Time::getHighResolutionTicks();
+            {
+                juce::Graphics g (image);
+                timeline.paintEntireComponent (g, false);
+            }
+            const double paintMs = elapsedMsSince (paintStart);
+
+            accumulate (r.modelUpdate, modelTotal, modelMs);
+            accumulate (r.repaint, paintTotal, paintMs);
+            accumulate (r.total, allTotal, modelMs + paintMs);
+        }
+
+        clip.setStart (tracktion::TimePosition::fromSeconds (originalStart), false, true);
+
+        if (frames > 0)
+        {
+            r.modelUpdate.avgMs = modelTotal / (double) frames;
+            r.repaint.avgMs     = paintTotal / (double) frames;
+            r.total.avgMs       = allTotal   / (double) frames;
+        }
+
+        return r;
+    }
+
+    // One display frame at 60 Hz: the target for anything that answers input
+    // or animates (playhead, meters, drags).
+    constexpr double kFrameBudgetMs = 1000.0 / 60.0;
+
+    void report (const juce::String& label, const Result& r)
+    {
+        std::cout << label.paddedRight (' ', 30)
                   << juce::String (r.avgMs, 3).paddedLeft (' ', 9) << " ms avg"
                   << juce::String (r.minMs, 3).paddedLeft (' ', 9) << " ms min"
                   << juce::String (r.maxMs, 3).paddedLeft (' ', 9) << " ms max"
-                  << juce::String (r.avgMs > 0.0 ? 1000.0 / r.avgMs : 0.0, 0).paddedLeft (' ', 9) << " fps"
-                  << juce::String (100.0 * r.avgMs / budgetMs, 1).paddedLeft (' ', 9) << " % of 40 ms tick"
+                  << juce::String (100.0 * r.avgMs / kFrameBudgetMs, 1).paddedLeft (' ', 9) << " % of 60 Hz frame"
                   << std::endl;
+    }
+
+    struct Renderer
+    {
+        juce::String name;
+        std::unique_ptr<juce::ImageType> type;
+    };
+
+    /** "native" is what JUCE 8 uses for windows on Windows (Direct2D, so the GPU
+        or its WARP software fallback); "software" is JUCE's CPU rasteriser, the
+        candidate for machines where Direct2D is slow. */
+    std::vector<Renderer> renderersFromArgs (const juce::String& arg)
+    {
+        std::vector<Renderer> list;
+        const bool both = arg.isEmpty() || arg == "both";
+
+        if (both || arg == "native")
+            list.push_back ({ "native", std::make_unique<juce::NativeImageType>() });
+
+        if (both || arg == "software")
+            list.push_back ({ "software", std::make_unique<juce::SoftwareImageType>() });
+
+        return list;
     }
 }
 
@@ -209,31 +303,60 @@ int main (int argc, char* argv[])
         std::cout << (ok ? "  wrote " : "  FAILED to write ") << dest.getFullPathName() << std::endl;
     }
 
-    // 25 Hz UI timer => a 40 ms budget for everything, paint included.
-    const double budgetMs = 40.0;
+    // The docked console in the app is roughly this tall at 1080p.
+    const int mixerHeight = intArg (args, "--mixer-height", 320);
+    Mixer mixer (audioEngine, projectData);
+    mixer.setBounds (0, 0, width, mixerHeight);
 
-    std::cout << std::endl;
+    // A clip in the middle of the arrangement, so a drag touches a typical row.
+    tracktion::Clip* dragClip = nullptr;
+    {
+        auto tracks = audioEngine.getAudioTracks();
+        if (! tracks.isEmpty())
+        {
+            auto& clips = tracks[tracks.size() / 2]->getClips();
+            if (! clips.isEmpty())
+                dragClip = clips[clips.size() / 2];
+        }
+    }
 
-    const auto full = timePaint (timeline, width, height, frames,
-                                 juce::Rectangle<int> (0, 0, width, height));
-    report ("full repaint", full, budgetMs);
-
-    // Mirror MainComponent::timerCallback: a 16 px wide, full height strip.
     const int strip = 16;
-    const auto playhead = timePaint (timeline, width, height, frames,
-                                     juce::Rectangle<int> (width / 2 - strip / 2, 0, strip, height));
-    report ("playhead strip 16px", playhead, budgetMs);
+    const juce::Rectangle<int> fullArea (0, 0, width, height);
+    const juce::Rectangle<int> playheadStrip (width / 2 - strip / 2, 0, strip, height);
+    // Same region Mixer::repaintStripMetersArea() invalidates during playback.
+    const juce::Rectangle<int> mixerBody (0, Mixer::kHeaderH + 8, width,
+                                          juce::jmax (0, mixerHeight - Mixer::kHeaderH - 8));
 
-    std::cout << std::endl;
+    for (auto& renderer : renderersFromArgs (stringArg (args, "--renderer")))
+    {
+        std::cout << std::endl << "[" << renderer.name << " renderer]" << std::endl;
 
-    const double areaRatio = (double) (strip * height) / (double) (width * height);
-    const double costRatio = full.avgMs > 0.0 ? playhead.avgMs / full.avgMs : 0.0;
+        const auto full = timePaint (timeline, width, height, frames, fullArea, *renderer.type);
+        report ("timeline full repaint", full);
 
-    std::cout << "playhead strip covers " << juce::String (100.0 * areaRatio, 2)
-              << " % of the component area but costs "
-              << juce::String (100.0 * costRatio, 1) << " % of a full repaint." << std::endl;
-    std::cout << "Ideal is for those two numbers to track each other; the gap is wasted paint."
-              << std::endl;
+        const auto playhead = timePaint (timeline, width, height, frames, playheadStrip, *renderer.type);
+        report ("timeline playhead 16px", playhead);
+
+        report ("mixer full repaint",
+                timePaint (mixer, width, mixerHeight, frames, mixer.getLocalBounds(), *renderer.type));
+        report ("mixer meters area",
+                timePaint (mixer, width, mixerHeight, frames, mixerBody, *renderer.type));
+
+        if (dragClip != nullptr)
+        {
+            const auto drag = timeClipDrag (timeline, *dragClip, width, height, frames, *renderer.type);
+            report ("clip drag: model update", drag.modelUpdate);
+            report ("clip drag: full repaint", drag.repaint);
+            report ("clip drag: per mouse move", drag.total);
+        }
+
+        const double areaRatio = (double) (strip * height) / (double) (width * height);
+        const double costRatio = full.avgMs > 0.0 ? playhead.avgMs / full.avgMs : 0.0;
+
+        std::cout << "  playhead strip is " << juce::String (100.0 * areaRatio, 2)
+                  << " % of the area but costs " << juce::String (100.0 * costRatio, 1)
+                  << " % of a full repaint (the gap is wasted paint)." << std::endl;
+    }
 
    #if AERION_ENABLE_PROFILING
     // The benchmark has no UI timer, so flush the probes by hand. rowsDrawn vs
