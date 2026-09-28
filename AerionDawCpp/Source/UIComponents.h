@@ -5071,10 +5071,10 @@ public:
         
         std::function<void(tracktion::Track*)> addHeight = [&](tracktion::Track* t) {
             totalH += getTrackHeight (t);
-            if (auto* f = dynamic_cast<tracktion::FolderTrack*>(t)) {
-                for (auto* child : f->getAllAudioSubTracks(false))
-                    addHeight (child);
-            }
+            if (auto* f = dynamic_cast<tracktion::FolderTrack*>(t))
+                if (! collapsedFolders.contains (f->itemID.toString()))
+                    for (auto* child : f->getAllAudioSubTracks(false))
+                        addHeight (child);
         };
 
         for (auto* t : top)
@@ -6079,7 +6079,7 @@ public:
         {
             y += rowH;
 
-            if (folder != nullptr)
+            if (folder != nullptr && ! collapsedFolders.contains (folder->itemID.toString()))
                 for (auto* child : folder->getAllAudioSubTracks (false))
                     y = drawTrackRow (g, child, topIndex, indent + 16, y);
 
@@ -6696,7 +6696,7 @@ public:
 
         y += rowH;
 
-        if (folder != nullptr)
+        if (folder != nullptr && ! collapsedFolders.contains (folder->itemID.toString()))
             for (auto* child : folder->getAllAudioSubTracks(false))
                 y = drawTrackRow(g, child, topIndex, indent + 16, y);
 

@@ -1,5 +1,6 @@
 #include <JuceHeader.h>
 #include "../AudioEngine.h"
+#include "../ProjectData.h"
 
 //==============================================================================
 // AudioEngineManager smoke tests (Milestone 5).
@@ -16,9 +17,9 @@
 //   - Constructing tracktion::Engine is expensive, so the whole suite shares a
 //     single AudioEngineManager and cleans up the tracks it creates.
 //
-// Deliberately not covered: freeze/unfreeze guard behaviour, which is being
-// changed by the open freeze-lifetime work. Asserting today's behaviour here
-// would just have to be rewritten.
+// Freeze render itself stays out of this suite (it is async and needs a device).
+// Unfreeze placement is covered: a frozen snapshot must restore trim, offset
+// and fades, not the whole source file.
 //
 // Expected noise: tearing the suite down logs two Debug-only JUCE assertions
 // (juce_WeakReference.h and tracktion_SelectionManager.cpp). They fire inside
@@ -272,6 +273,108 @@ public:
             expect (! engine.isMetronomeAccentEnabled());
         }
 
+        beginTest ("unfreeze restores trimmed audio from the clip snapshot");
+        {
+            const auto file = writeTestWav ("aerion_unfreeze_state.wav", 2.0);
+            expect (file.existsAsFile());
+
+            auto* track = engine.addAudioTrack();
+            auto* clip = engine.insertAudioClipOnTrack (track, file, 1.25);
+            expect (clip != nullptr);
+
+            if (clip != nullptr)
+            {
+                clip->setName ("phrase");
+                clip->setLength (tracktion::TimeDuration::fromSeconds (0.5), true);
+                clip->setOffset (tracktion::TimeDuration::fromSeconds (0.35));
+                clip->setFadeIn (tracktion::TimeDuration::fromSeconds (0.04));
+                clip->setFadeOut (tracktion::TimeDuration::fromSeconds (0.06));
+
+                const double start = clip->getPosition().getStart().inSeconds();
+                const double length = clip->getPosition().getLength().inSeconds();
+                const double offset = clip->getPosition().getOffset().inSeconds();
+
+                juce::ValueTree preFreeze (IDs::preFreeze);
+                auto cs = clipSnapshot (*clip, true);
+                // Numeric fields deliberately disagree with the clip state. Restore
+                // must prefer the state, otherwise a trimmed phrase comes back as a
+                // different edit (or the whole source file).
+                cs.setProperty ("offset", 9.0, nullptr);
+                cs.setProperty ("fadeIn", 0.0, nullptr);
+                cs.setProperty ("fadeOut", 0.0, nullptr);
+                preFreeze.addChild (cs, -1, nullptr);
+
+                clip->removeFromParent();
+                installFrozenSnapshot (*track, preFreeze);
+                engine.unfreezeTrack (track);
+
+                expectEquals (track->getClips().size(), 1);
+                if (track->getClips().size() == 1)
+                {
+                    auto* restored = dynamic_cast<tracktion::WaveAudioClip*> (track->getClips()[0]);
+                    expect (restored != nullptr);
+                    if (restored != nullptr)
+                    {
+                        expectEquals (restored->getName(), juce::String ("phrase"));
+                        expectWithinAbsoluteError (restored->getPosition().getStart().inSeconds(), start, 0.02);
+                        expectWithinAbsoluteError (restored->getPosition().getLength().inSeconds(), length, 0.02);
+                        expectWithinAbsoluteError (restored->getPosition().getOffset().inSeconds(), offset, 0.02);
+                        expectWithinAbsoluteError (restored->getFadeIn().inSeconds(), 0.04, 0.01);
+                        expectWithinAbsoluteError (restored->getFadeOut().inSeconds(), 0.06, 0.01);
+                        expect (restored->getPosition().getLength().inSeconds() < 1.0);
+                    }
+                }
+            }
+
+            engine.deleteTrack (track);
+            file.deleteFile();
+        }
+
+        beginTest ("unfreeze of a legacy snapshot keeps length, offset and fades");
+        {
+            const auto file = writeTestWav ("aerion_unfreeze_legacy.wav", 2.0);
+            expect (file.existsAsFile());
+
+            auto* track = engine.addAudioTrack();
+            auto* clip = engine.insertAudioClipOnTrack (track, file, 0.8);
+            expect (clip != nullptr);
+
+            if (clip != nullptr)
+            {
+                clip->setLength (tracktion::TimeDuration::fromSeconds (0.4), true);
+                clip->setOffset (tracktion::TimeDuration::fromSeconds (0.22));
+                clip->setFadeIn (tracktion::TimeDuration::fromSeconds (0.03));
+                clip->setFadeOut (tracktion::TimeDuration::fromSeconds (0.05));
+
+                const double start = clip->getPosition().getStart().inSeconds();
+                auto cs = clipSnapshot (*clip, false);
+                clip->removeFromParent();
+
+                juce::ValueTree preFreeze (IDs::preFreeze);
+                preFreeze.addChild (cs, -1, nullptr);
+                installFrozenSnapshot (*track, preFreeze);
+                engine.unfreezeTrack (track);
+
+                expectEquals (track->getClips().size(), 1);
+                if (track->getClips().size() == 1)
+                {
+                    auto* restored = dynamic_cast<tracktion::WaveAudioClip*> (track->getClips()[0]);
+                    expect (restored != nullptr);
+                    if (restored != nullptr)
+                    {
+                        expectWithinAbsoluteError (restored->getPosition().getStart().inSeconds(), start, 0.02);
+                        expectWithinAbsoluteError (restored->getPosition().getLength().inSeconds(), 0.4, 0.02);
+                        expectWithinAbsoluteError (restored->getPosition().getOffset().inSeconds(), 0.22, 0.02);
+                        expectWithinAbsoluteError (restored->getFadeIn().inSeconds(), 0.03, 0.01);
+                        expectWithinAbsoluteError (restored->getFadeOut().inSeconds(), 0.05, 0.01);
+                    }
+                }
+            }
+
+            engine.deleteTrack (track);
+            file.deleteFile();
+        }
+
         beginTest ("createNewProject clears the session back to empty");
         {
             engine.addAudioTrack();
@@ -284,6 +387,61 @@ public:
             expect (engine.getTopLevelTracks().isEmpty());
             expect (engine.getEdit().getMasterTrack() != nullptr);
         }
+    }
+
+private:
+    static juce::File writeTestWav (const juce::String& name, double seconds)
+    {
+        auto file = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile (name);
+        file.deleteFile();
+
+        const double sampleRate = 44100.0;
+        const int numSamples = (int) (seconds * sampleRate);
+        juce::AudioBuffer<float> buffer (1, numSamples);
+        buffer.clear();
+
+        juce::WavAudioFormat format;
+        if (auto out = std::unique_ptr<juce::FileOutputStream> (file.createOutputStream()))
+        {
+            if (auto writer = std::unique_ptr<juce::AudioFormatWriter> (
+                    format.createWriterFor (out.get(), sampleRate, 1, 16, {}, 0)))
+            {
+                out.release();
+                writer->writeFromAudioSampleBuffer (buffer, 0, numSamples);
+            }
+        }
+
+        return file;
+    }
+
+    static juce::ValueTree clipSnapshot (tracktion::Clip& clip, bool includeState)
+    {
+        juce::ValueTree cs ("ClipState");
+        if (includeState)
+            cs.appendChild (clip.state.createCopy(), nullptr);
+
+        if (auto* wave = dynamic_cast<tracktion::WaveAudioClip*> (&clip))
+        {
+            cs.setProperty ("file", wave->getSourceFileReference().getFile().getFullPathName(), nullptr);
+            cs.setProperty (IDs::preFreezeClipType, "audio", nullptr);
+            cs.setProperty ("offset", wave->getPosition().getOffset().inSeconds(), nullptr);
+            cs.setProperty ("fadeIn", wave->getFadeIn().inSeconds(), nullptr);
+            cs.setProperty ("fadeOut", wave->getFadeOut().inSeconds(), nullptr);
+        }
+
+        cs.setProperty ("startBeat", clip.getStartBeat().inBeats(), nullptr);
+        cs.setProperty ("endBeat", clip.getEndBeat().inBeats(), nullptr);
+        return cs;
+    }
+
+    static void installFrozenSnapshot (tracktion::AudioTrack& track, const juce::ValueTree& preFreeze)
+    {
+        auto existing = track.state.getChildWithName (IDs::preFreeze);
+        if (existing.isValid())
+            track.state.removeChild (existing, nullptr);
+
+        track.state.addChild (preFreeze.createCopy(), -1, nullptr);
+        track.state.setProperty (IDs::frozen, true, nullptr);
     }
 };
 
