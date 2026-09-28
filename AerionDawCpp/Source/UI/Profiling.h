@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <optional>
 
 //==============================================================================
 // Aerion paint/hot-path profiling (Milestone 5).
@@ -293,11 +294,22 @@ namespace Aerion::Profiling
             JUCE_JOIN_MACRO (aerionCountId_, __LINE__), (juce::int64) (n));                   \
     } while (false)
 
+// For a section that cannot get its own braces (its locals are used after it):
+//   AERION_PROFILE_SECTION (ruler, "Timeline.ruler");  ...  AERION_PROFILE_SECTION_END (ruler);
+#define AERION_PROFILE_SECTION(var, zoneName)                                                 \
+    static const int JUCE_JOIN_MACRO (aerionSectionId_, var)                                  \
+        = ::Aerion::Profiling::Registry::get().registerZone (zoneName);                       \
+    std::optional<::Aerion::Profiling::ScopedZone> var;                                       \
+    var.emplace (JUCE_JOIN_MACRO (aerionSectionId_, var));
+#define AERION_PROFILE_SECTION_END(var) (var).reset()
+
 #define AERION_PROFILE_REPORTER(name) ::Aerion::Profiling::PeriodicReporter name
 #define AERION_PROFILE_TICK(name)     (name).tick()
 
 #else // ! AERION_ENABLE_PROFILING
 
+#define AERION_PROFILE_SECTION(var, zoneName) ((void) 0)
+#define AERION_PROFILE_SECTION_END(var)       ((void) 0)
 #define AERION_PROFILE_SCOPE(zoneName)      ((void) 0)
 #define AERION_PROFILE_COUNT(zoneName, n)   ((void) 0)
 #define AERION_PROFILE_REPORTER(name)       static_assert (true, "")

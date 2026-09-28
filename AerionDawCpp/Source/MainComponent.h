@@ -159,6 +159,7 @@ private:
     Timeline   timeline  { audioEngine, projectData };
     Mixer      mixer     { audioEngine, projectData };
     Transport  transport { audioEngine, projectData };
+    TimelinePlayheadOverlay playheadOverlay { timeline, audioEngine };
 
     int mixerHeight = 320;
     MixerResizer    mixerResizer    { *this };
@@ -187,8 +188,13 @@ private:
 
     double lastTransportPos = -1.0;
     bool lastIsPlaying = false;
-    float lastPlayheadX = -10000.0f;
     double lastMeterFrameSec = 0.0;
+    double lastPlayheadFrameSec = 0.0;
+
+    // View -> Lightweight UI: 0 = Auto, 1 = On, 2 = Off (see Theme::lightweightUi).
+    static constexpr const char* kLightweightUiKey = "lightweightUi";
+    int lightweightUiChoice = 0;
+    void applyLightweightUi (int choice);
     double meterTailUntilSec = 0.0;
     juce::uint32 lastChoreMs = 0;
 
@@ -221,7 +227,6 @@ private:
     // Display-synced clock for everything that animates during playback. Declared
     // last so it is destroyed first, before anything its callback touches.
     void onDisplayFrame (double nowSec);
-    void movePlayhead (double pos);
     juce::VBlankAttachment displayClock { this, [this] (double nowSec) { onDisplayFrame (nowSec); } };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)

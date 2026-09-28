@@ -17,6 +17,7 @@ MainComponent::MainComponent()
     addAndMakeVisible (inspector);
     addAndMakeVisible (browser);
     addAndMakeVisible (timeline);
+    addAndMakeVisible (playheadOverlay);   // directly above the Timeline
     addAndMakeVisible (mixer);
     addAndMakeVisible (transport);
     addAndMakeVisible (mixerResizer);
@@ -364,6 +365,12 @@ MainComponent::MainComponent()
     menuBar.onApplyWorkspace  = [this] (juce::String n) { applyWorkspaceLayoutByName (n); };
     menuBar.onSaveWorkspace   = [this] { saveCurrentWorkspaceLayout(); };
     menuBar.onDeleteWorkspace = [this] (juce::String n) { deleteWorkspaceLayout (n); };
+    menuBar.onLightweightUiChanged = [this] (int choice)
+    {
+        if (auto* s = audioEngine.getUserSettings())
+            s->setValue (kLightweightUiKey, choice);
+        applyLightweightUi (choice);
+    };
     menuBar.onGraphicsEngineChanged = [this] (int choice)
     {
         graphicsEngine.setChoice (GraphicsEngine::choiceFromInt (choice));
@@ -632,7 +639,10 @@ MainComponent::MainComponent()
     updateTitleBar();
 
     if (auto* s = audioEngine.getUserSettings())
+    {
         graphicsEngine.setChoice (GraphicsEngine::choiceFromInt (s->getIntValue (GraphicsEngine::settingsKey, 0)));
+        applyLightweightUi (s->getIntValue (kLightweightUiKey, 0));
+    }
 
     // Restore the last-used workspace layout (built-in or custom) from settings.
     loadWorkspaceLayouts();
@@ -938,6 +948,8 @@ void MainComponent::syncMenuBarState()
     for (const auto& l : customLayouts)
         menuBar.customWorkspaceNames.add (l.name);
     menuBar.activeWorkspaceName = activeLayoutName;
+    menuBar.lightweightUiChoice  = lightweightUiChoice;
+    menuBar.lightweightUiActive  = Theme::lightweightUi();
     menuBar.graphicsEngineChoice = (int) graphicsEngine.getChoice();
     menuBar.graphicsEngineInUse  = GraphicsEngine::resolvedEngineName (graphicsEngine.getChoice());
 
@@ -1283,31 +1295,65 @@ void MainComponent::exportMixdown()
     juce::Logger::writeToLog ("ExportMixdown: launchAsync returned");
 }
 
+void MainComponent::applyLightweightUi (int choice)
+{
+    lightweightUiChoice = juce::jlimit (0, 2, choice);
+
+    // Auto: machines with few cores or little memory are the ones where
+    // decorative fills and 30 Hz meters cost a noticeable share of the CPU.
+    const bool weakMachine = juce::SystemStats::getNumPhysicalCpus() <= 2
+                          || juce::SystemStats::getMemorySizeInMegabytes() < 6 * 1024;
+
+    const bool enable = lightweightUiChoice == 1 || (lightweightUiChoice == 0 && weakMachine);
+    const bool changed = enable != Theme::lightweightUi();
+    Theme::lightweightUi() = enable;
+
+    juce::Logger::writeToLog ("Lightweight UI: "
+                              + juce::String (lightweightUiChoice == 0 ? "Auto" : lightweightUiChoice == 1 ? "On" : "Off")
+                              + " -> " + (enable ? "on" : "off"));
+
+    if (changed)
+    {
+        // Cached layers keep their old pixels until invalidated.
+        timeline.repaint();
+        repaint();
+    }
+
+    syncMenuBarState();
+}
+
 void MainComponent::onDisplayFrame (double nowSec)
 {
     const double pos = audioEngine.getTransportPosition();
     const bool playing = audioEngine.isPlaying();
     const bool recording = audioEngine.isRecording();
+    const bool lightweight = Theme::lightweightUi();
 
-    // The playhead moves on every display frame; meters, the transport readout
-    // and live recording rows update at most 30 times a second. The tolerance
-    // keeps a 60 Hz display at exactly every other frame despite timestamp jitter.
-    constexpr double kMeterIntervalSec = 1.0 / 30.0;
-    const bool meterFrame = nowSec - lastMeterFrameSec >= kMeterIntervalSec * 0.9;
+    // Rates: the playhead every display frame (30 Hz in Lightweight UI);
+    // meters, transport readout and live recording rows at most 30 Hz (20 Hz).
+    // The 0.9 tolerance keeps a 60 Hz display at exactly every other frame
+    // despite timestamp jitter.
+    const double playheadIntervalSec = lightweight ? 1.0 / 30.0 : 0.0;
+    const double meterIntervalSec    = lightweight ? 1.0 / 20.0 : 1.0 / 30.0;
+
+    // The playhead layer repaints only when it moved to another pixel (playback,
+    // locate, scroll or zoom). The Timeline underneath is drawn from its cached
+    // layer, so this costs a strip copy.
+    if (nowSec - lastPlayheadFrameSec >= playheadIntervalSec * 0.9)
+    {
+        lastPlayheadFrameSec = nowSec;
+        playheadOverlay.update();
+    }
+
+    if (nowSec - lastMeterFrameSec < meterIntervalSec * 0.9)
+        return;
+
+    lastMeterFrameSec = nowSec;
 
     // Keep meters running briefly after the transport stops so they fall back
     // to silence instead of freezing at their last level.
     if (playing || recording)
         meterTailUntilSec = nowSec + 1.5;
-
-    if (! meterFrame)
-    {
-        if (playing && ! recording)
-            movePlayhead (pos);
-        return;
-    }
-
-    lastMeterFrameSec = nowSec;
 
     if (pos != lastTransportPos || playing != lastIsPlaying)
     {
@@ -1326,33 +1372,6 @@ void MainComponent::onDisplayFrame (double nowSec)
     // Recording changes waveform data continuously; keep invalidation to live rows.
     if (recording)
         timeline.repaintRecordingRows();
-    else if (playing)
-        movePlayhead (pos);
-}
-
-void MainComponent::movePlayhead (double pos)
-{
-    // Full timeline repaints are reserved for edits; playback repaints only the
-    // old and new playhead strips, wide enough to clear anti-aliased strokes.
-    const float newX = timeline.timeToX (pos);
-    const int laneH = timeline.getHeight();
-    const int w = 16;
-    const int newXi = (int) std::round (newX);
-
-    if (lastPlayheadX < -9000.0f)
-    {
-        timeline.repaint (newXi - w / 2, 0, w, laneH);
-        lastPlayheadX = newX;
-        return;
-    }
-
-    const int oldXi = (int) std::round (lastPlayheadX);
-    if (oldXi != newXi)
-    {
-        timeline.repaint (oldXi - w / 2, 0, w, laneH);
-        timeline.repaint (newXi - w / 2, 0, w, laneH);
-        lastPlayheadX = newX;
-    }
 }
 
 void MainComponent::timerCallback()
@@ -1467,6 +1486,7 @@ void MainComponent::resized()
     }
 
     timeline.setBounds (centerBounds);
+    playheadOverlay.setBounds (centerBounds);
 }
 
 //==============================================================================

@@ -6,6 +6,8 @@
 #include "UI/ThemeTokens.h"
 #include "UI/Primitives.h"
 #include "UI/Icons.h"
+#include "UI/CachedLayer.h"
+#include "UI/ClipFrame.h"
 #include "UI/LookAndFeel.h"
 #include "UI/ThemeTypefaces.h"
 #include "UI/Profiling.h"
@@ -1110,6 +1112,8 @@ public:
     juce::String      activeWorkspaceName;
     int          graphicsEngineChoice = 0;   // GraphicsEngine::Choice
     juce::String graphicsEngineInUse;        // e.g. "Software Renderer"
+    int          lightweightUiChoice  = 0;   // 0 = Auto, 1 = On, 2 = Off
+    bool         lightweightUiActive  = false;
     bool   hasSelectedTrack = false;
     bool   hasSelectedClip  = false;
     bool   trackArmed       = false;
@@ -1141,6 +1145,7 @@ public:
     std::function<void()>             onSaveWorkspace;
     std::function<void(juce::String)> onDeleteWorkspace;
     std::function<void(int)>          onGraphicsEngineChanged;
+    std::function<void(int)>          onLightweightUiChanged;
     std::function<void(juce::File)>   onOpenRecent;
     std::function<void()>             onClearRecent;
     std::function<void()>             onCollectSaveAs;
@@ -1478,9 +1483,19 @@ private:
         gfxSub.addItem (502, "Software",             true, graphicsEngineChoice == 2);
         m.addSubMenu ("Graphics Engine", gfxSub);
 
+        // Flat fills and lower animation rates for weak machines.
+        juce::PopupMenu lightSub;
+        lightSub.addItem (600, juce::String ("Auto (") + (lightweightUiActive ? "On" : "Off") + ")",
+                          true, lightweightUiChoice == 0);
+        lightSub.addItem (601, "On",  true, lightweightUiChoice == 1);
+        lightSub.addItem (602, "Off", true, lightweightUiChoice == 2);
+        m.addSubMenu ("Lightweight UI", lightSub);
+
         m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
             if (r >= 500 && r <= 502 && onGraphicsEngineChanged)
                 onGraphicsEngineChanged (r - 500);
+            if (r >= 600 && r <= 602 && onLightweightUiChanged)
+                onLightweightUiChanged (r - 600);
             if (r == 1 && onToggleInspector)   onToggleInspector();
             if (r == 2 && onToggleBrowser)     onToggleBrowser();
             if (r == 3 && onToggleMixerDetach) onToggleMixerDetach();
@@ -2518,12 +2533,7 @@ public:
         g.drawRect (getLocalBounds(), 1);
 
         auto header = getLocalBounds().removeFromTop(32);
-        {
-            juce::ColourGradient cg (Theme::surface.brighter (0.08f), 0.0f, 0.0f,
-                                     Theme::surface.darker   (0.06f), 0.0f, (float) header.getBottom(), false);
-            g.setGradientFill (cg);
-            g.fillRect (header);
-        }
+        Theme::fillVerticalGradient (g, header, Theme::surface.brighter (0.08f), Theme::surface.darker (0.06f));
         g.setColour(Theme::border);
         g.drawLine(0.0f, 32.0f, (float)getWidth(), 32.0f);
 
@@ -4589,6 +4599,12 @@ public:
 
     Timeline(AudioEngineManager& ae, ProjectData& pd) : audioEngine(ae), projectData(pd)
     {
+        // Rendered into a cached layer: paint() runs only for areas this component
+        // invalidates. The playhead lives on TimelinePlayheadOverlay above it, so
+        // moving it redraws from the cache. paint() fills every pixel, hence opaque.
+        setOpaque (true);
+        setCachedComponentImage (new CachedLayer (*this));
+
         projectData.getProjectTree().addListener (this);
         audioEngine.addListener (this);
         snapEnabled = projectData.getProjectTree().getProperty (IDs::snapEnabled);
@@ -5577,6 +5593,8 @@ public:
 
         trackButtonCache.clear();  // Clear button bounds cache before repainting
         currentTooltip.isValid = false;
+
+        AERION_PROFILE_SECTION (chromeZone, "Timeline.chrome");
         Theme::fillBackgroundGradient (g, getLocalBounds());
 
         // Header column action bar (+ Track / + MIDI / + Folder)
@@ -5586,26 +5604,21 @@ public:
         addFolderBtn    = juce::Rectangle<int>(8 + (btnW + 4)*2, 4, btnW, kHeaderBarH - 8);
 
         // Header column (slightly raised)
-        {
-            juce::ColourGradient cg (Theme::bgPanel.brighter (0.08f), 0.0f, 0.0f,
-                                     Theme::bgPanel.darker   (0.06f), 0.0f, (float) kHeaderBarH, false);
-            g.setGradientFill (cg);
-            g.fillRect (0, 0, kHeaderWidth, kHeaderBarH);
-        }
+        Theme::fillVerticalGradient (g, { 0, 0, kHeaderWidth, kHeaderBarH },
+                                     Theme::bgPanel.brighter (0.08f), Theme::bgPanel.darker (0.06f));
         g.setColour(Theme::border);
         g.drawLine((float)kHeaderWidth, 0.0f, (float)kHeaderWidth, (float)kHeaderBarH);
 
         drawHeaderButton(g, addTrackBtn,     "+ Audio", Theme::accent);
         drawHeaderButton(g, addMidiTrackBtn, "+ MIDI",  Theme::trackColours[3]);
         drawHeaderButton(g, addFolderBtn,    "+ Folder", Theme::active);
+        AERION_PROFILE_SECTION_END (chromeZone);
+
+        AERION_PROFILE_SECTION (rulerZone, "Timeline.ruler");
 
         // Ruler (right of header bar)
-        {
-            juce::ColourGradient cg (Theme::bgPanel.brighter (0.09f), (float) kHeaderWidth, 0.0f,
-                                     Theme::bgPanel.darker   (0.06f), (float) kHeaderWidth, (float) kRulerH, false);
-            g.setGradientFill (cg);
-            g.fillRect (kHeaderWidth, 0, getWidth() - kHeaderWidth, kRulerH);
-        }
+        Theme::fillVerticalGradient (g, { kHeaderWidth, 0, getWidth() - kHeaderWidth, kRulerH },
+                                     Theme::bgPanel.brighter (0.09f), Theme::bgPanel.darker (0.06f));
         g.setColour(Theme::border);
         g.drawLine(0.0f, (float)kRulerH, (float)getWidth(), (float)kRulerH);
         g.drawLine((float)kHeaderWidth, 0.0f, (float)getWidth(), 0.0f);
@@ -5788,6 +5801,7 @@ public:
 
         drawTimeSigLane (g);
         drawTempoLane (g);
+        AERION_PROFILE_SECTION_END (rulerZone);
 
         auto top = audioEngine.getTopLevelTracks();
 
@@ -5945,15 +5959,8 @@ public:
         g.setColour (Theme::border);
         g.drawLine (0.0f, (float)(getHeight() - kFooterH), (float) getWidth(), (float)(getHeight() - kFooterH));
 
-        // Playhead  -  drawn over lanes but not over the footer.
-        float phX = timeToX(audioEngine.getTransportPosition());
-        if (phX > kHeaderWidth && phX < getWidth() - kVScrollW) {
-            g.setColour (Theme::playhead);
-            g.drawLine (phX, 0.0f, phX, (float) (getHeight() - kFooterH), 1.5f);
-            juce::Path head;
-            head.addTriangle (phX - 6.0f, 0.0f, phX + 6.0f, 0.0f, phX, 10.0f);
-            g.fillPath (head);
-        }
+        // The playhead is drawn by TimelinePlayheadOverlay, not here, so that
+        // moving it never invalidates this component's cached layer.
 
         // Razor hairline preview
         if (activeTool == EditTool::razor && lastMouseX >= kHeaderWidth && lastMouseX < getWidth() - kVScrollW)
@@ -6128,6 +6135,7 @@ public:
         juce::Rectangle<int> hb(0, y, kHeaderWidth, rowH);
         if (g.clipRegionIntersects (hb))
         {
+            AERION_PROFILE_SCOPE ("Timeline.rowHeader");
             g.setColour(isSel ? Theme::surface : Theme::bgPanel);
             g.fillRect(hb);
             g.setColour(Theme::border);
@@ -6299,29 +6307,17 @@ public:
                     juce::Rectangle<float> cb(timeToX(start),
                                               (float)y + 2.0f, len * pxPerSec, (float)kTrackH - 4.0f);
 
+                    // Whole-pixel clip edges, so the frame and waveform are copied
+                    // from cached images rather than resampled at fractional offsets.
+                    cb = cb.withLeft (std::round (cb.getX())).withRight (std::round (cb.getRight()));
+
                     if (cb.getRight() < kHeaderWidth || cb.getX() > getWidth()) continue;
                     if (! g.clipRegionIntersects (cb.expanded (kClipPaintMargin).getSmallestIntegerContainer())) continue;
 
                     // Clip styling: subtle shadow, rich gradient, crisp highlight.
-                    {
-                        auto shadow = cb.translated (0.0f, 1.0f);
-                        g.setColour (juce::Colours::black.withAlpha (0.35f));
-                        g.fillRoundedRectangle (shadow, 6.0f);
-                    }
-
-                    juce::ColourGradient grad (tColor.brighter (0.28f), cb.getX(), cb.getY(),
-                                               tColor.darker   (0.22f), cb.getX(), cb.getBottom(), false);
-                    grad.addColour (0.18, tColor.brighter (0.35f));
-                    g.setGradientFill (grad);
-                    g.fillRoundedRectangle (cb, 6.0f);
-
-                    const bool selected = (selectedClip == clip);
-                    g.setColour ((selected ? Theme::accent : Theme::border).withAlpha (selected ? 0.95f : 0.55f));
-                    g.drawRoundedRectangle (cb, 6.0f, selected ? 2.0f : 1.0f);
-
-                    // Top highlight
-                    g.setColour (juce::Colours::white.withAlpha (clip->isMuted() ? 0.06f : 0.12f));
-                    g.drawLine (cb.getX() + 2.0f, cb.getY() + 1.0f, cb.getRight() - 2.0f, cb.getY() + 1.0f, 1.0f);
+                    AERION_PROFILE_SECTION (frameZone, "Timeline.clipFrame");
+                    clipFrames.draw (g, cb, tColor, selectedClip == clip, clip->isMuted());
+                    AERION_PROFILE_SECTION_END (frameZone);
 
                     if (auto* wave = dynamic_cast<tracktion::WaveAudioClip*>(clip))
                     {
@@ -6338,6 +6334,7 @@ public:
 
                         if (! viewportCb.isEmpty() && innerCb.getWidth() > 0.0f)
                         {
+                            AERION_PROFILE_SCOPE ("Timeline.waveform");
                             double fullW         = (double) innerCb.getWidth();
                             double audioStart    = offset + (double) (viewportCb.getX() - innerCb.getX()) * clipLen / fullW;
                             double audioDuration = (double) viewportCb.getWidth() * clipLen / fullW;
@@ -6351,13 +6348,16 @@ public:
                                 samplesNow = audioEngine.getThumbnailForClip (*wave, *this).getNumSamplesFinished();
 
                             auto& entry = waveformCache[wave->itemID.getRawID()];
-                            if (entry.width != w || entry.height != h
+                            const bool softwareCtx = isSoftwareContext (g);
+                            if (entry.width != w || entry.height != h || entry.software != softwareCtx
                                 || ! juce::approximatelyEqual (entry.pxPerSec, pxPerSec)
                                 || std::abs (entry.audioStart    - audioStart)    > 0.001
                                 || std::abs (entry.audioDuration - audioDuration) > 0.001
                                 || entry.samplesLoaded != samplesNow)
                             {
-                                entry.image = juce::Image (juce::Image::ARGB, w, h, true);
+                                // Opaque and matched to the renderer, so drawing it is a plain copy.
+                                entry.image = makeImageFor (softwareCtx, juce::Image::RGB, w, h, false);
+                                entry.software = softwareCtx;
                                 juce::Graphics ig (entry.image);
                                 auto drawWave = [&] ()
                                 {
@@ -6376,7 +6376,7 @@ public:
 
                                 // Dark background so the waveform is always readable
                                 // regardless of clip colour, then white waveform on top.
-                                ig.setColour (juce::Colours::black.withAlpha (0.95f));
+                                ig.setColour (juce::Colours::black);
                                 ig.fillAll();
 
                                 ig.setColour (juce::Colours::white.withAlpha (1.0f));
@@ -6399,9 +6399,8 @@ public:
                                 entry.height        = h;
                                 entry.samplesLoaded = samplesNow;
                             }
-                            g.drawImage (entry.image,
-                                         viewportCb.getX(), viewportCb.getY(), (float) w, (float) h,
-                                         0, 0, w, h);
+                            g.drawImageAt (entry.image, juce::roundToInt (viewportCb.getX()),
+                                                        juce::roundToInt (viewportCb.getY()));
                         }
 
                         // Fade curves (drawn over full unclipped clip bounds)
@@ -6506,9 +6505,12 @@ public:
                         }
                     }
 
-                    g.setColour(Theme::textMain);
-                    g.setFont (Theme::uiSize (10.0f));
-                    g.drawText(clip->getName(), cb.reduced(6, 2).toNearestInt(), juce::Justification::topLeft);
+                    {
+                        AERION_PROFILE_SCOPE ("Timeline.clipText");
+                        g.setColour(Theme::textMain);
+                        g.setFont (Theme::uiSize (10.0f));
+                        g.drawText(clip->getName(), cb.reduced(6, 2).toNearestInt(), juce::Justification::topLeft);
+                    }
 
                     if (audio != nullptr && (audioEngine.isTrackFrozen (audio) || audioEngine.isTrackFreezing (audio)))
                     {
@@ -8246,8 +8248,10 @@ private:
         int           width         = 0;
         int           height        = 0;
         juce::int64   samplesLoaded = -1;
+        bool          software      = false;   // image type matches the renderer
     };
     std::map<uint64_t, WaveformCacheEntry> waveformCache;
+    ClipFrameCache clipFrames;   // nine-slice clip bodies, see UI/ClipFrame.h
 
     // -- Private helpers ------------------------------------------------------
 
@@ -8309,6 +8313,61 @@ private:
             if (virtualY >= rows[i].y && virtualY < rows[i].y + rows[i].height)
                 { pluginDragTargetRow = i; break; }
     }
+};
+
+//==============================================================================
+// The playhead, on its own transparent layer above the Timeline and the same
+// size. It is a sibling of the Timeline, not a child: moving it makes the
+// parent redraw the old and new strips, which draws the Timeline from its
+// cached layer instead of re-running Timeline::paint.
+class TimelinePlayheadOverlay : public juce::Component
+{
+public:
+    TimelinePlayheadOverlay (Timeline& t, AudioEngineManager& ae) : timeline (t), audioEngine (ae)
+    {
+        setInterceptsMouseClicks (false, false);
+    }
+
+    /** Call once per display frame: repaints only when the playhead moved to
+        another pixel, whether from playback, a locate, a scroll or a zoom. */
+    void update()
+    {
+        const int x = juce::roundToInt (timeline.timeToX (audioEngine.getTransportPosition()));
+        if (x == lastX)
+            return;
+
+        repaintStrip (lastX);
+        repaintStrip (x);
+        lastX = x;
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const float x = timeline.timeToX (audioEngine.getTransportPosition());
+        if (x <= (float) Timeline::kHeaderWidth || x >= (float) (getWidth() - Timeline::kVScrollW))
+            return;
+
+        // Drawn over the lanes but not over the footer.
+        g.setColour (Theme::playhead);
+        g.drawLine (x, 0.0f, x, (float) (getHeight() - Timeline::kFooterH), 1.5f);
+        juce::Path head;
+        head.addTriangle (x - 6.0f, 0.0f, x + 6.0f, 0.0f, x, 10.0f);
+        g.fillPath (head);
+    }
+
+private:
+    // Wide enough for the 12 px head and anti-aliased line edges.
+    void repaintStrip (int x)
+    {
+        if (x > -9000)
+            repaint (x - 8, 0, 16, getHeight());
+    }
+
+    Timeline& timeline;
+    AudioEngineManager& audioEngine;
+    int lastX = -10000;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TimelinePlayheadOverlay)
 };
 
 //==============================================================================
@@ -8431,12 +8490,7 @@ public:
 
         if (g.clipRegionIntersects (header.withHeight (kHeaderH + 1)))
         {
-            {
-                juce::ColourGradient cg (Theme::bgPanel.brighter (0.08f), 0.0f, 0.0f,
-                                         Theme::bgPanel.darker   (0.06f), 0.0f, (float) header.getBottom(), false);
-                g.setGradientFill (cg);
-                g.fillRect (header);
-            }
+            Theme::fillVerticalGradient (g, header, Theme::bgPanel.brighter (0.08f), Theme::bgPanel.darker (0.06f));
             g.setColour(Theme::border);
             g.drawLine(0.0f, (float)kHeaderH, (float)getWidth(), (float)kHeaderH);
             g.setColour(Theme::active);

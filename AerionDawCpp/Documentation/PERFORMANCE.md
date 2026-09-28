@@ -122,6 +122,33 @@ Now:
 
 When idle, the display clock still fires every frame, but each idle frame only reads the transport state and returns. Nothing repaints while nothing changes.
 
+### Phase 2: Timeline layers, cheaper full repaints, cached chrome, Lightweight UI, startup (2026-09-28)
+
+A per-zone profile of a full Timeline repaint (software, 29 ms) showed where the time went: clip frames 8.7 ms, page chrome 6.5 ms (mostly the full-window background gradient), waveforms 6.1 ms, clip text 1.8 ms, row headers 1.6 ms. `AerionBench --full-only` with a profiling build prints this breakdown.
+
+- **Timeline layers.** The Timeline renders into its own cached layer (`UI/CachedLayer.h`) and is marked opaque. The playhead is a separate, click-through overlay above it (`TimelinePlayheadOverlay`), so moving it copies cached pixels instead of re-running `Timeline::paint`. The cache image matches the window's renderer. JUCE's own `setBufferedToImage` always uses a Direct2D image, which would mean a GPU readback on every copy with the software renderer, and Direct2D rendering whatever engine was chosen.
+- **Clip frames** are assembled from a nine-slice image cached per colour, height and state (`UI/ClipFrame.h`), instead of rasterising rounded-rectangle paths and strokes per clip.
+- **Waveforms** are cached as opaque images matching the renderer and drawn at whole pixels, so drawing them is a plain copy. Clip edges are snapped to whole pixels for this. This also fixed waveforms not showing with the software renderer: the cached waveform images were Direct2D images.
+- **Background gradients** are drawn as a few solid bands with the software renderer (a subtle vertical gradient has only a few dozen distinct row colours) instead of a per-pixel gradient.
+- **Icons and the fader cap** are drawn from rasters cached per size, colour, display scale and renderer (`Icons::drawRasterised`) instead of rasterising SVG paths on each paint.
+- **Lightweight UI** (View → Lightweight UI: Auto / On / Off; Auto turns it on with 2 or fewer physical cores or under 6 GB of RAM): flat fills instead of decorative gradients, square opaque clip bodies, meters and transport readout at 20 Hz, playhead at 30 Hz.
+- **Audio device startup** stays on the message thread: Tracktion asserts the message thread for parts of it, and ASIO drivers are COM objects tied to the thread that creates them. Instead, the splash now waits, showing "Starting audio devices...", until devices are open (at most 4 s), so the half-second stall no longer freezes the splash fade or the freshly shown main window.
+
+Same machine and project (32 tracks × 20 clips, 1080p):
+
+| Scenario | Direct2D baseline | Direct2D now | Software baseline | Software now |
+|---|---:|---:|---:|---:|
+| Timeline full repaint (scroll, zoom) | 19.2 ms | **7.6 ms** | 32.6 ms | **14.7 ms** |
+| Playhead move | 13.7 ms | **1.5 ms** | 1.2 ms | **0.10 ms** |
+| Clip drag, per mouse move | 19.4 ms | **2.1 ms** | 33.1 ms | **0.08 ms** |
+| Mixer meters, per playback tick | 5.7 ms | **2.4 ms** | 7.3 ms | **1.7 ms** |
+| Mixer full repaint | 5.9 ms | 4.0 ms | 8.1 ms | 3.9 ms |
+| Toolbar / transport full repaint | – | 0.6 / 0.8 ms | – | 0.17 / 0.22 ms |
+
+Everything now fits within a 60 Hz frame on this machine. The software full repaint (14.7 ms) is the closest to the limit, and on hardware 2–3× slower scrolling will still drop frames.
+
+**Tried and not shipped: scroll by copying.** Moving the cached pixels on a scroll and rendering only the exposed strip would make scrolling nearly free. A prototype got within a few hundred pixels of a fresh render, but items crossing the edge of the moved area (the ruler's label gutter, the first clip) and the screen-fixed background gradient for vertical scrolls did not match exactly. It was removed rather than shipped with visible seams. It remains the next step for scroll performance on slow machines.
+
 ### Fixed along the way: crash when releasing the Edit
 
 `AudioEngineManager` kept each track's LevelMeterPlugin alive in `trackMeters` and released it only after the Edit was destroyed or replaced. If that was the last reference, the plugin's destructor called into the dead Edit (`Edit::getParameterChangeHandler`). This affected quitting, opening a project and creating a new one. It showed up as the benchmark crashing on exit in about half of its runs, and it now releases meters and thumbnails before the Edit goes away (0 crashes in 10 runs).

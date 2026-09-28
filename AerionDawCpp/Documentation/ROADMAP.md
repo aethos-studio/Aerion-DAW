@@ -172,10 +172,11 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
   - [x] Mixer meters-only repaint during playback (5.7–7.3 ms → 2.4–3.3 ms per tick)
   - [x] Graphics engine setting (**View → Graphics Engine**: Auto / Hardware Accelerated / Software). Auto uses the software renderer up to 2560 × 1600 displays; Direct2D costs 10× more for small repaints
   - [x] One display-synced UI clock (`VBlankAttachment`) replacing the separate component timers: playhead at display rate, meters at 30 Hz with a decay tail, no idle repaints, event-driven tooltip poll
-  - [ ] Cache static chrome as images: background and header gradients, SVG icons, the fader cap
-  - [ ] Timeline layers: cached background plus a lightweight overlay, so scroll, zoom and playhead stop re-running the full paint (full repaint is still 19–31 ms)
-  - [ ] Move audio device init off the message thread (about 0.5 s UI stall on every launch)
-  - [ ] Light mode for low-end machines: no decorative gradients or animations, 30 Hz meters; auto-enabled on weak hardware
+  - [x] Cached chrome: background and header gradients drawn as solid bands in software, SVG icons and the fader cap drawn from cached rasters
+  - [x] Timeline layers: the Timeline renders into a renderer-matched cached layer with the playhead on an overlay above it (playhead move 13.7 → 1.5 ms Direct2D, 1.2 → 0.1 ms software); full repaints made cheaper with nine-slice clip frames and opaque whole-pixel waveforms (19–33 ms → 7.6–14.7 ms)
+  - [ ] Scroll by copying cached pixels (prototype removed: not yet pixel-exact at the edges of the moved area)
+  - [x] Audio device startup: stays on the message thread (Tracktion and ASIO require it) but now runs behind the splash, which waits for it, instead of freezing the fade or the fresh main window
+  - [x] Lightweight UI for low-end machines (View → Lightweight UI; Auto on ≤ 2 cores or < 6 GB RAM): flat fills, square clip bodies, 20 Hz meters, 30 Hz playhead
   - [ ] Split `UIComponents.h` (9,000+ lines) into one file per view
   - [ ] Audio side: multi-threaded audio graph; eliminate hot-path allocations
 - [ ] **High-DPI / Retina Support:** All custom-drawn components scale correctly at 150 % / 200 % display scaling. *Partial (~40 %): typography tokens (`Theme::uiSize` / `kUiFontScale`) shipped; fixed-pixel layout audit not started. `AerionBench --snapshots` renders the main components at 100 % and 150 % for the audit.*

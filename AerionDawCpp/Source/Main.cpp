@@ -84,15 +84,28 @@ public:
             mainWindow->centreWithSize (mainWindow->getWidth(), mainWindow->getHeight());
             mainWindow->setVisible (true);
 
-            // Only close the splash once the DAW has an actual native peer
-            // (i.e. it has really been created and is ready to paint).
+            // Only close the splash once the DAW has an actual native peer (i.e. it
+            // has really been created and is ready to paint) and the audio devices
+            // are open. Opening devices blocks the message thread for about half a
+            // second and cannot move to another thread (Tracktion and ASIO need the
+            // message thread), so it happens here, behind a splash at rest, rather
+            // than freezing the splash fade or the freshly shown main window.
+            const auto waitStartMs = juce::Time::getMillisecondCounterHiRes();
             auto tryCloseSplash = std::make_shared<std::function<void()>>();
-            *tryCloseSplash = [this, tryCloseSplash]
+            *tryCloseSplash = [this, tryCloseSplash, waitStartMs]
             {
                 if (splashWindow == nullptr || mainWindow == nullptr)
                     return;
 
-                if (mainWindow->getPeer() != nullptr && mainWindow->isShowing())
+                auto* mc = dynamic_cast<MainComponent*> (mainWindow->getContentComponent());
+                const bool devicesReady = mc == nullptr || mc->getAudioEngine().areAudioDevicesConnected()
+                                       // Never let a slow or missing driver keep the app hidden.
+                                       || juce::Time::getMillisecondCounterHiRes() - waitStartMs > 4000.0;
+
+                if (! devicesReady)
+                    splashWindow->setStatus ("Starting audio devices...");
+
+                if (devicesReady && mainWindow->getPeer() != nullptr && mainWindow->isShowing())
                 {
                     splashWindow->setStatus ("Ready");
                     splashWindow->setReady();

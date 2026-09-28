@@ -106,13 +106,70 @@ namespace Theme
         g.drawRoundedRectangle (b, r, 1.0f);
     }
 
+    /** Lightweight UI (View -> Lightweight UI), for weak machines: decorative
+        gradients become flat fills and meters and the playhead update less
+        often. Set by MainComponent from the user setting. */
+    inline bool& lightweightUi()
+    {
+        static bool enabled = false;
+        return enabled;
+    }
+
+    /** A decorative top-to-bottom gradient over `area`: flat (the two colours
+        mixed) in Lightweight UI, and cheap in the software renderer either way. */
+    inline void fillVerticalGradient (juce::Graphics& g, juce::Rectangle<int> area,
+                                      juce::Colour top, juce::Colour bottom)
+    {
+        if (lightweightUi())
+        {
+            g.setColour (top.interpolatedWith (bottom, 0.5f));
+            g.fillRect (area);
+            return;
+        }
+
+        juce::ColourGradient cg (top, 0.0f, (float) area.getY(), bottom, 0.0f, (float) area.getBottom(), false);
+
+        const bool software = dynamic_cast<juce::LowLevelGraphicsSoftwareRenderer*> (&g.getInternalContext()) != nullptr;
+        if (! software || area.getHeight() <= 1)
+        {
+            g.setGradientFill (cg);
+            g.fillRect (area);
+            return;
+        }
+
+        // The software renderer computes a gradient per pixel, which cost ~6 ms
+        // for a full-window fill. This gradient only spans a few dozen distinct
+        // colours top to bottom, so fill each run of equal rows as one solid
+        // rectangle instead, limited to the rows being repainted.
+        const auto rows = g.getClipBounds().getIntersection (area);
+        if (rows.isEmpty())
+            return;
+
+        auto colourAtRow = [&] (int y)
+        {
+            return cg.getColourAtPosition ((double) (y - area.getY()) / (double) (area.getHeight() - 1));
+        };
+
+        int runStart = rows.getY();
+        auto runColour = colourAtRow (runStart);
+
+        for (int y = rows.getY() + 1; y <= rows.getBottom(); ++y)
+        {
+            const auto c = y < rows.getBottom() ? colourAtRow (y) : juce::Colour();
+            if (y == rows.getBottom() || c != runColour)
+            {
+                g.setColour (runColour);
+                g.fillRect (area.getX(), runStart, area.getWidth(), y - runStart);
+                runStart = y;
+                runColour = c;
+            }
+        }
+    }
+
+    /** The page background: subtle depth, slightly lighter towards the top. */
     inline void fillBackgroundGradient (juce::Graphics& g, juce::Rectangle<int> area)
     {
-        // Subtle depth: slightly lighter towards the top.
-        juce::ColourGradient cg (bgBase.brighter (0.10f), 0.0f, (float) area.getY(),
-                                 bgBase.darker   (0.05f), 0.0f, (float) area.getBottom(), false);
-        g.setGradientFill (cg);
-        g.fillRect (area);
+        fillVerticalGradient (g, area, bgBase.brighter (0.10f), bgBase.darker (0.05f));
     }
 }
 

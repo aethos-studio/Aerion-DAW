@@ -3,6 +3,7 @@
 #include <cmath>
 #include "../AudioEngine.h"
 #include "ThemeTokens.h"
+#include "Icons.h"
 
 inline void setFaderFromY (AudioEngineManager& audioEngine, tracktion::Track* t, juce::Rectangle<int> area, int y)
 {
@@ -215,9 +216,18 @@ inline void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
         const float     scale  = kDrawH / kSvgH;
         // Uniform scale about origin then translate so SVG indicator (kIndicatorX, kIndicatorY) maps to (cx, capYf).
         // Do not use translation().scaled() — JUCE scales mat02/mat12 as well.
-        const auto xf = juce::AffineTransform (scale, 0.f, (float) cx - kIndicatorX * scale,
-                                               0.f, scale, capYf - kIndicatorY * scale);
-        faderKnobDrawable->draw (g, 1.0f, xf);
+        const float tx = (float) cx - kIndicatorX * scale;
+        const float ty = capYf - kIndicatorY * scale;
+
+        // Drawn from a cached raster (the cap repaints with the meters on every
+        // playback tick): whole-pixel origin, with the sub-pixel remainder baked
+        // into the raster so the result matches drawing the SVG directly.
+        const juce::Point<int> origin ((int) std::floor (tx), (int) std::floor (ty));
+        const float fx = tx - (float) origin.x, fy = ty - (float) origin.y;
+        const auto local = juce::AffineTransform (scale, 0.f, fx, 0.f, scale, fy);
+        Icons::drawRasterised (g, *faderKnobDrawable, origin,
+                               { (int) std::ceil (kSvgW * scale) + 2, (int) std::ceil (kDrawH) + 2 },
+                               local, juce::roundToInt (fx * 100.0f) * 1000 + juce::roundToInt (fy * 100.0f));
     }
 
     // Peak-hold dB readout

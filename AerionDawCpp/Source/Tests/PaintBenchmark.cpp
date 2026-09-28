@@ -28,7 +28,9 @@
 // you run and read, not a pass/fail gate.
 //
 //   AerionBench --tracks=32 --clips=20 --frames=200 [--renderer=both|native|software]
-//               [--verify]   exit code 2 if a partial repaint differs from a full one
+//               [--verify]      exit code 2 if a partial repaint differs from a full one
+//               [--lightweight] measure with View -> Lightweight UI on
+//               [--full-only]   only the full Timeline repaint (for the profile breakdown)
 //   AerionBench --tracks=4 --clips=3 --snapshots=<dir>
 //               renders an icon sheet and the toolbar, transport, menu bar, Timeline
 //               and Mixer at 100 % and 150 % scale to PNGs, then exits
@@ -414,6 +416,9 @@ int main (int argc, char* argv[])
     for (int i = 1; i < argc; ++i)
         args.add (juce::String (argv[i]));
 
+    // Flat fills instead of decorative gradients, as View -> Lightweight UI does.
+    Theme::lightweightUi() = args.contains ("--lightweight");
+
     const int numTracks    = intArg (args, "--tracks", 32);
     const int clipsPerTrack = intArg (args, "--clips",  20);
     const int frames       = intArg (args, "--frames", 200);
@@ -506,6 +511,17 @@ int main (int argc, char* argv[])
     Timeline timeline (audioEngine, projectData);
     timeline.setBounds (0, 0, width, height);
 
+    // The app's layering: the Timeline as a cached layer with the playhead
+    // overlay above it, both children of one parent (MainComponent in the app).
+    // Painting the Timeline directly, as the other scenarios do, bypasses the
+    // cache and measures Timeline::paint itself.
+    juce::Component layers;
+    TimelinePlayheadOverlay playheadOverlay (timeline, audioEngine);
+    layers.setBounds (0, 0, width, height);
+    layers.addAndMakeVisible (timeline);
+    layers.addAndMakeVisible (playheadOverlay);
+    playheadOverlay.setBounds (0, 0, width, height);
+
     if (auto pngPath = stringArg (args, "--png"); pngPath.isNotEmpty())
     {
         const juce::File dest (pngPath);
@@ -583,6 +599,9 @@ int main (int argc, char* argv[])
     const juce::Rectangle<int> fullArea (0, 0, width, height);
     const juce::Rectangle<int> playheadStrip (width / 2 - strip / 2, 0, strip, height);
 
+    // Put the playhead inside that strip so the overlay really draws there.
+    audioEngine.setTransportPosition (timeline.xToTime ((float) (width / 2)));
+
     if (args.contains ("--verify"))
     {
         std::cout << std::endl << "[verify partial repaints match a full repaint]" << std::endl;
@@ -597,6 +616,7 @@ int main (int argc, char* argv[])
 
         juce::Array<Check> checks;
         checks.add ({ "timeline playhead 16px", &timeline, height, playheadStrip });
+        checks.add ({ "layered playhead strip", &layers, height, playheadStrip });
         checks.add ({ "timeline header column", &timeline, height, juce::Rectangle<int> (0, 0, Timeline::kHeaderWidth, height) });
 
         if (dragClip != nullptr)
@@ -656,13 +676,34 @@ int main (int argc, char* argv[])
         const auto full = timePaint (timeline, width, height, frames, fullArea, *renderer.type);
         report ("timeline full repaint", full);
 
+        // With profiling on, isolates the per-zone breakdown of a full repaint.
+        if (args.contains ("--full-only"))
+            continue;
+
         const auto playhead = timePaint (timeline, width, height, frames, playheadStrip, *renderer.type);
-        report ("timeline playhead 16px", playhead);
+        report ("timeline strip, no cache", playhead);
+
+        // What playback actually costs now: the strip comes from the cached layer.
+        report ("playhead move (layered)",
+                timePaint (layers, width, height, frames, playheadStrip, *renderer.type));
 
         report ("mixer full repaint",
                 timePaint (mixer, width, mixerHeight, frames, mixer.getLocalBounds(), *renderer.type));
         report ("mixer meters area",
                 timePaint (mixer, width, mixerHeight, frames, mixerMeters, *renderer.type));
+
+        // Icons are drawn from cached rasters; the transport repaints 30 times a
+        // second during playback.
+        {
+            DAWToolbar benchToolbar;
+            Transport benchTransport (audioEngine, projectData);
+            benchToolbar.setBounds (0, 0, width, 40);
+            benchTransport.setBounds (0, 0, width, 60);
+            report ("toolbar full repaint",
+                    timePaint (benchToolbar, width, 40, frames, benchToolbar.getLocalBounds(), *renderer.type));
+            report ("transport full repaint",
+                    timePaint (benchTransport, width, 60, frames, benchTransport.getLocalBounds(), *renderer.type));
+        }
 
         if (dragClip != nullptr)
         {
