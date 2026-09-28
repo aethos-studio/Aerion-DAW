@@ -65,7 +65,7 @@ The long-term vision includes AI-assisted workflows and cloud project sync, but 
 
 ---
 
-## Recent progress (September 2025)
+## Recent progress (September 2026)
 
 Work landed on `main` as part of the Milestone 5 performance push:
 
