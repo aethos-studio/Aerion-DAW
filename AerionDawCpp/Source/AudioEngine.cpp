@@ -350,7 +350,17 @@ AudioEngineManager::~AudioEngineManager()
     }
 
     engine.getDeviceManager().closeDevices();
+    releaseEditResources();
     edit = nullptr;
+}
+
+void AudioEngineManager::releaseEditResources()
+{
+    // Meters hold a reference to each track's LevelMeterPlugin. If that is the
+    // last reference, the plugin's destructor calls back into its Edit, so
+    // these must go while the Edit is still alive, never after it is replaced.
+    trackMeters.clear();
+    thumbnails.clear();
 }
 
 //==============================================================================
@@ -1656,12 +1666,11 @@ void AudioEngineManager::loadProject (const juce::File& file, class ProjectData*
             edit->removeListener (editListener.get());
 
         auto vt = juce::ValueTree::fromXml (*editXml);
+        releaseEditResources();
         edit = te::loadEditFromState (engine, vt, te::Edit::forEditing);
         ++editGeneration;
         attachEditListenerToCurrentEdit();
 
-        thumbnails.clear();
-        trackMeters.clear();
         freezingTracks.clear();
         syncFolderRouting();
 
@@ -2082,6 +2091,7 @@ void AudioEngineManager::unfreezeTrack (te::AudioTrack* track)
 void AudioEngineManager::createNewProject()
 {
     cancelActiveFreezeJobs();
+    releaseEditResources();
     setupInitialEdit();
     ++editGeneration;
     armedTracks.clear();
@@ -2089,8 +2099,6 @@ void AudioEngineManager::createNewProject()
     midiInputDeviceMap.clear();
     monitorModeMap.clear();
     punchEnabled = false;
-    thumbnails.clear();
-    trackMeters.clear();
     syncFolderRouting();
     broadcastChange();
 }

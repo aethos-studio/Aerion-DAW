@@ -357,6 +357,10 @@ private:
 
     void broadcastChange();
 
+    /** Drops meters and thumbnails that refer to the current Edit. Call before
+        the Edit is destroyed or replaced. Both are recreated on demand. */
+    void releaseEditResources();
+
     juce::HashMap<juce::String, bool> armedTracks;
     juce::HashMap<juce::String, int>  inputDeviceMap;       // trackID -> waveDeviceIdx
     juce::HashMap<juce::String, int>  midiInputDeviceMap;   // trackID -> midiDeviceIdx
