@@ -149,7 +149,7 @@ MainComponent::MainComponent()
             attachToCurrentEditState();
             aiManager.setEdit (audioEngine.getEdit());
             currentProjectFile = f;
-            hasUnsavedChanges  = false;
+            markProjectClean();
             audioEngine.getRecentProjects().addFile (f);
             updateTitleBar();
             syncToolbarFromEngine();
@@ -159,7 +159,7 @@ MainComponent::MainComponent()
             timeline.repaint();
         };
 
-        if (!hasUnsavedChanges) { doOpen(); return; }
+        if (! projectHasUnsavedChanges()) { doOpen(); return; }
 
         juce::AlertWindow::showAsync(
             juce::MessageBoxOptions()
@@ -173,7 +173,7 @@ MainComponent::MainComponent()
                 if (result == 2 && currentProjectFile.existsAsFile())
                 {
                     audioEngine.saveProject(currentProjectFile, &projectData);
-                    hasUnsavedChanges = false;
+                    markProjectClean();
                     updateTitleBar();
                 }
                 if (result != 0) doOpen();
@@ -812,7 +812,7 @@ void MainComponent::doCreateNewProject()
     attachToCurrentEditState();
     aiManager.setEdit (audioEngine.getEdit());
     currentProjectFile = juce::File();
-    hasUnsavedChanges = false;
+    markProjectClean();
     syncInspectorToTrack (nullptr);
     updateTitleBar();
     syncToolbarFromEngine();
@@ -823,7 +823,7 @@ void MainComponent::doCreateNewProject()
 
 void MainComponent::createNewProject()
 {
-    if (!hasUnsavedChanges)
+    if (! projectHasUnsavedChanges())
     {
         doCreateNewProject();
         return;
@@ -843,7 +843,7 @@ void MainComponent::createNewProject()
             if (currentProjectFile.existsAsFile())
             {
                 audioEngine.saveProject (currentProjectFile, &projectData);
-                hasUnsavedChanges = false;
+                markProjectClean();
                 updateTitleBar();
                 doCreateNewProject();
             }
@@ -860,7 +860,8 @@ void MainComponent::updateTitleBar()
     juce::String name = currentProjectFile.existsAsFile()
                         ? currentProjectFile.getFileNameWithoutExtension()
                         : "My Song";
-    if (hasUnsavedChanges)
+    titleShowsUnsavedChanges = projectHasUnsavedChanges();
+    if (titleShowsUnsavedChanges)
         name = "*" + name + "*";
     menuBar.projectTitle = name;
     menuBar.repaint();
@@ -972,7 +973,7 @@ void MainComponent::doOpenProjectChooser()
                                   attachToCurrentEditState();
                                   aiManager.setEdit (audioEngine.getEdit());
                                   currentProjectFile = file;
-                                  hasUnsavedChanges = false;
+                                  markProjectClean();
                                   audioEngine.getRecentProjects().addFile (file);
                                   updateTitleBar();
                                   syncToolbarFromEngine();
@@ -987,7 +988,7 @@ void MainComponent::doOpenProjectChooser()
 
 void MainComponent::openProject()
 {
-    if (!hasUnsavedChanges)
+    if (! projectHasUnsavedChanges())
     {
         doOpenProjectChooser();
         return;
@@ -1007,7 +1008,7 @@ void MainComponent::openProject()
             if (currentProjectFile.existsAsFile())
             {
                 audioEngine.saveProject(currentProjectFile, &projectData);
-                hasUnsavedChanges = false;
+                markProjectClean();
                 updateTitleBar();
                 doOpenProjectChooser();
             }
@@ -1020,7 +1021,7 @@ void MainComponent::openProject()
 
 void MainComponent::requestQuit()
 {
-    if (!hasUnsavedChanges) { juce::JUCEApplication::getInstance()->quit(); return; }
+    if (! projectHasUnsavedChanges()) { juce::JUCEApplication::getInstance()->quit(); return; }
 
     juce::AlertWindow::showAsync(
         juce::MessageBoxOptions()
@@ -1037,7 +1038,7 @@ void MainComponent::requestQuit()
                 if (currentProjectFile.existsAsFile())
                 {
                     audioEngine.saveProject(currentProjectFile, &projectData);
-                    hasUnsavedChanges = false;
+                    markProjectClean();
                 }
                 else
                 {
@@ -1057,7 +1058,7 @@ void MainComponent::saveProject()
     if (currentProjectFile.existsAsFile())
     {
         audioEngine.saveProject (currentProjectFile, &projectData);
-        hasUnsavedChanges = false;
+        markProjectClean();
         updateTitleBar();
     }
     else
@@ -1079,7 +1080,7 @@ void MainComponent::saveProjectAs()
                                       file = file.withFileExtension (".aerion");
                                   audioEngine.saveProject (file, &projectData);
                                   currentProjectFile = file;
-                                  hasUnsavedChanges = false;
+                                  markProjectClean();
                                   audioEngine.getRecentProjects().addFile (file);
                                   updateTitleBar();
 
@@ -1111,7 +1112,7 @@ void MainComponent::collectAndSaveAs()
                                       file = file.withFileExtension (".aerion");
                                   auto skipped = audioEngine.collectAndSave (file, &projectData);
                                   currentProjectFile = file;
-                                  hasUnsavedChanges = false;
+                                  markProjectClean();
                                   audioEngine.getRecentProjects().addFile (file);
                                   updateTitleBar();
 
@@ -1366,6 +1367,11 @@ void MainComponent::timerCallback()
     // Stopped: refresh the transport CPU / buffer readout so it doesn't look frozen.
     if (! audioEngine.isPlaying() && ! audioEngine.isRecording())
         transport.repaint();
+
+    // Edits made directly on the Edit (clip drags, trims) don't broadcast, so
+    // pick up the unsaved-changes marker for the title bar here.
+    if (projectHasUnsavedChanges() != titleShowsUnsavedChanges)
+        updateTitleBar();
 
     // Auto-save countdown, in real time rather than ticks.
     if (autoSaveIntervalMs > 0)
@@ -1684,13 +1690,37 @@ void MainComponent::loadWorkspaceLayouts()
     activeLayoutName = s->getValue ("activeWorkspaceLayout");
 }
 
+bool MainComponent::projectHasUnsavedChanges() const
+{
+    // Aerion's flag covers edits made through AudioEngineManager; Tracktion's
+    // covers every undoable Edit change, including direct ones such as clip
+    // drags in the Timeline. Either means the project needs saving.
+    return hasUnsavedChanges || audioEngine.hasUnsavedEdits();
+}
+
+void MainComponent::markProjectClean()
+{
+    hasUnsavedChanges = false;
+    audioEngine.markEditSaved();
+}
+
 void MainComponent::editStateChanged()
+{
+    hasUnsavedChanges = true;
+    refreshFromEngine();
+}
+
+void MainComponent::engineStatusChanged()
+{
+    refreshFromEngine();
+}
+
+void MainComponent::refreshFromEngine()
 {
     AERION_PROFILE_SCOPE ("MainComponent::editStateChanged");
 
     const auto syncStartMs = juce::Time::getMillisecondCounterHiRes();
 
-    hasUnsavedChanges = true;
     updateTitleBar();
     projectData.syncWithEngine (audioEngine.getEdit());
     const auto syncElapsedMs = juce::Time::getMillisecondCounterHiRes() - syncStartMs;

@@ -429,6 +429,58 @@ int main (int argc, char* argv[])
     AudioEngineManager audioEngine;
     ProjectData projectData;
 
+    // Unsaved-changes tracking needs the message loop: deferred audio device
+    // init and Tracktion's change listener both arrive through it, and edits are
+    // only noticed through asynchronous undo-manager notifications, which stop
+    // being delivered once the loop has been told to quit. So the checks run
+    // inside the loop, two seconds into startup, and the loop stops afterwards.
+    // This opens the audio device, which is why it lives here, not in AerionTests.
+    int startupFailures = 0;
+    if (args.contains ("--verify"))
+    {
+        juce::Timer::callAfterDelay (2000, [&audioEngine, &startupFailures]
+        {
+            auto check = [&startupFailures] (const juce::String& name, bool ok)
+            {
+                std::cout << "  " << name.paddedRight (' ', 40) << (ok ? "ok" : "FAILED") << std::endl;
+                startupFailures += ok ? 0 : 1;
+            };
+
+            // Deliver pending undo-manager notifications now instead of waiting
+            // for the loop to get to them.
+            auto flush = [&audioEngine] { audioEngine.getEdit().getUndoManager().dispatchPendingMessages(); };
+
+            check ("fresh project after startup is saved", ! audioEngine.hasUnsavedEdits());
+
+            auto* track = audioEngine.addAudioTrack();
+            flush();
+            check ("adding a track marks it unsaved", audioEngine.hasUnsavedEdits());
+
+            audioEngine.markEditSaved();
+            check ("saving marks it saved", ! audioEngine.hasUnsavedEdits());
+
+            // A direct Edit change, as a Timeline clip drag makes, bypasses
+            // AudioEngineManager's broadcasts but must still count.
+            auto clipFile = createScratchAudioFile (1.0);
+            if (auto* clip = audioEngine.insertAudioClipOnTrack (track, clipFile, 0.0))
+            {
+                flush();
+                audioEngine.markEditSaved();
+                clip->setStart (tracktion::TimePosition::fromSeconds (2.0), false, true);
+                flush();
+                check ("moving a clip marks it unsaved", audioEngine.hasUnsavedEdits());
+            }
+
+            audioEngine.deleteTrack (track);
+            flush();
+            audioEngine.markEditSaved();
+
+            juce::MessageManager::getInstance()->stopDispatchLoop();
+        });
+
+        juce::MessageManager::getInstance()->runDispatchLoop();
+    }
+
     auto sourceFile = createScratchAudioFile (2.0);
     if (! sourceFile.existsAsFile())
     {
@@ -555,7 +607,7 @@ int main (int argc, char* argv[])
         // console: every section it touches must redraw identically.
         checks.add ({ "mixer arbitrary slice", &mixer, mixerHeight, juce::Rectangle<int> (100, 60, 300, 90) });
 
-        int failures = 0;
+        int failures = startupFailures;
 
         // A hidden window must follow the graphics engine choice both ways.
         {

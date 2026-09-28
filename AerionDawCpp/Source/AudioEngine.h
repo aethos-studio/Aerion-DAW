@@ -12,8 +12,20 @@ public:
     struct Listener
     {
         virtual ~Listener() = default;
+
+        /** The project was edited: refresh, and it now has unsaved changes. */
         virtual void editStateChanged() = 0;
+
+        /** Something the UI shows changed without editing the project: the audio
+            device finished starting, a plugin scan ended, a project was loaded,
+            created or saved, a freeze failed. Defaults to a plain refresh. */
+        virtual void engineStatusChanged() { editStateChanged(); }
     };
+
+    /** Tracktion's own change tracking: true after any undoable edit (clip
+        moves, trims, plugin changes, mute/solo...) since the last markEditSaved(). */
+    bool hasUnsavedEdits() const;
+    void markEditSaved();
 
     void addListener (Listener* l)      { listeners.add (l); }
     void removeListener (Listener* l)   { listeners.remove (l); }
@@ -355,7 +367,8 @@ private:
     };
     std::unique_ptr<EditListener> editListener;
 
-    void broadcastChange();
+    void broadcastChange();        // the project was edited
+    void broadcastStatusChange();  // UI-visible state changed, project did not
 
     /** Drops meters and thumbnails that refer to the current Edit. Call before
         the Edit is destroyed or replaced. Both are recreated on demand. */

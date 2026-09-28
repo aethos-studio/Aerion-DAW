@@ -32,6 +32,7 @@ public:
 
     // AudioEngineManager::Listener
     void editStateChanged() override;
+    void engineStatusChanged() override;
 
     AudioEngineManager& getAudioEngine() { return audioEngine; }
     void requestQuit();
@@ -202,7 +203,12 @@ private:
 
     juce::File currentProjectFile;
     juce::ValueTree observedEditState;
-    bool hasUnsavedChanges = false;
+    bool hasUnsavedChanges = false;          // set by editStateChanged; see projectHasUnsavedChanges()
+    bool titleShowsUnsavedChanges = false;
+
+    bool projectHasUnsavedChanges() const;
+    void markProjectClean();
+    void refreshFromEngine();
     bool pendingNewProjectAfterSave = false;
     bool pendingQuitAfterSave = false;
 

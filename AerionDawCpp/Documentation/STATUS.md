@@ -33,7 +33,7 @@ What already exists versus what remains, verified against the source tree:
 | Icon & Logo Rendering | **Done** | `UI/Icons.h` fits icons to their viewBox and tints them per state; letter buttons for track toggles (`paintLetterButton`); redrawn metronome icon; filter-free in-app logo (`aerion_logo_ui.svg`). |
 | Crash & Data-Loss Fixes | **Done** | Track meters and thumbnails released before the Edit is destroyed (crash on quit / open / new project); unfreeze restores trimmed clips exactly and collapsed folders hide their children in paint and scroll height (PR #15). |
 | Plugin Crash Protection | **Missing** | A crashing plugin takes the session down. |
-| Unsaved-Changes Tracking | **Bug** | A new, untouched project is marked as modified, so quitting always asks to save. |
+| Unsaved-Changes Tracking | **Done** | Non-edit engine notifications no longer mark the project changed; direct Edit changes (clip drags) now do, through Tracktion's own change tracking. |
 | Workspace Layouts | **Done** | **View → Workspace** submenu: built-in Editing / Mixing / Recording presets + save/delete custom layouts. Captures inspector/browser collapse, mixer dock/detach, bottom panel, and console height; custom layouts + last-active layout persist via `appProperties` and restore on launch. |
 | Accessibility | **Missing** | No `setAccessibleName()` usage; keyboard-navigable mixer not started. |
 | Error Reporting / Console panel | **Missing** | JUCE default dialogs only; no in-app crash reporter or DBG console. |
@@ -45,6 +45,7 @@ What already exists versus what remains, verified against the source tree:
 
 ### September 2026
 
+- **Unsaved-changes tracking (M5 stability):** a new, untouched project no longer shows `*My Song*` or asks to save on quit. The audio device finishing startup, plugin scans, and loading, creating or saving a project now send a status notification that refreshes the UI without marking the project changed. At the same time, edits made directly on the Edit (Timeline clip drags and trims), which never went through the engine's broadcast, now count through Tracktion's own change tracking. They had only looked tracked because every project was already marked changed at startup. The title bar picks these up within 200 ms.
 - **Display-synced UI clock (M5 performance):** a `VBlankAttachment` on MainComponent replaces the separate 25 / 20 / 20 Hz component timers. The playhead moves every display frame; meters, transport readout and recording rows update at up to 30 Hz and keep running 1.5 s after stop so they decay to silence. The Inspector no longer repaints its fader 20 times a second while idle, the tooltip poll sleeps when the mouse is still, and the auto-save countdown uses real elapsed time.
 - **Graphics engine setting (M5 performance):** **View → Graphics Engine** (Auto / Hardware Accelerated / Software), applied to every window through `GraphicsEngine::Policy`. Auto uses the software renderer up to 2560 × 1600 displays, because Direct2D measured 10× slower for the small repaints playback and editing are made of.
 - **Timeline and Mixer repaint cost (M5 performance):** clip drags repaint only the clip (19–33 ms → 0.08–2.5 ms per mouse move); the playhead strip skips headers and clips outside it; the Mixer repaints only meters, fader caps and readouts during playback (5.7–7.3 ms → 2.4–3.3 ms per tick). All partial repaints are checked pixel for pixel by `AerionBench --verify`.
@@ -92,7 +93,7 @@ Mirrors Milestones 5 and 6 in [`ROADMAP.md`](./ROADMAP.md) so the two documents 
 **Finish M5 (v0.4.0):**
 
 1. **Performance** — cached chrome, then Timeline layers; device init off the message thread. Measure every step with `AerionBench` against the targets in [`PERFORMANCE.md`](./PERFORMANCE.md).
-2. **Stability** — plugin crash protection, unsaved-changes tracking fix, error reporting (log console in dev builds, structured crash reporter), `AerionBench --verify` in CI.
+2. **Stability** — plugin crash protection, error reporting (log console in dev builds, structured crash reporter), `AerionBench --verify` in CI.
 3. **High-DPI audit** — sweep fixed pixel layouts, using `AerionBench --snapshots` renders at 150 % / 200 %.
 4. **Accessibility** — screen-reader labels and keyboard-navigable mixer.
 5. **Packaging finish line** — self-signed Windows code signing is done *(`release-package` + `New-AerionSelfSignedCert.ps1`)*; production OV/EV code-signing (to clear SmartScreen) and macOS notarization still require a paid certificate/Apple Developer account.

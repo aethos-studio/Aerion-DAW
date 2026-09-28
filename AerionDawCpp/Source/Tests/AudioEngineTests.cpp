@@ -387,6 +387,11 @@ public:
             expect (engine.getTopLevelTracks().isEmpty());
             expect (engine.getEdit().getMasterTrack() != nullptr);
         }
+
+        // Unsaved-changes tracking (hasUnsavedEdits / markEditSaved) is checked by
+        // `AerionBench --verify` instead: Tracktion attaches its change listener
+        // on the message loop after an Edit is created, and running the loop here
+        // would also run the deferred audio device init this runner must avoid.
     }
 
 private:

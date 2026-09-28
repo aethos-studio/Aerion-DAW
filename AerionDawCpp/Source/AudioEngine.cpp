@@ -284,6 +284,10 @@ AudioEngineManager::AudioEngineManager()
 
         const auto deviceStartMs = juce::Time::getMillisecondCounterHiRes();
 
+        // Opening devices can make Tracktion update the Edit's input device state.
+        // That is not a user edit, so it must not mark a clean project as changed.
+        const bool editWasClean = ! hasUnsavedEdits();
+
         std::unique_ptr<juce::XmlElement> savedAudioState (appProperties.getUserSettings()->getXmlValue ("audioDeviceState"));
         const bool firstRun = (savedAudioState == nullptr);
 
@@ -306,10 +310,13 @@ AudioEngineManager::AudioEngineManager()
         engine.getDeviceManager().enableOutputClipping (true);
         engine.getDeviceManager().deviceManager.addChangeListener (this);
         audioDevicesConnected = true;
+
+        if (editWasClean)
+            markEditSaved();
         juce::Logger::writeToLog ("Startup: audio device init completed in "
                                   + juce::String (juce::Time::getMillisecondCounterHiRes() - deviceStartMs, 1)
                                   + " ms");
-        broadcastChange();
+        broadcastStatusChange();
     });
 }
 
@@ -1706,7 +1713,7 @@ void AudioEngineManager::loadProject (const juce::File& file, class ProjectData*
             }
         }
 
-        broadcastChange();
+        broadcastStatusChange();
 
         // Restore snap settings from <ProjectSettings> if present
         if (projectData != nullptr && xml->getTagName() == "AerionProject")
@@ -1935,14 +1942,14 @@ struct FreezeListener : public MixdownExportJob::Listener {
 
             if (! result.ok)
             {
-                ownerRef->broadcastChange();
+                ownerRef->broadcastStatusChange();
                 return;
             }
 
             auto* track = dynamic_cast<te::AudioTrack*> (ownerRef->findTrackById (id));
             if (track == nullptr)
             {
-                ownerRef->broadcastChange();
+                ownerRef->broadcastStatusChange();
                 return;
             }
 
@@ -2146,7 +2153,7 @@ void AudioEngineManager::createNewProject()
     monitorModeMap.clear();
     punchEnabled = false;
     syncFolderRouting();
-    broadcastChange();
+    broadcastStatusChange();
 }
 
 void AudioEngineManager::cancelActiveFreezeJobs()
@@ -2259,7 +2266,7 @@ juce::StringArray AudioEngineManager::collectAndSave (const juce::File& projectF
     // Save the project with updated paths
     saveProject (projectFile, projectData);
     thumbnails.clear();
-    broadcastChange();
+    broadcastStatusChange();
 
     return skipped;
 }
@@ -2272,6 +2279,24 @@ void AudioEngineManager::clearRecentProjects()
         s->setValue ("recentProjects", juce::String());
         s->saveIfNeeded();
     }
+}
+
+bool AudioEngineManager::hasUnsavedEdits() const
+{
+    return edit != nullptr && edit->hasChangedSinceSaved();
+}
+
+void AudioEngineManager::markEditSaved()
+{
+    // resetChangedStatus() flushes pending undo notifications first, so edits
+    // made just before this call cannot re-mark the Edit afterwards.
+    if (edit != nullptr)
+        edit->resetChangedStatus();
+}
+
+void AudioEngineManager::broadcastStatusChange()
+{
+    listeners.call ([] (Listener& l) { l.engineStatusChanged(); });
 }
 
 void AudioEngineManager::broadcastChange()
@@ -2290,7 +2315,7 @@ void AudioEngineManager::notifyScanFinished (bool finishedNormally)
             s->saveIfNeeded();
         }
 
-    broadcastChange();
+    broadcastStatusChange();
 
     if (onScanFinished)
         onScanFinished();
@@ -2622,7 +2647,7 @@ void AudioEngineManager::deletePluginFromBrowserList (const juce::PluginDescript
     if (auto xml = list.createXml())
         xml->writeTo (cacheFile);
 
-    broadcastChange();
+    broadcastStatusChange();
 }
 
 tracktion::Plugin::Ptr AudioEngineManager::addPluginToTrack (te::Track* track, const juce::PluginDescription& desc)
