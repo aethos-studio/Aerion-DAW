@@ -1,7 +1,7 @@
 # Aerion DAW Project Status — September 28, 2026 (v0.3.0 Pre-Alpha)
 
 ## Overview
-Aerion DAW has closed the **Milestone 4 completion sprint** (v0.3.0). Milestones 1–4 — Editing, Mixing, Recording & Monitoring, and Project & Workflow — are **complete and verified against the source** (codebase audit, July 2026). The current focus is **Milestone 5: Polish & Stability (v0.4.0)**, where CI now builds and smoke-tests on **both Windows and macOS**, release packaging is a separate workflow, and optional self-signed Windows code signing has landed. Both workflows are **manual (`workflow_dispatch`) only** — run them from the Actions tab. Typography scaling and packaging scaffolds remain partial. After M5, the new **Milestone 6: Complete Core (v0.5.0)** closes the remaining gaps to a modern DAW baseline before the differentiator milestones (M7–M9).
+Aerion DAW has closed the **Milestone 4 completion sprint** (v0.3.0). Milestones 1–4 — Editing, Mixing, Recording & Monitoring, and Project & Workflow — are **complete and verified against the source** (codebase audit, July 2026). The current focus is **Milestone 5: Polish & Stability (v0.4.0)**. In September 2026 the M5 performance work got measurement tooling and its first optimisations (clip drags, playhead, meters, graphics engine choice, a display-synced UI clock), the icon system was fixed, and three crash and data-loss bugs were closed. CI builds and smoke-tests on **both Windows and macOS**; release packaging is a separate workflow. Both workflows are **manual (`workflow_dispatch`) only**, run from the Actions tab. After M5, the new **Milestone 6: Complete Core (v0.5.0)** closes the remaining gaps to a modern DAW baseline before the differentiator milestones (M7–M9).
 
 ## Milestone Progress
 
@@ -17,7 +17,7 @@ Aerion DAW has closed the **Milestone 4 completion sprint** (v0.3.0). Milestones
 
 ---
 
-## Milestone 5 Inventory (audited July 9, 2026)
+## Milestone 5 Inventory (updated September 28, 2026)
 
 What already exists versus what remains, verified against the source tree:
 
@@ -25,11 +25,13 @@ What already exists versus what remains, verified against the source tree:
 |---|---|---|
 | CI pipeline | **Done** | `.github/workflows/build-test.yml` — Debug build + `ctest` smoke tests, **manually triggered** (`workflow_dispatch`), running on **both** a Windows MSVC/Ninja runner and a macOS Clang/Ninja runner. |
 | Release packaging workflow | **Done** | `.github/workflows/package-release.yml` (`release-package`) — manual (`workflow_dispatch`) workflow, independent of the smoke-test workflow, that builds the Windows NSIS installer and macOS DMG and publishes both to a GitHub Release (tag/draft/pre-release/notes are run inputs). |
-| Unit & Integration Tests | **Started** | `AerionTests`: `ProjectData` round-trip + `AerionKeymap` serialisation/conflicts, now verified green on both Windows and macOS. `AudioEngine` smoke tests still to come. |
+| Unit & Integration Tests | **Started** | `AerionTests`: `ProjectData` round-trip, `AerionKeymap` serialisation/conflicts, `AudioEngineManager` smoke tests (tracks, mute/solo, tempo map, snapshots, transport flags, freeze/unfreeze restore) and `GraphicsEngine` choice logic; green on Windows and macOS. `AerionBench --verify` checks partial repaints pixel for pixel and window engine switching, but runs locally only; adding it to CI is next. No GUI or audio-thread tests yet. |
 | Packaging — Windows | **~Done** | NSIS installer scaffolded in `CMakeLists.txt` (CPack, shortcuts, VC++ runtime bundling, installer icon). **Optional self-signed code signing** now available (`AerionDawCpp/Tools/New-AerionSelfSignedCert.ps1` + `WINDOWS_CERT_PFX_BASE64` / `WINDOWS_CERT_PASSWORD` secrets); a paid OV/EV certificate is still required to clear the SmartScreen "unknown publisher" prompt. |
 | Packaging — macOS | **Partial** | DMG + universal binary (ARM64 + x86_64) built by the release workflow; signing is ad-hoc only, **notarization not implemented** (requires a paid Apple Developer account). |
-| High-DPI / Retina | **Partial (~40 %)** | `Theme::uiSize()` / `kUiFontScale` typography layer shipped; fixed-pixel layout audit not started. |
-| Performance Optimization | **Partial** | Measurement tooling and baseline done (`PERFORMANCE.md`); Timeline culling, clip-drag partial repaint and Mixer meters-only repaint shipped (September 2026). Graphics engine setting (View → Graphics Engine) and display-synced UI clock shipped. Remaining: cached chrome, Timeline layers, device init off the message thread, light mode. |
+| High-DPI / Retina | **Partial (~40 %)** | `Theme::uiSize()` / `kUiFontScale` typography layer shipped; fixed-pixel layout audit not started. `AerionBench --snapshots` renders the main components at 100 % and 150 % for the audit. |
+| Performance Optimization | **Partial** | Baseline and targets in [`PERFORMANCE.md`](./PERFORMANCE.md). Shipped: Timeline culling and clip-drag partial repaint (19–33 ms → 0.08–2.5 ms per mouse move), Mixer meters-only repaint (5.7–7.3 ms → 2.4–3.3 ms per tick), **View → Graphics Engine** (Auto uses the software renderer up to 2560 × 1600), and a display-synced UI clock (playhead at display rate, no idle repaints). Remaining: cached chrome (gradients, SVG icons, fader cap), Timeline layers (full repaint still 19–31 ms), audio device init off the message thread (~0.5 s startup stall), light mode, splitting `UIComponents.h`. |
+| Icon & Logo Rendering | **Done** | `UI/Icons.h` fits icons to their viewBox and tints them per state; letter buttons for track toggles (`paintLetterButton`); redrawn metronome icon; filter-free in-app logo (`aerion_logo_ui.svg`). |
+| Crash & Data-Loss Fixes | **Done** | Track meters and thumbnails released before the Edit is destroyed (crash on quit / open / new project); unfreeze restores trimmed clips exactly and collapsed folders hide their children in paint and scroll height (PR #15). |
 | Plugin Crash Protection | **Missing** | A crashing plugin takes the session down. |
 | Unsaved-Changes Tracking | **Bug** | A new, untouched project is marked as modified, so quitting always asks to save. |
 | Workspace Layouts | **Done** | **View → Workspace** submenu: built-in Editing / Mixing / Recording presets + save/delete custom layouts. Captures inspector/browser collapse, mixer dock/detach, bottom panel, and console height; custom layouts + last-active layout persist via `appProperties` and restore on launch. |
@@ -39,7 +41,20 @@ What already exists versus what remains, verified against the source tree:
 
 ---
 
-## Recently shipped (since last STATUS update)
+## Recently shipped
+
+### September 2026
+
+- **Display-synced UI clock (M5 performance):** a `VBlankAttachment` on MainComponent replaces the separate 25 / 20 / 20 Hz component timers. The playhead moves every display frame; meters, transport readout and recording rows update at up to 30 Hz and keep running 1.5 s after stop so they decay to silence. The Inspector no longer repaints its fader 20 times a second while idle, the tooltip poll sleeps when the mouse is still, and the auto-save countdown uses real elapsed time.
+- **Graphics engine setting (M5 performance):** **View → Graphics Engine** (Auto / Hardware Accelerated / Software), applied to every window through `GraphicsEngine::Policy`. Auto uses the software renderer up to 2560 × 1600 displays, because Direct2D measured 10× slower for the small repaints playback and editing are made of.
+- **Timeline and Mixer repaint cost (M5 performance):** clip drags repaint only the clip (19–33 ms → 0.08–2.5 ms per mouse move); the playhead strip skips headers and clips outside it; the Mixer repaints only meters, fader caps and readouts during playback (5.7–7.3 ms → 2.4–3.3 ms per tick). All partial repaints are checked pixel for pixel by `AerionBench --verify`.
+- **Performance tooling:** `AerionBench` measures Timeline and Mixer paint with both renderers, a clip-drag scenario, `--verify` pixel checks and `--snapshots` UI renders at 100 % / 150 %; profiling builds log a message-thread stall watchdog. Baseline and results in [`PERFORMANCE.md`](./PERFORMANCE.md).
+- **Unfreeze data loss and collapsed folders (PR #15):** unfreezing restores each clip's full saved state (trim, offset, fades) instead of the whole source file; collapsed folders hide their children in paint and scroll height, matching hit-testing.
+- **Crash on Edit teardown:** track meters kept the last reference to each track's `LevelMeterPlugin` until after the Edit was destroyed or replaced, and its destructor then called into the dead Edit. Meters and thumbnails are now released first (quit, open project, new project).
+- **Icon system and logo:** icons are fitted to their 24×24 viewBox instead of their drawn content (no more oversized or edge-touching glyphs) and tinted per state; transport icons follow their active state again; track toggles are letter buttons (M / S / R / A) in Timeline, Mixer and Inspector; the metronome icon is redrawn; the app uses a filter-free logo variant that shows on dark backgrounds.
+- **Roadmap:** new **Milestone 6 — Complete Core** for the gaps to a modern DAW baseline; later milestones renumbered to M7–M9.
+
+### Earlier
 
 - **Workspace Layouts (M5, July 2026):** New **View → Workspace** submenu with built-in Editing / Mixing / Recording presets, "Save Current Layout…" for user-defined layouts, and per-layout delete. A layout snapshots inspector/browser collapse, mixer dock/detach, the active bottom panel (Mixer / Piano Roll), and console height. Custom layouts and the last-active layout persist via `appProperties`; the active layout is reapplied on launch.
 - **Piano roll shortcut focus routing (July 2026):** Fixed a data-loss bug where pressing Delete while editing notes in the embedded piano roll could delete the whole MIDI clip; the editor now grabs keyboard focus and focused keys route through `PianoRollEditor::keyPressed` before global shortcuts.
@@ -56,7 +71,7 @@ What already exists versus what remains, verified against the source tree:
 
 ## Known scaffolding ahead of its milestone
 
-- **Google Drive client (M9 footprint):** `GoogleDriveClient` implements OAuth2 + PKCE, token persistence, and a Browser "Cloud" tab — but **`clientId` / `clientSecret` are still placeholders** (`YOUR_CLIENT_ID`) until a Google Cloud desktop OAuth client is configured. Do not rewrite from scratch for M8; wire credentials and finish sync semantics instead.
+- **Google Drive client (M9 footprint):** `GoogleDriveClient` implements OAuth2 + PKCE, token persistence, and a Browser "Cloud" tab — but **`clientId` / `clientSecret` are still placeholders** (`YOUR_CLIENT_ID`) until a Google Cloud desktop OAuth client is configured. Do not rewrite from scratch for M9; wire credentials and finish sync semantics instead.
 - **ONNX Runtime:** declared via `FetchContent_Declare` in CMake but deliberately not linked (build-size cost); linking is the first M9 task.
 - **`AIManager`:** still the 2-second mock returning a hardcoded MIDI note — replaced as part of M9 Real Audio-to-MIDI.
 
@@ -64,9 +79,10 @@ What already exists versus what remains, verified against the source tree:
 
 ## Current Build State
 - **Platform**: Windows 11 (primary local dev — Visual Studio 2022, MSVC x64). macOS builds via CI/release workflow.
-- **Presets**: `win-msvc-debug`, `win-msvc-release`, `win-msvc-debug-tests` (see root `CMakePresets.json` + `AerionDawCpp/Documentation/CURSOR_DEVELOPMENT.md`)
+- **Presets**: `win-msvc-debug`, `win-msvc-release`, `win-msvc-debug-tests`, `win-msvc-profiling` (see root `CMakePresets.json` + `AerionDawCpp/Documentation/CURSOR_DEVELOPMENT.md`)
 - **Engine**: Tracktion Engine v3.2 / JUCE 8
-- **Build**: Clean Debug build of the **AerionDaw** target; full solution builds may still hit unrelated demo targets (e.g. LV2 helper in third-party examples).
+- **Build**: build the app and tests as targets, `cmake --build build --config Debug --target AerionDaw AerionTests --parallel`; a full solution build still fails in an unrelated Tracktion example target. After the embedded resource list changes, a parallel build can produce a damaged `AerionDawResources` object (`LNK1236`); rebuild that target on its own to fix it.
+- **Performance builds**: a separate Release build with `AERION_ENABLE_PROFILING=ON` (`build-profiling`) holds `AerionBench` and the profiling app; timings from Debug builds are not meaningful.
 - **CI**: both workflows are manual (`workflow_dispatch`) only. `build-test.yml` runs the Debug build + `AerionSmokeTests` on Windows (MSVC/Ninja) and macOS (Clang/Ninja) — run it before merging a PR. `package-release.yml` (`release-package`) builds the Windows NSIS installer and macOS DMG, with optional self-signed Windows code signing, then publishes a GitHub Release with both attached.
 
 ## Next Steps (priority order)
