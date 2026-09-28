@@ -1868,14 +1868,8 @@ public:
         audioEngine.addListener (this);
         startTimerHz (20); // fader/meter animation (avoid stacking multiple 30 Hz surfaces)
 
-        auto loadIcon = &Icons::load;
-
         if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::aerion_fader_svg, BinaryData::aerion_fader_svgSize)))
             faderKnobDrawable = juce::Drawable::createFromSVG (*svgXml);
-
-        iconArm  = loadIcon (BinaryData::aerion_arm_svg,   BinaryData::aerion_arm_svgSize);
-        iconMute = loadIcon (BinaryData::aerion_mute_svg,  BinaryData::aerion_mute_svgSize);
-        iconSolo = loadIcon (BinaryData::aerion_Solo_svg,  BinaryData::aerion_Solo_svgSize);
     }
 
     ~Inspector() override
@@ -1901,7 +1895,6 @@ public:
     tracktion::Track* selectedTrack = nullptr;
 
     std::unique_ptr<juce::Drawable> faderKnobDrawable;
-    std::unique_ptr<juce::Drawable> iconArm, iconMute, iconSolo;
 
     void paint (juce::Graphics& g) override
     {
@@ -1970,11 +1963,12 @@ public:
         // State buttons  -  compact single-letter controls
         b.removeFromTop (8);
         auto pills = b.removeFromTop (24);
-        armBounds  = pills.removeFromLeft (24); drawIconStateBtn (g, armBounds,  iconArm.get(),  armed, Theme::recordRed);
+        // Same order and colours as the Timeline track header: M, S, R.
+        muteBounds = pills.removeFromLeft (24); paintLetterButton (g, muteBounds, "M", muted, Theme::meterYellow);
         pills.removeFromLeft (4);
-        muteBounds = pills.removeFromLeft (24); drawIconStateBtn (g, muteBounds, iconMute.get(), muted, Theme::meterYellow);
+        soloBounds = pills.removeFromLeft (24); paintLetterButton (g, soloBounds, "S", solo,  Theme::accent);
         pills.removeFromLeft (4);
-        soloBounds = pills.removeFromLeft (24); drawIconStateBtn (g, soloBounds, iconSolo.get(), solo,  Theme::meterGreen);
+        armBounds  = pills.removeFromLeft (24); paintLetterButton (g, armBounds,  "R", armed, Theme::recordRed);
 
         // Phase and Mono  -  keep text pills (no icons for these)
         if (selectedTrack != nullptr)
@@ -2301,17 +2295,6 @@ public:
     {
         juce::ignoreUnused (e);
         handleInsertRowMouseUp (audioEngine, selectedTrack, insertRowHits, insertDragState, [this] { repaint(); });
-    }
-
-    static void drawIconStateBtn (juce::Graphics& g, juce::Rectangle<int> r,
-                                  juce::Drawable* icon, bool on, juce::Colour activeColour)
-    {
-        g.setColour (on ? activeColour.withAlpha (0.8f) : Theme::surface);
-        g.fillRoundedRectangle (r.toFloat(), 4.0f);
-        g.setColour (on ? activeColour : Theme::border);
-        g.drawRoundedRectangle (r.toFloat(), 4.0f, 1.0f);
-        if (icon != nullptr)
-            Icons::draw (g, *icon, r.toFloat().reduced (2.0f), Icons::inkFor (on, true, activeColour));
     }
 
 private:
@@ -4626,12 +4609,6 @@ public:
         rulerValueEditor.onFocusLost = [this] { commitRulerValueEdit(); };
         rulerValueEditor.onEscapeKey = [this] { cancelRulerValueEdit(); };
 
-        auto loadIcon = &Icons::load;
-        iconMute = loadIcon (BinaryData::aerion_mute_svg,  BinaryData::aerion_mute_svgSize);
-        iconSolo = loadIcon (BinaryData::aerion_Solo_svg,  BinaryData::aerion_Solo_svgSize);
-        iconArm  = loadIcon (BinaryData::aerion_arm_svg,   BinaryData::aerion_arm_svgSize);
-        iconAuto = loadIcon (BinaryData::aerion_auto_svg,  BinaryData::aerion_auto_svgSize);
-
         setWantsKeyboardFocus (true);
         setMouseCursor (juce::MouseCursor::NormalCursor);
     }
@@ -6192,10 +6169,10 @@ public:
             bool isSolo = track->isSolo(false);
             bool isArm  = audioEngine.isTrackArmed(track);
 
-            drawTrackIconBtn(g, mB, iconMute.get(), isMute, Theme::meterYellow);
-            drawTrackIconBtn(g, sB, iconSolo.get(), isSolo, Theme::accent);
-            drawTrackIconBtn(g, rB, iconArm.get(),  isArm,  Theme::recordRed);
-            drawTrackIconBtn(g, aB, iconAuto.get(), isAuto, Theme::active);
+            paintLetterButton (g, mB, "M", isMute, Theme::meterYellow);
+            paintLetterButton (g, sB, "S", isSolo, Theme::accent);
+            paintLetterButton (g, rB, "R", isArm,  Theme::recordRed);
+            paintLetterButton (g, aB, "A", isAuto, Theme::active);
 
             int fxY = btnY + 24;
             auto fxB = juce::Rectangle<int>(textX, fxY, 76, 20);
@@ -6724,31 +6701,6 @@ public:
                 y = drawTrackRow(g, child, topIndex, indent + 16, y);
 
         return y;
-    }
-
-    static void drawTrackBtn(juce::Graphics& g, juce::Rectangle<int> b,
-                             const juce::String& letter, bool on, juce::Colour activeColour)
-    {
-        g.setColour(on ? activeColour.withAlpha(0.9f) : Theme::surface);
-        g.fillRoundedRectangle(b.toFloat(), 2.0f);
-        g.setColour(on ? activeColour : Theme::border);
-        g.drawRoundedRectangle(b.toFloat(), 2.0f, 1.0f);
-        g.setColour(on ? juce::Colours::black : Theme::textMuted);
-        g.setFont (Theme::uiSize (10.0f).withStyle (juce::Font::bold));
-        // Condense longer labels ("MONO" in the 26 px mixer column) rather than
-        // cutting them to "MO...".
-        g.drawFittedText (letter, b.reduced (2, 0), juce::Justification::centred, 1, 0.6f);
-    }
-
-    static void drawTrackIconBtn(juce::Graphics& g, juce::Rectangle<int> b,
-                                 juce::Drawable* icon, bool on, juce::Colour activeColour)
-    {
-        g.setColour(on ? activeColour.withAlpha(0.8f) : Theme::surface);
-        g.fillRoundedRectangle(b.toFloat(), 3.0f);
-        g.setColour(on ? activeColour : Theme::border.withAlpha(0.6f));
-        g.drawRoundedRectangle(b.toFloat(), 3.0f, 1.0f);
-        if (icon)
-            Icons::draw (g, *icon, b.toFloat().reduced (2.0f), Icons::inkFor (on, true, activeColour));
     }
 
     static void drawFxBadge (juce::Graphics& g, juce::Rectangle<int> b, int numPlugins)
@@ -8254,8 +8206,6 @@ private:
     juce::ScrollBar verticalScrollBar   { true };
     juce::Slider    zoomSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
 
-    std::unique_ptr<juce::Drawable> iconMute, iconSolo, iconArm, iconAuto;
-
     struct TooltipInfo
     {
         juce::String text;
@@ -8390,7 +8340,6 @@ public:
     bool detached = false;
 
     std::unique_ptr<juce::Drawable> faderKnobDrawable;
-    std::unique_ptr<juce::Drawable> iconMute, iconSolo;
 
     Mixer(AudioEngineManager& ae, ProjectData& pd) : audioEngine(ae), projectData(pd)
     {
@@ -8399,10 +8348,6 @@ public:
 
         if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::aerion_fader_svg, BinaryData::aerion_fader_svgSize)))
             faderKnobDrawable = juce::Drawable::createFromSVG (*svgXml);
-
-        auto loadIcon = &Icons::load;
-        iconMute = loadIcon (BinaryData::aerion_mute_svg, BinaryData::aerion_mute_svgSize);
-        iconSolo = loadIcon (BinaryData::aerion_Solo_svg, BinaryData::aerion_Solo_svgSize);
     }
 
     ~Mixer() override { projectData.getProjectTree().removeListener (this); }
@@ -8647,8 +8592,7 @@ public:
         if (needsPaint (rightCol))
         {
             juce::Rectangle<int> btnHits[5];
-            drawSideButtonColumn (g, rightCol, track, audioEngine, btnHits,
-                                  iconMute.get(), iconSolo.get());
+            drawSideButtonColumn (g, rightCol, track, audioEngine, btnHits);
             hit.muteBtn  = btnHits[0];
             hit.soloBtn  = btnHits[1];
             hit.monoBtn  = btnHits[2];
@@ -8796,8 +8740,7 @@ public:
         static void drawSideButtonColumn (juce::Graphics& g, juce::Rectangle<int> col,
                                           tracktion::Track* track,
                                           AudioEngineManager& audioEngine,
-                                          juce::Rectangle<int> (&btns)[5],
-                                          juce::Drawable* iconMute, juce::Drawable* iconSolo)
+                                          juce::Rectangle<int> (&btns)[5])
         {
             const char* labels[5] = { "M", "S", "MONO", "FX", "i" };
             bool states[5] = {
@@ -8814,14 +8757,7 @@ public:
             {
                 btns[i] = cursor.removeFromTop (kSideBtnH);
                 cursor.removeFromTop (kSideBtnGap);
-
-                // Mute / Solo render as SVG icon buttons to match the Timeline and Inspector.
-                if (i == 0 && iconMute != nullptr)
-                    Timeline::drawTrackIconBtn (g, btns[i], iconMute, states[i], colours[i]);
-                else if (i == 1 && iconSolo != nullptr)
-                    Timeline::drawTrackIconBtn (g, btns[i], iconSolo, states[i], colours[i]);
-                else
-                    Timeline::drawTrackBtn (g, btns[i], labels[i], states[i], colours[i]);
+                paintLetterButton (g, btns[i], labels[i], states[i], colours[i]);
             }
         }
 

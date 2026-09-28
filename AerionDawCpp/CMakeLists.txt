@@ -75,11 +75,7 @@ juce_add_binary_data(AerionDawResources
         Resources/Icons/aerion_magnet.svg
         Resources/Icons/aerion_metronome.svg
         Resources/Icons/aerion_countin.svg
-        Resources/Icons/aerion_arm.svg
-        Resources/Icons/aerion_mute.svg
-        Resources/Icons/aerion_Solo.svg
         Resources/Icons/aerion_xfade.svg
-        Resources/Icons/aerion_auto.svg
         Resources/Icons/aerion_transport_play.svg
         Resources/Icons/aerion_transport_stop.svg
         Resources/Icons/aerion_transport_record.svg

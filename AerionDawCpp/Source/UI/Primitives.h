@@ -14,6 +14,21 @@ inline void setFaderFromY (AudioEngineManager& audioEngine, tracktion::Track* t,
     audioEngine.setTrackVolumeDb (t, AudioEngineManager::getDbFromFaderPos (sPos));
 }
 
+/** A track toggle (M / S / R / A, MONO, FX) drawn as a letter button, the same
+    in the Timeline, Mixer and Inspector. Longer labels are condensed to fit
+    rather than cut off. */
+inline void paintLetterButton (juce::Graphics& g, juce::Rectangle<int> b,
+                               const juce::String& label, bool on, juce::Colour activeColour)
+{
+    g.setColour (on ? activeColour.withAlpha (0.9f) : Theme::surface);
+    g.fillRoundedRectangle (b.toFloat(), 3.0f);
+    g.setColour (on ? activeColour : Theme::border);
+    g.drawRoundedRectangle (b.toFloat(), 3.0f, 1.0f);
+    g.setColour (on ? juce::Colour (0xff0b0e13) : Theme::textMuted);
+    g.setFont (Theme::uiSize (10.0f).withStyle (juce::Font::bold));
+    g.drawFittedText (label, b.reduced (2, 0), juce::Justification::centred, 1, 0.6f);
+}
+
 inline juce::Rectangle<int> faderReadoutArea (juce::Rectangle<int> area)
 {
     return area.withY (area.getBottom() - 16).withHeight (14);
