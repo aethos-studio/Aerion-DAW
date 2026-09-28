@@ -170,7 +170,7 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
   - [x] Measurement: `AerionBench` for Timeline and Mixer with both renderers, clip-drag scenario, `--verify` pixel checks; message-thread watchdog in profiling builds
   - [x] Timeline culling and clip-drag partial repaint (drag: 19–33 ms → 0.08–2.5 ms per mouse move)
   - [x] Mixer meters-only repaint during playback (5.7–7.3 ms → 2.4–3.3 ms per tick)
-  - [ ] Graphics engine setting (Auto / Direct2D / Software), Auto measuring both on first launch; Direct2D costs 10× the software renderer for small repaints
+  - [x] Graphics engine setting (**View → Graphics Engine**: Auto / Hardware Accelerated / Software). Auto uses the software renderer up to 2560 × 1600 displays; Direct2D costs 10× more for small repaints
   - [ ] One display-synced UI clock (`VBlankAttachment`) replacing the separate component timers; paused while minimised or idle
   - [ ] Cache static chrome as images: background and header gradients, SVG icons, the fader cap
   - [ ] Timeline layers: cached background plus a lightweight overlay, so scroll, zoom and playhead stop re-running the full paint (full repaint is still 19–31 ms)

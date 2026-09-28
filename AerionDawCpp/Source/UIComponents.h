@@ -1108,6 +1108,8 @@ public:
     juce::StringArray builtInWorkspaceNames;
     juce::StringArray customWorkspaceNames;
     juce::String      activeWorkspaceName;
+    int          graphicsEngineChoice = 0;   // GraphicsEngine::Choice
+    juce::String graphicsEngineInUse;        // e.g. "Software Renderer"
     bool   hasSelectedTrack = false;
     bool   hasSelectedClip  = false;
     bool   trackArmed       = false;
@@ -1138,6 +1140,7 @@ public:
     std::function<void(juce::String)> onApplyWorkspace;
     std::function<void()>             onSaveWorkspace;
     std::function<void(juce::String)> onDeleteWorkspace;
+    std::function<void(int)>          onGraphicsEngineChanged;
     std::function<void(juce::File)>   onOpenRecent;
     std::function<void()>             onClearRecent;
     std::function<void()>             onCollectSaveAs;
@@ -1466,7 +1469,18 @@ private:
 
         m.addSubMenu ("Workspace", wsSub);
 
+        // Renderer for all windows; Auto is resolved per machine (UI/GraphicsEngine.h).
+        juce::PopupMenu gfxSub;
+        gfxSub.addItem (500, "Auto" + (graphicsEngineChoice == 0 && graphicsEngineInUse.isNotEmpty()
+                                          ? " (" + graphicsEngineInUse + ")" : juce::String()),
+                        true, graphicsEngineChoice == 0);
+        gfxSub.addItem (501, "Hardware Accelerated", true, graphicsEngineChoice == 1);
+        gfxSub.addItem (502, "Software",             true, graphicsEngineChoice == 2);
+        m.addSubMenu ("Graphics Engine", gfxSub);
+
         m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
+            if (r >= 500 && r <= 502 && onGraphicsEngineChanged)
+                onGraphicsEngineChanged (r - 500);
             if (r == 1 && onToggleInspector)   onToggleInspector();
             if (r == 2 && onToggleBrowser)     onToggleBrowser();
             if (r == 3 && onToggleMixerDetach) onToggleMixerDetach();

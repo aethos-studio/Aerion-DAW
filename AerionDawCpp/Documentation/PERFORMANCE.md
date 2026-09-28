@@ -96,6 +96,18 @@ Still open: the full Timeline repaint (scroll, zoom) is over one frame, the Mixe
 
 The remaining meter cost is mostly the fader cap SVG, drawn for every visible strip on each tick. Caching it as an image is part of the planned SVG caching work.
 
+### Phase 1.3: Graphics engine setting (2026-09-28)
+
+JUCE 8 opens every window with Direct2D, and the numbers above show it is the slower choice for the partial repaints that playback and editing consist of (playhead strip 4.1 ms vs 0.37 ms software, clip drag 1.9 ms vs 0.08 ms). **View → Graphics Engine** now offers:
+
+- **Auto** (default): the software renderer, unless the largest display has more than 2560 × 1600 physical pixels. There, full repaints (resizing, scrolling) start to dominate and Direct2D's faster full repaint wins. The menu shows which engine Auto picked.
+- **Hardware Accelerated**: Direct2D on Windows, CoreGraphics on macOS.
+- **Software**: JUCE's CPU renderer.
+
+`GraphicsEngine::Policy` (`UI/GraphicsEngine.h`) applies the choice to every window, because JUCE has no app-wide switch: when the main window appears, when the setting changes, and whenever focus moves to a newly opened window. The choice is saved in the user settings and logged at startup (`Graphics engine: Auto -> ...`). `AerionBench --verify` checks that a window really switches in both directions.
+
+The 2560 × 1600 threshold is a heuristic and should be revisited once Timeline layers make full repaints cheap. The benchmark numbers are CPU submission cost measured offscreen. To compare engines in a real window, switch in the View menu and read the `Timeline::paint` and `message thread` lines of a profiling build's log.
+
 ### Fixed along the way: crash when releasing the Edit
 
 `AudioEngineManager` kept each track's LevelMeterPlugin alive in `trackMeters` and released it only after the Edit was destroyed or replaced. If that was the last reference, the plugin's destructor called into the dead Edit (`Edit::getParameterChangeHandler`). This affected quitting, opening a project and creating a new one. It showed up as the benchmark crashing on exit in about half of its runs, and it now releases meters and thumbnails before the Edit goes away (0 crashes in 10 runs).

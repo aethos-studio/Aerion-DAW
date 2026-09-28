@@ -364,6 +364,13 @@ MainComponent::MainComponent()
     menuBar.onApplyWorkspace  = [this] (juce::String n) { applyWorkspaceLayoutByName (n); };
     menuBar.onSaveWorkspace   = [this] { saveCurrentWorkspaceLayout(); };
     menuBar.onDeleteWorkspace = [this] (juce::String n) { deleteWorkspaceLayout (n); };
+    menuBar.onGraphicsEngineChanged = [this] (int choice)
+    {
+        graphicsEngine.setChoice (GraphicsEngine::choiceFromInt (choice));
+        if (auto* s = audioEngine.getUserSettings())
+            s->setValue (GraphicsEngine::settingsKey, choice);
+        syncMenuBarState();
+    };
     menuBar.onShowKeyboardShortcuts = [this] {
         KeyboardShortcutsDialog::launch (audioEngine.getKeymap(), audioEngine.getUserSettings());
     };
@@ -623,6 +630,9 @@ MainComponent::MainComponent()
 
     setSize (1400, 860);
     updateTitleBar();
+
+    if (auto* s = audioEngine.getUserSettings())
+        graphicsEngine.setChoice (GraphicsEngine::choiceFromInt (s->getIntValue (GraphicsEngine::settingsKey, 0)));
 
     // Restore the last-used workspace layout (built-in or custom) from settings.
     loadWorkspaceLayouts();
@@ -926,6 +936,8 @@ void MainComponent::syncMenuBarState()
     for (const auto& l : customLayouts)
         menuBar.customWorkspaceNames.add (l.name);
     menuBar.activeWorkspaceName = activeLayoutName;
+    menuBar.graphicsEngineChoice = (int) graphicsEngine.getChoice();
+    menuBar.graphicsEngineInUse  = GraphicsEngine::resolvedEngineName (graphicsEngine.getChoice());
 
     auto sel = timeline.getSelectedTracks();
     menuBar.hasSelectedTrack = ! sel.isEmpty();

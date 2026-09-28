@@ -2,6 +2,7 @@
 #include <iostream>
 #include "../ProjectData.h"
 #include "../Keymap.h"
+#include "../UI/GraphicsEngine.h"
 
 //==============================================================================
 // Aerion smoke tests (Milestone 5).
@@ -166,8 +167,38 @@ public:
 };
 
 //==============================================================================
+// Choice logic only: applying an engine needs a window, which this runner must
+// not open. `AerionBench --verify` checks that windows actually switch.
+class GraphicsEngineTests final : public juce::UnitTest
+{
+public:
+    GraphicsEngineTests() : juce::UnitTest ("GraphicsEngine", "Aerion") {}
+
+    void runTest() override
+    {
+        using namespace GraphicsEngine;
+
+        beginTest ("stored setting maps to a choice, unknown values fall back to Auto");
+        {
+            expect (choiceFromInt (0) == Choice::automatic);
+            expect (choiceFromInt (1) == Choice::hardware);
+            expect (choiceFromInt (2) == Choice::software);
+            expect (choiceFromInt (7) == Choice::automatic);
+            expect (choiceFromInt (-1) == Choice::automatic);
+        }
+
+        beginTest ("explicit choices are honoured, Auto follows display size");
+        {
+            expect (wantsSoftware (Choice::software));
+            expect (! wantsSoftware (Choice::hardware));
+            expect (wantsSoftware (Choice::automatic) == (largestDisplayPixels() <= kHardwareAutoPixels));
+        }
+    }
+};
+
 static ProjectDataTests projectDataTests;
 static KeymapTests keymapTests;
+static GraphicsEngineTests graphicsEngineTests;
 
 class ConsoleUnitTestRunner final : public juce::UnitTestRunner
 {

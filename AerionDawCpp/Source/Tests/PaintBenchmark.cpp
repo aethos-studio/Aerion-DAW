@@ -1,5 +1,6 @@
 #include <JuceHeader.h>
 #include "../UIComponents.h"
+#include "../UI/GraphicsEngine.h"
 
 //==============================================================================
 // Headless paint benchmark (Milestone 5).
@@ -555,6 +556,29 @@ int main (int argc, char* argv[])
         checks.add ({ "mixer arbitrary slice", &mixer, mixerHeight, juce::Rectangle<int> (100, 60, 300, 90) });
 
         int failures = 0;
+
+        // A hidden window must follow the graphics engine choice both ways.
+        {
+            juce::Component probe;
+            probe.setSize (64, 64);
+            probe.addToDesktop (0);
+
+            if (auto* peer = probe.getPeer())
+            {
+                for (auto choice : { GraphicsEngine::Choice::software, GraphicsEngine::Choice::hardware })
+                {
+                    GraphicsEngine::applyToAllWindows (choice);
+                    const auto engine = peer->getAvailableRenderingEngines()[peer->getCurrentRenderingEngine()];
+                    const bool ok = engine.containsIgnoreCase ("software") == (choice == GraphicsEngine::Choice::software);
+                    std::cout << "  " << juce::String ("graphics engine -> " + engine).paddedRight (' ', 40)
+                              << (ok ? "ok" : "WRONG ENGINE") << std::endl;
+                    failures += ok ? 0 : 1;
+                }
+            }
+
+            probe.removeFromDesktop();
+        }
+
         for (auto& check : checks)
         {
             const auto& name = check.name;

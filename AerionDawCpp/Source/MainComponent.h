@@ -7,6 +7,7 @@
 #include "AerionTooltipWindow.h"
 #include "UIComponents.h"
 #include "Export/MixdownExportDialog.h"
+#include "UI/GraphicsEngine.h"
 
 class MainComponent  : public juce::Component,
                        public juce::DragAndDropContainer,
@@ -22,6 +23,10 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
     void timerCallback() override;
+
+    // The main window only gets its native peer once it is on the desktop, so
+    // the graphics engine choice is applied here rather than in the constructor.
+    void parentHierarchyChanged() override { graphicsEngine.apply(); }
 
     bool keyPressed (const juce::KeyPress& key, juce::Component* origin) override;
 
@@ -176,6 +181,8 @@ private:
 
     MetalLookAndFeel metalLookAndFeel;
     std::unique_ptr<AerionTooltipWindow> tooltipWindow;
+
+    GraphicsEngine::Policy graphicsEngine;
 
     double lastTransportPos = -1.0;
     bool lastIsPlaying = false;
