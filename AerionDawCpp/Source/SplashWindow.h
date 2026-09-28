@@ -16,8 +16,8 @@ public:
         : onFinished (onFinishedCallback)
     {
         if (auto xml = juce::XmlDocument::parse (juce::String::fromUTF8 (
-                BinaryData::aerion_logo_vertical_svg,
-                BinaryData::aerion_logo_vertical_svgSize)))
+                BinaryData::aerion_logo_ui_svg,
+                BinaryData::aerion_logo_ui_svgSize)))
             logoDrawable = juce::Drawable::createFromSVG (*xml);
 
        #if JUCE_WINDOWS && JUCE_ASIO

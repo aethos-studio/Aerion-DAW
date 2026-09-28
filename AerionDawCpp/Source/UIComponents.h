@@ -548,8 +548,8 @@ public:
     AboutDialog()
     {
         if (auto x = juce::XmlDocument::parse (juce::String::fromUTF8 (
-                BinaryData::aerion_logo_vertical_svg,
-                BinaryData::aerion_logo_vertical_svgSize)))
+                BinaryData::aerion_logo_ui_svg,
+                BinaryData::aerion_logo_ui_svgSize)))
             aerionLogo = juce::Drawable::createFromSVG (*x);
 
        #if JUCE_WINDOWS && JUCE_ASIO
@@ -1146,7 +1146,7 @@ public:
 
     DAWMenuBar()
     {
-        if (auto x = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::aerion_logo_svg, BinaryData::aerion_logo_svgSize)))
+        if (auto x = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::aerion_logo_ui_svg, BinaryData::aerion_logo_ui_svgSize)))
             logoDrawable = juce::Drawable::createFromSVG (*x);
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
     }

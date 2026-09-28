@@ -60,8 +60,7 @@ endif()
 
 juce_add_binary_data(AerionDawResources
     SOURCES
-        Resources/aerion_logo.svg
-        Resources/aerion_logo_vertical.svg
+        Resources/aerion_logo_ui.svg
         Resources/aerion_fader.svg
         Resources/asio_compatible_logo.svg
         Resources/Cinzel-Regular.ttf

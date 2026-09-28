@@ -500,6 +500,7 @@ int main (int argc, char* argv[])
 
         DAWMenuBar menuBar;
         DAWToolbar toolbar;
+        AboutDialog about;
         Transport transport (audioEngine, projectData);
         menuBar.setBounds (0, 0, 1400, 28);
         toolbar.setBounds (0, 0, 1400, 40);
@@ -511,6 +512,7 @@ int main (int argc, char* argv[])
         {
             const auto suffix = scale > 1.0f ? juce::String ("_150.png") : juce::String ("_100.png");
             writeSnapshot (menuBar,   scale, dir.getChildFile ("menubar"   + suffix));
+            writeSnapshot (about,     scale, dir.getChildFile ("about"     + suffix));
             writeSnapshot (toolbar,   scale, dir.getChildFile ("toolbar"   + suffix));
             writeSnapshot (transport, scale, dir.getChildFile ("transport" + suffix));
             writeSnapshot (timeline,  scale, dir.getChildFile ("timeline"  + suffix));

@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="50 25 400 330">
+  <!--
+    In-app version of aerion_logo.svg for dark backgrounds.
+
+    JUCE's SVG renderer ignores filters, so the original's drop shadow and
+    glow disappear and its near-black 'A' vanishes against the UI. This copy
+    uses no filters: the 'A' is lighter with a light edge, and the pulse glow
+    is approximated with wide, translucent strokes. The original artwork is
+    unchanged and still used where filters render (e.g. docs, web).
+  -->
+  <defs>
+    <linearGradient id="metalGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#C3CEDA" />
+      <stop offset="45%" stop-color="#7D8C9C" />
+      <stop offset="100%" stop-color="#3A4656" />
+    </linearGradient>
+  </defs>
+
+  <!-- Main 'A' Structure -->
+  <path d="M 250 40 L 430 340 L 320 340 L 250 180 L 180 340 L 70 340 Z"
+        fill="url(#metalGrad)"
+        stroke="#D6E0EA"
+        stroke-width="3"
+        stroke-opacity="0.55"
+        stroke-linejoin="round" />
+
+  <!-- Pulse glow, outer to inner -->
+  <path d="M 130 280 L 215 280 L 250 195 L 285 280 L 370 280"
+        fill="none" stroke="#3182CE" stroke-width="22" stroke-opacity="0.18"
+        stroke-linejoin="round" stroke-linecap="round" />
+  <path d="M 130 280 L 215 280 L 250 195 L 285 280 L 370 280"
+        fill="none" stroke="#3182CE" stroke-width="13" stroke-opacity="0.35"
+        stroke-linejoin="round" stroke-linecap="round" />
+  <path d="M 130 280 L 215 280 L 250 195 L 285 280 L 370 280"
+        fill="none" stroke="#63B3ED" stroke-width="7"
+        stroke-linejoin="miter" />
+
+  <!-- Core line -->
+  <path d="M 130 280 L 215 280 L 250 195 L 285 280 L 370 280"
+        fill="none" stroke="#EBF8FF" stroke-width="3"
+        stroke-linejoin="miter" />
+</svg>

@@ -6,7 +6,7 @@ class LogoComponent : public juce::Component
 public:
     LogoComponent() 
     {
-        if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::aerion_logo_vertical_svg, BinaryData::aerion_logo_vertical_svgSize)))
+        if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::aerion_logo_ui_svg, BinaryData::aerion_logo_ui_svgSize)))
             drawable = juce::Drawable::createFromSVG (*svgXml);
     }
 
