@@ -5,6 +5,7 @@
 #include "GoogleDriveClient.h"
 #include "UI/ThemeTokens.h"
 #include "UI/Primitives.h"
+#include "UI/Icons.h"
 #include "UI/LookAndFeel.h"
 #include "UI/ThemeTypefaces.h"
 #include "UI/Profiling.h"
@@ -1551,12 +1552,7 @@ public:
 
     DAWToolbar()
     {
-        auto load = [] (const char* data, int size) -> std::unique_ptr<juce::Drawable>
-        {
-            if (auto xml = juce::XmlDocument::parse (juce::String::fromUTF8 (data, size)))
-                return juce::Drawable::createFromSVG (*xml);
-            return nullptr;
-        };
+        auto load = &Icons::load;
         iconInspector = load (BinaryData::aerion_inspector_svg, BinaryData::aerion_inspector_svgSize);
         iconSelect    = load (BinaryData::aerion_select_svg,    BinaryData::aerion_select_svgSize);
         iconCut       = load (BinaryData::aerion_cut_svg,       BinaryData::aerion_cut_svgSize);
@@ -1615,7 +1611,7 @@ public:
         clickBtn   = { W - 86,  btnY, btnS, btnS };
         countInBtn = { W - 118, btnY, btnS, btnS };
         drawIconBtn (g, clickBtn,   iconMetronome.get(), metronomeEnabled);
-        drawIconBtn (g, countInBtn, iconCountIn.get(),   countInBars > 0);
+        drawIconBtn (g, countInBtn, iconCountIn.get(),   countInBars > 0, Theme::active, true);
 
         // Tiny CountIn state label below the icon
         {
@@ -1642,8 +1638,8 @@ public:
 
             // Magnet icon
             if (iconMagnet != nullptr)
-                iconMagnet->drawWithin (g, snapBounds.reduced (5).toFloat().withTrimmedBottom (5),
-                                        juce::RectanglePlacement::centred, 1.0f);
+                Icons::draw (g, *iconMagnet, bf.reduced (2.0f).withTrimmedBottom (kIconLabelH - 3.0f),
+                             Icons::inkFor (snapEnabled, false, Theme::active));
 
             // Tiny interval sub-label
             g.setColour (snapEnabled ? Theme::active : Theme::textMuted);
@@ -1822,9 +1818,12 @@ private:
         return 0;
     }
 
+    /** `labelBelow` leaves the bottom of the button free for a state label
+        (count-in bars), so the icon sits above it instead of under it. */
     void drawIconBtn (juce::Graphics& g, juce::Rectangle<int> b,
                       juce::Drawable* icon, bool active,
-                      juce::Colour activeColour = Theme::active) const
+                      juce::Colour activeColour = Theme::active,
+                      bool labelBelow = false) const
     {
         bool hov = b.contains (hoverPos);
         auto bf = b.toFloat();
@@ -1834,9 +1833,19 @@ private:
         g.setColour (active ? activeColour
                             : hov ? Theme::border.brighter (0.3f) : Theme::border);
         g.drawRoundedRectangle (bf, 4.0f, 1.0f);
+
         if (icon != nullptr)
-            icon->drawWithin (g, b.reduced (6).toFloat(), juce::RectanglePlacement::centred, 1.0f);
+        {
+            auto area = bf.reduced (4.0f);
+            if (labelBelow)
+                area = area.withTrimmedBottom (kIconLabelH - 2.0f);
+
+            Icons::draw (g, *icon, area, Icons::inkFor (active, false, activeColour));
+        }
     }
+
+    // Height of the state label under a toolbar icon (count-in, snap interval).
+    static constexpr float kIconLabelH = 9.0f;
 
     static void drawDivider (juce::Graphics& g, int x, int y, int h)
     {
@@ -1859,12 +1868,7 @@ public:
         audioEngine.addListener (this);
         startTimerHz (20); // fader/meter animation (avoid stacking multiple 30 Hz surfaces)
 
-        auto loadIcon = [] (const char* data, int size) -> std::unique_ptr<juce::Drawable>
-        {
-            if (auto xml = juce::XmlDocument::parse (juce::String::fromUTF8 (data, size)))
-                return juce::Drawable::createFromSVG (*xml);
-            return nullptr;
-        };
+        auto loadIcon = &Icons::load;
 
         if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::aerion_fader_svg, BinaryData::aerion_fader_svgSize)))
             faderKnobDrawable = juce::Drawable::createFromSVG (*svgXml);
@@ -2307,7 +2311,7 @@ public:
         g.setColour (on ? activeColour : Theme::border);
         g.drawRoundedRectangle (r.toFloat(), 4.0f, 1.0f);
         if (icon != nullptr)
-            icon->drawWithin (g, r.reduced (5).toFloat(), juce::RectanglePlacement::centred, 1.0f);
+            Icons::draw (g, *icon, r.toFloat().reduced (2.0f), Icons::inkFor (on, true, activeColour));
     }
 
 private:
@@ -4622,11 +4626,7 @@ public:
         rulerValueEditor.onFocusLost = [this] { commitRulerValueEdit(); };
         rulerValueEditor.onEscapeKey = [this] { cancelRulerValueEdit(); };
 
-        auto loadIcon = [] (const char* d, int s) -> std::unique_ptr<juce::Drawable> {
-            if (auto xml = juce::XmlDocument::parse (juce::String::fromUTF8 (d, s)))
-                return juce::Drawable::createFromSVG (*xml);
-            return nullptr;
-        };
+        auto loadIcon = &Icons::load;
         iconMute = loadIcon (BinaryData::aerion_mute_svg,  BinaryData::aerion_mute_svgSize);
         iconSolo = loadIcon (BinaryData::aerion_Solo_svg,  BinaryData::aerion_Solo_svgSize);
         iconArm  = loadIcon (BinaryData::aerion_arm_svg,   BinaryData::aerion_arm_svgSize);
@@ -6735,7 +6735,9 @@ public:
         g.drawRoundedRectangle(b.toFloat(), 2.0f, 1.0f);
         g.setColour(on ? juce::Colours::black : Theme::textMuted);
         g.setFont (Theme::uiSize (10.0f).withStyle (juce::Font::bold));
-        g.drawText(letter, b, juce::Justification::centred);
+        // Condense longer labels ("MONO" in the 26 px mixer column) rather than
+        // cutting them to "MO...".
+        g.drawFittedText (letter, b.reduced (2, 0), juce::Justification::centred, 1, 0.6f);
     }
 
     static void drawTrackIconBtn(juce::Graphics& g, juce::Rectangle<int> b,
@@ -6746,7 +6748,7 @@ public:
         g.setColour(on ? activeColour : Theme::border.withAlpha(0.6f));
         g.drawRoundedRectangle(b.toFloat(), 3.0f, 1.0f);
         if (icon)
-            icon->drawWithin(g, b.reduced(5).toFloat(), juce::RectanglePlacement::centred, 1.0f);
+            Icons::draw (g, *icon, b.toFloat().reduced (2.0f), Icons::inkFor (on, true, activeColour));
     }
 
     static void drawFxBadge (juce::Graphics& g, juce::Rectangle<int> b, int numPlugins)
@@ -8398,12 +8400,7 @@ public:
         if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::aerion_fader_svg, BinaryData::aerion_fader_svgSize)))
             faderKnobDrawable = juce::Drawable::createFromSVG (*svgXml);
 
-        auto loadIcon = [] (const char* d, int s) -> std::unique_ptr<juce::Drawable>
-        {
-            if (auto xml = juce::XmlDocument::parse (juce::String::fromUTF8 (d, s)))
-                return juce::Drawable::createFromSVG (*xml);
-            return {};
-        };
+        auto loadIcon = &Icons::load;
         iconMute = loadIcon (BinaryData::aerion_mute_svg, BinaryData::aerion_mute_svgSize);
         iconSolo = loadIcon (BinaryData::aerion_Solo_svg, BinaryData::aerion_Solo_svgSize);
     }
@@ -9161,11 +9158,7 @@ public:
     {
         projectData.getProjectTree().addListener (this);
 
-        auto loadIcon = [] (const char* d, int s) -> std::unique_ptr<juce::Drawable> {
-            if (auto xml = juce::XmlDocument::parse (juce::String::fromUTF8 (d, s)))
-                return juce::Drawable::createFromSVG (*xml);
-            return nullptr;
-        };
+        auto loadIcon = &Icons::load;
         icons[(int)Glyph::play]    = loadIcon (BinaryData::aerion_transport_play_svg,    BinaryData::aerion_transport_play_svgSize);
         icons[(int)Glyph::stop]    = loadIcon (BinaryData::aerion_transport_stop_svg,    BinaryData::aerion_transport_stop_svgSize);
         icons[(int)Glyph::record]  = loadIcon (BinaryData::aerion_transport_record_svg,  BinaryData::aerion_transport_record_svgSize);
@@ -9327,11 +9320,7 @@ public:
 
         if (auto* icon = icons[(int) k].get())
         {
-            juce::Graphics::ScopedSaveState s (g);
-            const auto iconBounds = bc.reduced (8.0f);
-            icon->replaceColour (juce::Colours::black, active ? col : Theme::textMuted.withAlpha (0.85f));
-            icon->replaceColour (juce::Colours::white, active ? col : Theme::textMuted.withAlpha (0.85f));
-            icon->drawWithin (g, iconBounds, juce::RectanglePlacement::centred, 1.0f);
+            Icons::draw (g, *icon, bc.reduced (4.0f), active ? col : Theme::textMuted.withAlpha (0.85f));
             return;
         }
 

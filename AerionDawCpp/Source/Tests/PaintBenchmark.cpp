@@ -28,6 +28,9 @@
 //
 //   AerionBench --tracks=32 --clips=20 --frames=200 [--renderer=both|native|software]
 //               [--verify]   exit code 2 if a partial repaint differs from a full one
+//   AerionBench --tracks=4 --clips=3 --snapshots=<dir>
+//               renders an icon sheet and the toolbar, transport, menu bar, Timeline
+//               and Mixer at 100 % and 150 % scale to PNGs, then exits
 //==============================================================================
 
 namespace
@@ -146,6 +149,114 @@ namespace
         }
 
         return mismatches;
+    }
+
+    bool writePng (const juce::Image& image, const juce::File& dest)
+    {
+        dest.deleteFile();
+        juce::PNGImageFormat png;
+        if (auto out = std::unique_ptr<juce::FileOutputStream> (dest.createOutputStream()))
+            return png.writeImageToStream (image, *out);
+        return false;
+    }
+
+    /** Renders a component at a display scale factor (1.5 = 150 % Windows
+        scaling), so layout and icon problems can be inspected without a window. */
+    void writeSnapshot (juce::Component& c, float scale, const juce::File& dest)
+    {
+        juce::Image image (juce::Image::ARGB,
+                           juce::roundToInt ((float) c.getWidth()  * scale),
+                           juce::roundToInt ((float) c.getHeight() * scale),
+                           true, juce::SoftwareImageType());
+        {
+            juce::Graphics g (image);
+            g.fillAll (juce::Colour (0xff101418));
+            g.addTransform (juce::AffineTransform::scale (scale));
+            c.paintEntireComponent (g, false);
+        }
+        std::cout << "  " << (writePng (image, dest) ? "wrote " : "FAILED ") << dest.getFileName() << std::endl;
+    }
+
+    /** One row per embedded SVG: the icon fitted by its drawn content (what
+        Drawable::drawWithin does) next to the icon fitted by its viewBox, at
+        two button sizes, magnified. Also prints how far each icon's content
+        is from its viewBox, which decides how differently the two look. */
+    void writeIconSheet (const juce::File& dest)
+    {
+        constexpr int kZoom = 4, kRowH = 36, kLabelW = 190;
+        const int sizes[] = { 14, 24 };
+
+        struct Icon { juce::String name; std::unique_ptr<juce::Drawable> drawable; };
+        std::vector<Icon> icons;
+
+        for (int i = 0; i < BinaryData::namedResourceListSize; ++i)
+        {
+            const juce::String file (BinaryData::originalFilenames[i]);
+            if (! file.endsWithIgnoreCase (".svg"))
+                continue;
+
+            int size = 0;
+            auto* data = BinaryData::getNamedResource (BinaryData::namedResourceList[i], size);
+            if (auto xml = juce::XmlDocument::parse (juce::String::fromUTF8 (data, size)))
+                if (auto d = juce::Drawable::createFromSVG (*xml))
+                    icons.push_back ({ file, std::move (d) });
+        }
+
+        std::cout << std::endl << juce::String ("icon").paddedRight (' ', 34)
+                  << "viewBox            content bounds (x, y, w, h)" << std::endl;
+
+        const int cellW = 40;
+        juce::Image sheet (juce::Image::ARGB, (kLabelW + cellW * 4) * kZoom / 2,
+                           ((int) icons.size() + 1) * kRowH * kZoom / 2, true, juce::SoftwareImageType());
+        juce::Graphics g (sheet);
+        g.fillAll (juce::Colour (0xff101418));
+        g.addTransform (juce::AffineTransform::scale ((float) kZoom / 2.0f));
+
+        g.setColour (juce::Colours::white);
+        g.setFont (11.0f);
+        g.drawText ("drawWithin (content)   |   fitted to viewBox", kLabelW, 4, cellW * 4, 14,
+                    juce::Justification::left);
+
+        int y = kRowH;
+        for (auto& icon : icons)
+        {
+            auto* composite = dynamic_cast<juce::DrawableComposite*> (icon.drawable.get());
+            const auto viewBox = composite != nullptr ? composite->getContentArea() : juce::Rectangle<float>();
+            const auto content = icon.drawable->getDrawableBounds();
+
+            std::cout << icon.name.paddedRight (' ', 34)
+                      << (juce::String (viewBox.getWidth(), 1) + " x " + juce::String (viewBox.getHeight(), 1)).paddedRight (' ', 19)
+                      << juce::String (content.getX(), 1) << ", " << juce::String (content.getY(), 1) << ", "
+                      << juce::String (content.getWidth(), 1) << ", " << juce::String (content.getHeight(), 1)
+                      << std::endl;
+
+            g.setColour (juce::Colours::lightgrey);
+            g.drawText (icon.name, 4, y, kLabelW - 8, kRowH, juce::Justification::centredLeft);
+
+            int x = kLabelW;
+            for (int method = 0; method < 2; ++method)
+            {
+                for (int s : sizes)
+                {
+                    const juce::Rectangle<float> box ((float) x + (float) (cellW - s) / 2.0f,
+                                                      (float) y + (float) (kRowH - s) / 2.0f, (float) s, (float) s);
+                    g.setColour (juce::Colour (0xff1e2630));
+                    g.fillRect (box);
+                    g.setColour (juce::Colours::orange.withAlpha (0.8f));
+                    g.drawRect (box, 0.5f);
+
+                    if (method == 0 || viewBox.isEmpty())
+                        icon.drawable->drawWithin (g, box, juce::RectanglePlacement::centred, 1.0f);
+                    else
+                        icon.drawable->draw (g, 1.0f, juce::RectanglePlacement (juce::RectanglePlacement::centred)
+                                                          .getTransformToFit (viewBox, box));
+                    x += cellW;
+                }
+            }
+            y += kRowH;
+        }
+
+        std::cout << "  " << (writePng (sheet, dest) ? "wrote " : "FAILED ") << dest.getFileName() << std::endl;
     }
 
     double elapsedMsSince (juce::int64 startTicks)
@@ -374,6 +485,40 @@ int main (int argc, char* argv[])
             if (! clips.isEmpty())
                 dragClip = clips[clips.size() / 2];
         }
+    }
+
+    if (auto dirArg = stringArg (args, "--snapshots"); dirArg.isNotEmpty())
+    {
+        const juce::File dir (dirArg);
+        dir.createDirectory();
+        writeIconSheet (dir.getChildFile ("icons.png"));
+
+        // Some "on" states, so active button styling shows up too.
+        auto tracks = audioEngine.getAudioTracks();
+        if (tracks.size() > 1) audioEngine.toggleTrackMute (tracks[0]);
+        if (tracks.size() > 2) audioEngine.toggleTrackSolo (tracks[1]);
+
+        DAWMenuBar menuBar;
+        DAWToolbar toolbar;
+        Transport transport (audioEngine, projectData);
+        menuBar.setBounds (0, 0, 1400, 28);
+        toolbar.setBounds (0, 0, 1400, 40);
+        transport.setBounds (0, 0, 1400, 60);
+        timeline.setBounds (0, 0, 1100, 420);
+        mixer.setBounds (0, 0, 1100, 320);
+
+        for (float scale : { 1.0f, 1.5f })
+        {
+            const auto suffix = scale > 1.0f ? juce::String ("_150.png") : juce::String ("_100.png");
+            writeSnapshot (menuBar,   scale, dir.getChildFile ("menubar"   + suffix));
+            writeSnapshot (toolbar,   scale, dir.getChildFile ("toolbar"   + suffix));
+            writeSnapshot (transport, scale, dir.getChildFile ("transport" + suffix));
+            writeSnapshot (timeline,  scale, dir.getChildFile ("timeline"  + suffix));
+            writeSnapshot (mixer,     scale, dir.getChildFile ("mixer"     + suffix));
+        }
+
+        sourceFile.deleteFile();
+        return 0;
     }
 
     const int strip = 16;

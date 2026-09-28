@@ -364,6 +364,7 @@ if (AERION_BUILD_TESTS)
         Source/GoogleDriveClient.cpp
         Source/AerionTooltipWindow.cpp
         Source/Export/MixdownExportJob.cpp
+        Source/UI/ThemeTypefaces.cpp
     )
 
     target_link_libraries(AerionBench PRIVATE
