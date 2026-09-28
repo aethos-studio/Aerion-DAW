@@ -117,7 +117,7 @@ namespace
         anyway, so any mismatch is a culling bug. Uses the software renderer so
         the comparison is deterministic. Returns the number of differing pixels. */
     int countPartialRepaintMismatches (juce::Component& c, int width, int height,
-                                       juce::Rectangle<int> region)
+                                       const juce::RectangleList<int>& region)
     {
         const juce::SoftwareImageType software;
         juce::Image full (juce::Image::ARGB, width, height, true, software);
@@ -127,7 +127,8 @@ namespace
         }
 
         auto partial = full.createCopy();
-        partial.clear (region);
+        for (auto& r : region)
+            partial.clear (r);
         {
             juce::Graphics g (partial);
             g.reduceClipRegion (region);
@@ -135,11 +136,14 @@ namespace
         }
 
         int mismatches = 0;
-        const auto area = region.getIntersection ({ 0, 0, width, height });
-        for (int y = area.getY(); y < area.getBottom(); ++y)
-            for (int x = area.getX(); x < area.getRight(); ++x)
-                if (full.getPixelAt (x, y) != partial.getPixelAt (x, y))
-                    ++mismatches;
+        for (auto& r : region)
+        {
+            const auto area = r.getIntersection ({ 0, 0, width, height });
+            for (int y = area.getY(); y < area.getBottom(); ++y)
+                for (int x = area.getX(); x < area.getRight(); ++x)
+                    if (full.getPixelAt (x, y) != partial.getPixelAt (x, y))
+                        ++mismatches;
+        }
 
         return mismatches;
     }
@@ -158,7 +162,7 @@ namespace
     }
 
     Result timePaint (juce::Component& c, int width, int height, int frames,
-                      juce::Rectangle<int> clipRegion, const juce::ImageType& imageType)
+                      const juce::RectangleList<int>& clipRegion, const juce::ImageType& imageType)
     {
         juce::Image image (juce::Image::ARGB, width, height, true, imageType);
 
@@ -288,6 +292,12 @@ int main (int argc, char* argv[])
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
 
+    // A crash in a tool run from scripts is otherwise just an exit code.
+    juce::SystemStats::setApplicationCrashHandler ([] (void*)
+    {
+        std::cerr << "AerionBench crashed:\n" << juce::SystemStats::getStackBacktrace() << std::endl;
+    });
+
     juce::StringArray args;
     for (int i = 1; i < argc; ++i)
         args.add (juce::String (argv[i]));
@@ -344,6 +354,16 @@ int main (int argc, char* argv[])
     Mixer mixer (audioEngine, projectData);
     mixer.setBounds (0, 0, width, mixerHeight);
 
+    // The playback region depends on the layout the Mixer records while
+    // painting, just like in the app after its first paint.
+    {
+        juce::Image scratch (juce::Image::ARGB, width, mixerHeight, true, juce::SoftwareImageType());
+        juce::Graphics g (scratch);
+        mixer.paintEntireComponent (g, false);
+    }
+    // Same region Mixer::repaintStripMetersArea() invalidates on each playback tick.
+    const auto mixerMeters = mixer.getPlaybackRepaintRegion();
+
     // A clip in the middle of the arrangement, so a drag touches a typical row.
     tracktion::Clip* dragClip = nullptr;
     {
@@ -359,25 +379,36 @@ int main (int argc, char* argv[])
     const int strip = 16;
     const juce::Rectangle<int> fullArea (0, 0, width, height);
     const juce::Rectangle<int> playheadStrip (width / 2 - strip / 2, 0, strip, height);
-    // Same region Mixer::repaintStripMetersArea() invalidates during playback.
-    const juce::Rectangle<int> mixerBody (0, Mixer::kHeaderH + 8, width,
-                                          juce::jmax (0, mixerHeight - Mixer::kHeaderH - 8));
 
     if (args.contains ("--verify"))
     {
         std::cout << std::endl << "[verify partial repaints match a full repaint]" << std::endl;
 
-        juce::Array<std::pair<juce::String, juce::Rectangle<int>>> regions;
-        regions.add ({ "timeline playhead 16px", playheadStrip });
-        regions.add ({ "timeline header column", { 0, 0, Timeline::kHeaderWidth, height } });
+        struct Check
+        {
+            juce::String name;
+            juce::Component* component;
+            int height;
+            juce::RectangleList<int> region;
+        };
+
+        juce::Array<Check> checks;
+        checks.add ({ "timeline playhead 16px", &timeline, height, playheadStrip });
+        checks.add ({ "timeline header column", &timeline, height, juce::Rectangle<int> (0, 0, Timeline::kHeaderWidth, height) });
 
         if (dragClip != nullptr)
-            regions.add ({ "timeline dragged clip", timeline.getClipPaintBounds (*dragClip) });
+            checks.add ({ "timeline dragged clip", &timeline, height, timeline.getClipPaintBounds (*dragClip) });
+
+        checks.add ({ "mixer meters", &mixer, mixerHeight, mixerMeters });
+        // An arbitrary slice across strips, like a window uncovering part of the
+        // console: every section it touches must redraw identically.
+        checks.add ({ "mixer arbitrary slice", &mixer, mixerHeight, juce::Rectangle<int> (100, 60, 300, 90) });
 
         int failures = 0;
-        for (auto& [name, region] : regions)
+        for (auto& check : checks)
         {
-            const int mismatches = countPartialRepaintMismatches (timeline, width, height, region);
+            const auto& name = check.name;
+            const int mismatches = countPartialRepaintMismatches (*check.component, width, check.height, check.region);
             std::cout << "  " << name.paddedRight (' ', 28)
                       << (mismatches == 0 ? juce::String ("ok")
                                           : juce::String (mismatches) + " pixels differ")
@@ -405,7 +436,7 @@ int main (int argc, char* argv[])
         report ("mixer full repaint",
                 timePaint (mixer, width, mixerHeight, frames, mixer.getLocalBounds(), *renderer.type));
         report ("mixer meters area",
-                timePaint (mixer, width, mixerHeight, frames, mixerBody, *renderer.type));
+                timePaint (mixer, width, mixerHeight, frames, mixerMeters, *renderer.type));
 
         if (dragClip != nullptr)
         {

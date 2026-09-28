@@ -82,6 +82,24 @@ Same machine and project (32 tracks × 20 clips, 1080p):
 
 Still open: the full Timeline repaint (scroll, zoom) is over one frame, the Mixer meters repaint is about the same as a full Mixer repaint, and Direct2D still costs over 10× the software renderer for the playhead strip.
 
+### Phase 1.2: Mixer meter repaint (2026-09-28)
+
+- Each playback tick repaints only each strip's two meters, the fader cap between them and the peak readout (`faderLiveAreas` in `UI/Primitives.h`). A whole strip is repainted only when automation has moved its fader or pan since it was last drawn.
+- `Mixer::paint` skips the header, and any strip or strip section outside the repainted area, reusing that strip's hit areas from the previous paint. Each strip paints with the clip narrowed to its own bounds. Without that, the software renderer paid for the whole list of repaint rectangles on every shape and got slower (15.2 ms).
+- The Timeline's culling now uses `clipRegionIntersects`, which tests each repainted rectangle rather than their combined bounds.
+- `AerionBench --verify` also checks the Mixer's playback region and an arbitrary slice of the console against a full repaint.
+
+| Mixer, 32 tracks, 1080p | Direct2D before | Direct2D after | Software before | Software after |
+|---|---:|---:|---:|---:|
+| Meters repaint per playback tick | 5.7 ms | **3.3 ms** | 7.3 ms | **2.4 ms** |
+| Full repaint | 5.9 ms | 5.2 ms | 8.1 ms | 6.5 ms |
+
+The remaining meter cost is mostly the fader cap SVG, drawn for every visible strip on each tick. Caching it as an image is part of the planned SVG caching work.
+
+### Fixed along the way: crash when releasing the Edit
+
+`AudioEngineManager` kept each track's LevelMeterPlugin alive in `trackMeters` and released it only after the Edit was destroyed or replaced. If that was the last reference, the plugin's destructor called into the dead Edit (`Edit::getParameterChangeHandler`). This affected quitting, opening a project and creating a new one. It showed up as the benchmark crashing on exit in about half of its runs, and it now releases meters and thumbnails before the Edit goes away (0 crashes in 10 runs).
+
 ## Caveats
 
 - Offscreen Direct2D numbers are CPU submission time. GPU work that finishes after the Graphics context ends is not included, and a real window's swap chain may clip differently. Confirm finding 2 in the app before acting on it.

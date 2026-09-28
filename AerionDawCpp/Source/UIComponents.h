@@ -6098,7 +6098,7 @@ public:
         // drawing call is thrown away by the clip. Skip that work, but keep
         // advancing y and still descend into folder children, which may be
         // visible even when their parent row is not.
-        if (! g.getClipBounds().intersects (juce::Rectangle<int> (0, y, getWidth(), rowH)))
+        if (! g.clipRegionIntersects (juce::Rectangle<int> (0, y, getWidth(), rowH)))
         {
             y += rowH;
 
@@ -6115,8 +6115,8 @@ public:
         // dragged clip) are narrow but span many rows, so also skip the header
         // and any clip that lies entirely left or right of the invalidated area.
         // Direct2D does not discard off-clip drawing cheaply, so this matters
-        // more there than with the software renderer.
-        const auto clipArea = g.getClipBounds().toFloat();
+        // more there than with the software renderer. clipRegionIntersects tests
+        // each invalidated rectangle, not their combined bounding box.
 
         juce::Colour tColor = Theme::colourForTrack(topIndex);
         bool isSel = selectedIds.contains(track->itemID.toString());
@@ -6130,7 +6130,7 @@ public:
 
         // Header
         juce::Rectangle<int> hb(0, y, kHeaderWidth, rowH);
-        if (clipArea.intersects (hb.toFloat()))
+        if (g.clipRegionIntersects (hb))
         {
             g.setColour(isSel ? Theme::surface : Theme::bgPanel);
             g.fillRect(hb);
@@ -6254,7 +6254,7 @@ public:
                     
                     juce::Rectangle<float> cb (timeToX (startT), clipY, (float) (endT - startT) * pxPerSec, laneH - 2.0f);
                     if (cb.getRight() < kHeaderWidth || cb.getX() > getWidth()) continue;
-                    if (! clipArea.intersects (cb.expanded (kClipPaintMargin))) continue;
+                    if (! g.clipRegionIntersects (cb.expanded (kClipPaintMargin).getSmallestIntegerContainer())) continue;
 
                     g.setColour (tColor.withAlpha (clip->isMuted() ? 0.15f : 0.6f));
                     g.fillRoundedRectangle (cb, 2.0f);
@@ -6304,7 +6304,7 @@ public:
                                               (float)y + 2.0f, len * pxPerSec, (float)kTrackH - 4.0f);
 
                     if (cb.getRight() < kHeaderWidth || cb.getX() > getWidth()) continue;
-                    if (! clipArea.intersects (cb.expanded (kClipPaintMargin))) continue;
+                    if (! g.clipRegionIntersects (cb.expanded (kClipPaintMargin).getSmallestIntegerContainer())) continue;
 
                     // Clip styling: subtle shadow, rich gradient, crisp highlight.
                     {
@@ -8348,6 +8348,23 @@ class Mixer : public juce::Component,
               public juce::DragAndDropTarget,
               public juce::ValueTree::Listener
 {
+    // Per-strip hit areas recorded while painting, reused by mouse handling
+    // and by the playback repaint. Declared first because paintStrip() takes one.
+    struct StripHit
+    {
+        tracktion::Track* track = nullptr;
+        bool isMaster = false;
+        juce::Rectangle<int> stripBounds;
+        juce::Rectangle<int> muteBtn, soloBtn, panArea, faderArea, peakReadoutArea;
+        juce::Rectangle<int> monoBtn, fxBtn, infoBtn;
+        juce::Array<InsertRowHitAreas> insertRowHits;
+
+        // Fader and pan values currently on screen, so the playback tick can
+        // tell when automation has moved them and the whole strip needs a repaint.
+        float paintedVolumeDb = 0.0f;
+        float paintedPan      = 0.0f;
+    };
+
 public:
     static constexpr int kStripW        = 110;
     static constexpr int kInsertColW    = 24;
@@ -8363,6 +8380,8 @@ public:
     static constexpr int kBottomH       = 16;   // peak-hold label
     static constexpr int kStripGap      = 6;
     static constexpr int kMasterGap     = 18;
+    // How far a strip's drawing reaches past its bounds (submix outline).
+    static constexpr int kStripPaintMargin = 2;
 
     std::function<void()> onDetachRequested;
     std::function<void(tracktion::Track*, const juce::PluginDescription&)> onPluginDroppedOnStrip;
@@ -8391,12 +8410,46 @@ public:
 
     ~Mixer() override { projectData.getProjectTree().removeListener (this); }
 
-    /** While playing, refresh meters/faders only (skips repainting the CONSOLE header strip). */
+    /** What playback changes in the console: each strip's meters, fader cap and
+        peak readout, or the whole strip if automation has moved its fader or
+        pan since it was last drawn. Falls back to the whole strip body when
+        there is no up-to-date layout to go on. */
+    juce::RectangleList<int> getPlaybackRepaintRegion()
+    {
+        const auto body = getLocalBounds().withTrimmedTop (kHeaderH + 8);
+
+        if (stripHits.isEmpty())
+            return body;
+
+        juce::RectangleList<int> region;
+        auto tracks  = audioEngine.getMixerTracks();
+        auto* master = audioEngine.getMasterTrack();
+
+        for (auto& hit : stripHits)
+        {
+            // A track deleted since the last paint: that repaint is already
+            // queued, so don't touch the stale pointer.
+            if (hit.track != master && ! tracks.contains (hit.track))
+                return body;
+
+            const bool automationMoved =
+                   ! juce::exactlyEqual (audioEngine.getTrackVolumeDb (hit.track), hit.paintedVolumeDb)
+                || ! juce::exactlyEqual (audioEngine.getTrackPan (hit.track), hit.paintedPan);
+
+            if (automationMoved)
+                region.add (hit.stripBounds.expanded (kStripPaintMargin));
+            else
+                region.add (faderLiveAreas (hit.faderArea));
+        }
+
+        return region;
+    }
+
+    /** Called by MainComponent's timer while playing or recording. */
     void repaintStripMetersArea()
     {
-        const int bodyTop = kHeaderH + 8;
-        const int h = juce::jmax (0, getHeight() - bodyTop);
-        repaint (0, bodyTop, getWidth(), h);
+        for (auto& r : getPlaybackRepaintRegion())
+            repaint (r);
     }
 
     void valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&) override { repaint(); }
@@ -8410,29 +8463,34 @@ public:
 
         Theme::fillBackgroundGradient (g, getLocalBounds());
 
-        // Header strip.
-        auto header = getLocalBounds().removeFromTop(kHeaderH);
-        {
-            juce::ColourGradient cg (Theme::bgPanel.brighter (0.08f), 0.0f, 0.0f,
-                                     Theme::bgPanel.darker   (0.06f), 0.0f, (float) header.getBottom(), false);
-            g.setGradientFill (cg);
-            g.fillRect (header);
-        }
-        g.setColour(Theme::border);
-        g.drawLine(0.0f, (float)kHeaderH, (float)getWidth(), (float)kHeaderH);
-        g.setColour(Theme::active);
-        g.setFont (Theme::uiSize (10.0f).withStyle (juce::Font::bold));
-        g.drawText("CONSOLE", 16, 0, 100, kHeaderH, juce::Justification::centredLeft);
+        // Header strip. The detach button's bounds are needed for hit-testing
+        // even when the header is outside the repainted area.
+        const auto header = getLocalBounds().removeFromTop (kHeaderH);
+        detachBtn = header.withLeft (header.getRight() - 72).reduced (4, 4);
 
-        // Detach / dock button.
-        detachBtn = header.removeFromRight(72).reduced(4, 4);
-        g.setColour(Theme::surface);
-        g.fillRoundedRectangle(detachBtn.toFloat(), 3.0f);
-        g.setColour(Theme::active);
-        g.drawRoundedRectangle(detachBtn.toFloat(), 3.0f, 1.0f);
-        g.setColour(Theme::active);
-        g.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
-        g.drawText(detached ? juce::String("DOCK") : juce::String("POP OUT"), detachBtn, juce::Justification::centred);
+        if (g.clipRegionIntersects (header.withHeight (kHeaderH + 1)))
+        {
+            {
+                juce::ColourGradient cg (Theme::bgPanel.brighter (0.08f), 0.0f, 0.0f,
+                                         Theme::bgPanel.darker   (0.06f), 0.0f, (float) header.getBottom(), false);
+                g.setGradientFill (cg);
+                g.fillRect (header);
+            }
+            g.setColour(Theme::border);
+            g.drawLine(0.0f, (float)kHeaderH, (float)getWidth(), (float)kHeaderH);
+            g.setColour(Theme::active);
+            g.setFont (Theme::uiSize (10.0f).withStyle (juce::Font::bold));
+            g.drawText("CONSOLE", 16, 0, 100, kHeaderH, juce::Justification::centredLeft);
+
+            // Detach / dock button.
+            g.setColour(Theme::surface);
+            g.fillRoundedRectangle(detachBtn.toFloat(), 3.0f);
+            g.setColour(Theme::active);
+            g.drawRoundedRectangle(detachBtn.toFloat(), 3.0f, 1.0f);
+            g.setColour(Theme::active);
+            g.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
+            g.drawText(detached ? juce::String("DOCK") : juce::String("POP OUT"), detachBtn, juce::Justification::centred);
+        }
 
         auto tracks = audioEngine.getMixerTracks();
         if (tracks.isEmpty())
@@ -8445,7 +8503,10 @@ public:
             return;
         }
 
-        stripHits.clearQuick();
+        // Last paint's hit areas: strips whose layout has not changed can reuse
+        // them and skip drawing when they are outside the repainted area.
+        juce::Array<StripHit> previousHits;
+        previousHits.swapWith (stripHits);
 
         int x = 12;
         int y = kHeaderH + 8;
@@ -8463,7 +8524,26 @@ public:
                 if (audioEngine.isFolderSubmix (f))
                     stripW += kFolderSubmixExtraW;
 
-            paintStrip(g, juce::Rectangle<int>(x, y, stripW, h), track, tColor, isMaster);
+            const juce::Rectangle<int> stripBounds (x, y, stripW, h);
+
+            const StripHit* previous = nullptr;
+            for (auto& p : previousHits)
+                if (p.track == track && p.stripBounds == stripBounds)
+                    previous = &p;
+
+            if (previous != nullptr && ! g.clipRegionIntersects (stripBounds.expanded (kStripPaintMargin)))
+            {
+                stripHits.add (*previous);
+            }
+            else
+            {
+                // During playback the clip is two small rectangles per strip.
+                // Narrowing it to this strip keeps each fill from walking the
+                // whole list, which the software renderer pays for per shape.
+                juce::Graphics::ScopedSaveState state (g);
+                g.reduceClipRegion (stripBounds.expanded (kStripPaintMargin));
+                paintStrip (g, stripBounds, track, tColor, isMaster, previous);
+            }
 
             x += stripW + kStripGap;
             if (isMaster) break;
@@ -8471,13 +8551,23 @@ public:
         }
     }
 
+    /** `previous` is this strip's hit areas from the last paint if its layout
+        is unchanged, or nullptr. With it, sections outside the repainted area
+        are skipped and their hit areas carried over; during playback that
+        leaves only the meters to draw. Without it everything is drawn. */
     void paintStrip(juce::Graphics& g, juce::Rectangle<int> cb,
-                    tracktion::Track* track, juce::Colour tColor, bool isMaster)
+                    tracktion::Track* track, juce::Colour tColor, bool isMaster,
+                    const StripHit* previous)
     {
         StripHit hit;
         hit.track       = track;
         hit.isMaster    = isMaster;
         hit.stripBounds = cb;
+
+        auto needsPaint = [&g, previous] (juce::Rectangle<int> area)
+        {
+            return previous == nullptr || g.clipRegionIntersects (area);
+        };
 
         auto* folder = dynamic_cast<tracktion::FolderTrack*>(track);
 
@@ -8494,28 +8584,33 @@ public:
 
         auto inner = cb.reduced (4);
 
-        // Color band
-        g.setColour (tColor);
-        g.fillRoundedRectangle (inner.removeFromTop (kColorBandH).toFloat(), 2.0f);
+        auto colourBand = inner.removeFromTop (kColorBandH);
+        inner.removeFromTop (2);
+        auto nameArea = inner.removeFromTop (kNameH);
         inner.removeFromTop (2);
 
-        // Track name
-        auto nameArea = inner.removeFromTop (kNameH);
-        g.setColour (Theme::textMain);
-        g.setFont (Theme::uiSize (11.0f).withStyle (juce::Font::bold));
-        juce::String name = isMaster ? juce::String ("MASTER") : track->getName();
-        if (folder != nullptr)
+        if (needsPaint (colourBand.getUnion (nameArea)))
         {
-            auto iconR = nameArea.removeFromLeft (16).reduced (2);
-            g.setColour (Theme::textMuted);
-            juce::Path p;
-            p.addRoundedRectangle (iconR.getX(), iconR.getY() + 2, iconR.getWidth(), iconR.getHeight() - 4, 1.0f);
-            p.addRectangle (iconR.getX(), iconR.getY(), 6, 4);
-            g.fillPath (p);
+            // Color band
+            g.setColour (tColor);
+            g.fillRoundedRectangle (colourBand.toFloat(), 2.0f);
+
+            // Track name
             g.setColour (Theme::textMain);
+            g.setFont (Theme::uiSize (11.0f).withStyle (juce::Font::bold));
+            juce::String name = isMaster ? juce::String ("MASTER") : track->getName();
+            if (folder != nullptr)
+            {
+                auto iconR = nameArea.removeFromLeft (16).reduced (2);
+                g.setColour (Theme::textMuted);
+                juce::Path p;
+                p.addRoundedRectangle (iconR.getX(), iconR.getY() + 2, iconR.getWidth(), iconR.getHeight() - 4, 1.0f);
+                p.addRectangle (iconR.getX(), iconR.getY(), 6, 4);
+                g.fillPath (p);
+                g.setColour (Theme::textMain);
+            }
+            g.drawText (name, nameArea, juce::Justification::centred);
         }
-        g.drawText (name, nameArea, juce::Justification::centred);
-        inner.removeFromTop (2);
 
         auto stripBody = inner;
         auto rightCol = stripBody.removeFromRight (kSideBtnColW);
@@ -8528,19 +8623,23 @@ public:
             stripBody.removeFromRight (2);
         }
 
+        const float pan      = audioEngine.getTrackPan (track);
+        const float volumeDb = audioEngine.getTrackVolumeDb (track);
+
         // Pan knob row
         auto panArea = stripBody.removeFromTop (kPanAreaH);
-        float pan = audioEngine.getTrackPan (track);
-        drawPanKnob (g, panArea, pan);
         hit.panArea = panArea;
+        const bool panPainted = needsPaint (panArea);
 
-        // dB gain readout to the right of the knob
+        if (panPainted)
         {
-            float db = audioEngine.getTrackVolumeDb (track);
+            drawPanKnob (g, panArea, pan);
+
+            // dB gain readout to the right of the knob
             int lx = panArea.getX() + kPanKnobSize + 5;
             g.setColour (Theme::textMuted.withAlpha (0.8f));
             g.setFont (Theme::uiSize (9.5f));
-            g.drawText (juce::String::formatted ("%.2fdB", db),
+            g.drawText (juce::String::formatted ("%.2fdB", volumeDb),
                         juce::Rectangle<int> (lx, panArea.getBottom() - 12,
                                               panArea.getRight() - lx, 12),
                         juce::Justification::centredLeft, false);
@@ -8548,6 +8647,7 @@ public:
         stripBody.removeFromTop (2);
 
         // Right-side button column
+        if (needsPaint (rightCol))
         {
             juce::Rectangle<int> btnHits[5];
             drawSideButtonColumn (g, rightCol, track, audioEngine, btnHits,
@@ -8558,15 +8658,44 @@ public:
             hit.fxBtn    = btnHits[3];
             hit.infoBtn  = btnHits[4];
         }
+        else
+        {
+            hit.muteBtn = previous->muteBtn;
+            hit.soloBtn = previous->soloBtn;
+            hit.monoBtn = previous->monoBtn;
+            hit.fxBtn   = previous->fxBtn;
+            hit.infoBtn = previous->infoBtn;
+        }
 
         // Fader + dual meters (fills remaining inner zone)
         auto faderZone = stripBody.withTrimmedBottom (kBottomH);
-        const bool k14 = isMaster && (bool) projectData.getProjectTree().getProperty (IDs::masterKMeter, false);
-        ::paintFader (g, faderZone, audioEngine, track, tColor, isMaster,
-                      faderKnobDrawable.get(), &hit.peakReadoutArea, k14);
         hit.faderArea = faderZone;
+        // The fader cap overhangs the top of the zone by up to 14 px near +6 dB,
+        // into the pan row, so a repaint there must redraw the cap too.
+        const bool faderPainted = needsPaint (faderZone.withTop (faderZone.getY() - 16));
 
-        if (! isMaster && insertCol.getWidth() > 0)
+        if (faderPainted)
+        {
+            const bool k14 = isMaster && (bool) projectData.getProjectTree().getProperty (IDs::masterKMeter, false);
+            ::paintFader (g, faderZone, audioEngine, track, tColor, isMaster,
+                          faderKnobDrawable.get(), &hit.peakReadoutArea, k14);
+        }
+        else
+        {
+            hit.peakReadoutArea = previous->peakReadoutArea;
+        }
+
+        // Record what is on screen now. A value only counts as shown once every
+        // place that displays it has been drawn; otherwise keep the old value
+        // so the next playback tick notices and repaints the whole strip.
+        hit.paintedPan      = panPainted ? pan : previous->paintedPan;
+        hit.paintedVolumeDb = (panPainted && faderPainted) ? volumeDb : previous->paintedVolumeDb;
+
+        if (! isMaster && insertCol.getWidth() > 0 && ! needsPaint (insertCol))
+        {
+            hit.insertRowHits = previous->insertRowHits;
+        }
+        else if (! isMaster && insertCol.getWidth() > 0)
         {
             juce::Array<tracktion::ExternalPlugin*> externals;
             for (auto* pl : track->pluginList)
@@ -8935,16 +9064,6 @@ public:
     }
 
 private:
-    struct StripHit
-    {
-        tracktion::Track* track = nullptr;
-        bool isMaster = false;
-        juce::Rectangle<int> stripBounds;
-        juce::Rectangle<int> muteBtn, soloBtn, panArea, faderArea, peakReadoutArea;
-        juce::Rectangle<int> monoBtn, fxBtn, infoBtn;
-        juce::Array<InsertRowHitAreas> insertRowHits;
-    };
-
     AudioEngineManager& audioEngine;
     ProjectData& projectData;
 

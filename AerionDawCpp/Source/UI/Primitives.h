@@ -14,6 +14,28 @@ inline void setFaderFromY (AudioEngineManager& audioEngine, tracktion::Track* t,
     audioEngine.setTrackVolumeDb (t, AudioEngineManager::getDbFromFaderPos (sPos));
 }
 
+inline juce::Rectangle<int> faderReadoutArea (juce::Rectangle<int> area)
+{
+    return area.withY (area.getBottom() - 16).withHeight (14);
+}
+
+/** The parts of paintFader that change while audio plays: both meters, the
+    fader cap between them, and the peak readout. Repainting just these keeps
+    meter animation cheap. Must match paintFader's layout. */
+inline juce::RectangleList<int> faderLiveAreas (juce::Rectangle<int> area)
+{
+    juce::RectangleList<int> live;
+    if (area.getHeight() < 30)
+        return live;
+
+    // Rail half-width (3) + meter gap (4) + meter width (8) + 1 px for
+    // anti-aliasing. The fader cap (13.5 px wide) sits inside this column.
+    constexpr int kHalfW = 3 + 4 + 8 + 1;
+    live.add ({ area.getCentreX() - kHalfW, area.getY(), 2 * kHalfW, area.getHeight() });
+    live.add (faderReadoutArea (area));
+    return live;
+}
+
 inline void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
                         AudioEngineManager& audioEngine,
                         tracktion::Track* track, juce::Colour tColor, bool isMaster,
@@ -190,7 +212,7 @@ inline void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
         ? juce::String::formatted ("%+.1f dB", maxPeak)
         : juce::String::formatted ("%+.1f dB", peak);
 
-    auto readoutArea = area.withY (area.getBottom() - 16).withHeight (14);
+    auto readoutArea = faderReadoutArea (area);
     g.drawText (dbText, readoutArea, juce::Justification::centred);
     if (readoutAreaOut) *readoutAreaOut = readoutArea;
 }
