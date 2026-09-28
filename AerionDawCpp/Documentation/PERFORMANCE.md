@@ -64,6 +64,24 @@ At 64 tracks × 40 clips the numbers are within about 10 % of these, so row cull
 4. **Track rows dominate Timeline paint** (about 15 of 18 ms), mostly per-row drawing work, not the number of clips.
 5. **Audio device init blocks the message thread for about 0.5 s** on every launch, and the first launch of a new build froze the UI for 10.9 s.
 
+## Progress
+
+### Phase 1.1: Timeline culling and clip-drag repaint (2026-09-28)
+
+- `drawTrackRow` now skips a row's header, and any clip, that lies outside the repainted area horizontally. Before, it only skipped rows outside it vertically.
+- Clip drags (move, trim, fade) repaint only the clip's old and new area on each mouse move, then repaint the whole Timeline once on mouse-up. The selected clip's property-change listener no longer triggers a full refresh during the drag.
+- `AerionBench --verify` checks that partial repaints give exactly the same pixels as a full repaint. The full-repaint image is byte-identical to the one before this change.
+
+Same machine and project (32 tracks × 20 clips, 1080p):
+
+| Scenario | Direct2D before | Direct2D after | Software before | Software after |
+|---|---:|---:|---:|---:|
+| Clip drag, per mouse move | 19.4 ms | **2.5 ms** | 33.1 ms | **0.08 ms** |
+| Timeline playhead strip | 13.7 ms | **4.6 ms** | 1.2 ms | **0.35 ms** |
+| Timeline full repaint | 19.2 ms | 19.0 ms | 32.6 ms | 31.1 ms |
+
+Still open: the full Timeline repaint (scroll, zoom) is over one frame, the Mixer meters repaint is about the same as a full Mixer repaint, and Direct2D still costs over 10× the software renderer for the playhead strip.
+
 ## Caveats
 
 - Offscreen Direct2D numbers are CPU submission time. GPU work that finishes after the Graphics context ends is not included, and a real window's swap chain may clip differently. Confirm finding 2 in the app before acting on it.

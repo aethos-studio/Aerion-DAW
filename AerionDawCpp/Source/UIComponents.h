@@ -4551,6 +4551,9 @@ public:
     enum class DragMode : int;
 
     static constexpr int kHeaderWidth = 250;
+    // How far a clip's drawing reaches past its body: drop shadow, 2 px
+    // selection outline, anti-aliasing.
+    static constexpr float kClipPaintMargin = 3.0f;
     static constexpr int kRulerSigH        = 18;  // time signature flags
     static constexpr int kRulerBeatH       = 24;  // bar.beat labels + ticks
     static constexpr int kRulerBotH        = 24;  // tempo lane + clock-time labels
@@ -6032,6 +6035,37 @@ public:
         return rows;
     }
 
+    /** The area a clip's drawing covers on screen, matching drawTrackRow's
+        layout, clipped to the lane area. Empty if the clip's track is not in
+        the visible row list (e.g. inside a collapsed folder). */
+    juce::Rectangle<int> getClipPaintBounds (tracktion::Clip& clip)
+    {
+        auto* track = clip.getTrack();
+        for (auto& row : getVisibleRows())
+        {
+            if (row.track != track)
+                continue;
+
+            const auto pos = clip.getPosition();
+            const juce::Rectangle<float> body (timeToX (pos.getStart().inSeconds()),
+                                               (float) (laneTop() + row.y - scrollY),
+                                               (float) (pos.getLength().inSeconds() * pxPerSec),
+                                               (float) kTrackH);
+
+            return body.expanded (kClipPaintMargin).getSmallestIntegerContainer()
+                       .getIntersection ({ kHeaderWidth, laneTop(),
+                                           getWidth() - kHeaderWidth, laneBottom() - laneTop() });
+        }
+
+        return {};
+    }
+
+    static bool isClipEditDrag (DragMode m)
+    {
+        return m == DragMode::move || m == DragMode::trimLeft || m == DragMode::trimRight
+            || m == DragMode::fadeLeft || m == DragMode::fadeRight;
+    }
+
     int getTrackHeight (tracktion::Track* t) const
     {
         if (automationVisibleTracks.contains (t->itemID.toString()))
@@ -6077,6 +6111,13 @@ public:
 
         AERION_PROFILE_COUNT ("Timeline.rowsDrawn", 1);
 
+        // The row test above is vertical only. Partial repaints (playhead strip,
+        // dragged clip) are narrow but span many rows, so also skip the header
+        // and any clip that lies entirely left or right of the invalidated area.
+        // Direct2D does not discard off-clip drawing cheaply, so this matters
+        // more there than with the software renderer.
+        const auto clipArea = g.getClipBounds().toFloat();
+
         juce::Colour tColor = Theme::colourForTrack(topIndex);
         bool isSel = selectedIds.contains(track->itemID.toString());
         bool isAuto = automationVisibleTracks.contains (track->itemID.toString());
@@ -6089,90 +6130,93 @@ public:
 
         // Header
         juce::Rectangle<int> hb(0, y, kHeaderWidth, rowH);
-        g.setColour(isSel ? Theme::surface : Theme::bgPanel);
-        g.fillRect(hb);
-        g.setColour(Theme::border);
-        g.drawLine(0.0f, (float)(y + rowH), (float)kHeaderWidth, (float)(y + rowH));
-        g.drawLine((float)kHeaderWidth, (float)y, (float)kHeaderWidth, (float)(y + rowH));
+        if (clipArea.intersects (hb.toFloat()))
+        {
+            g.setColour(isSel ? Theme::surface : Theme::bgPanel);
+            g.fillRect(hb);
+            g.setColour(Theme::border);
+            g.drawLine(0.0f, (float)(y + rowH), (float)kHeaderWidth, (float)(y + rowH));
+            g.drawLine((float)kHeaderWidth, (float)y, (float)kHeaderWidth, (float)(y + rowH));
 
-        g.setColour(tColor);
-        const bool submixFolder = folder != nullptr && audioEngine.isFolderSubmix (folder);
-        const float barW = submixFolder ? 3.0f : 4.0f;
-        g.fillRect((float)indent, (float)y, barW, (float)rowH);
+            g.setColour(tColor);
+            const bool submixFolder = folder != nullptr && audioEngine.isFolderSubmix (folder);
+            const float barW = submixFolder ? 3.0f : 4.0f;
+            g.fillRect((float)indent, (float)y, barW, (float)rowH);
 
-        g.setColour(Theme::textMain);
-        g.setFont (Theme::uiSize (13.0f).withStyle (juce::Font::bold));
+            g.setColour(Theme::textMain);
+            g.setFont (Theme::uiSize (13.0f).withStyle (juce::Font::bold));
         
-        if (folder != nullptr)
-        {
-            // Draw expand/collapse chevron
-            auto chevronR = juce::Rectangle<int> (textX - 10, y + 10, 10, 10);
-            g.setColour (Theme::textMuted);
-            juce::Path p;
-            if (collapsedFolders.contains (folder->itemID.toString())) {
-                p.startNewSubPath (chevronR.getX() + 2, chevronR.getY());
-                p.lineTo (chevronR.getRight(), chevronR.getCentreY());
-                p.lineTo (chevronR.getX() + 2, chevronR.getBottom());
-            } else {
-                p.startNewSubPath (chevronR.getX(), chevronR.getY() + 2);
-                p.lineTo (chevronR.getCentreX(), chevronR.getBottom());
-                p.lineTo (chevronR.getRight(), chevronR.getY() + 2);
-            }
-            g.strokePath (p, juce::PathStrokeType (1.5f));
-            g.setColour (Theme::textMain);
-        }
-
-        juce::String label = track->getName();
-        if (folder != nullptr && ! submixFolder)
-            label += "  [GROUP]";
-        g.drawText(label, textX, y + 8, kHeaderWidth - textX - 8, 20, juce::Justification::left);
-
-        if (submixFolder)
-        {
-            auto br = juce::Rectangle<int> (kHeaderWidth - 22, y + 6, 14, 14);
-            g.setColour (tColor.withAlpha (0.45f));
-            g.fillRoundedRectangle (br.toFloat(), 2.0f);
-            g.setColour (Theme::textMain);
-            g.setFont (Theme::uiSize (9.0f).boldened());
-            g.drawText ("S", br, juce::Justification::centred);
-        }
-
-        // M / S / R / A buttons (top row), FX button below. Bounds were cached
-        // for hit-testing above, before the row-culling early-out.
-        const auto& btns = trackButtonCache[track->itemID.toString()];
-        const auto mB = btns.m;
-        const auto sB = btns.s;
-        const auto rB = btns.r;
-        const auto aB = btns.a;
-
-        bool isMute = track->isMuted(false);
-        bool isSolo = track->isSolo(false);
-        bool isArm  = audioEngine.isTrackArmed(track);
-
-        drawTrackIconBtn(g, mB, iconMute.get(), isMute, Theme::meterYellow);
-        drawTrackIconBtn(g, sB, iconSolo.get(), isSolo, Theme::accent);
-        drawTrackIconBtn(g, rB, iconArm.get(),  isArm,  Theme::recordRed);
-        drawTrackIconBtn(g, aB, iconAuto.get(), isAuto, Theme::active);
-
-        int fxY = btnY + 24;
-        auto fxB = juce::Rectangle<int>(textX, fxY, 76, 20);
-        int  numFx = track->pluginList.size();
-        drawFxBadge (g, fxB, numFx);
-
-        if (audio != nullptr)
-        {
-            const bool frozen = audioEngine.isTrackFrozen (audio);
-            const bool freezing = audioEngine.isTrackFreezing (audio);
-            if (frozen || freezing)
+            if (folder != nullptr)
             {
-                auto badge = juce::Rectangle<int> (kHeaderWidth - 88, y + rowH - 24, 76, 18);
-                const auto badgeColour = freezing ? Theme::meterYellow : juce::Colours::skyblue;
-                g.setColour (badgeColour.withAlpha (0.20f));
-                g.fillRoundedRectangle (badge.toFloat(), 4.0f);
-                g.setColour (badgeColour.withAlpha (0.95f));
-                g.drawRoundedRectangle (badge.toFloat(), 4.0f, 1.0f);
-                g.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
-                g.drawText (freezing ? "FREEZING..." : "FROZEN", badge, juce::Justification::centred);
+                // Draw expand/collapse chevron
+                auto chevronR = juce::Rectangle<int> (textX - 10, y + 10, 10, 10);
+                g.setColour (Theme::textMuted);
+                juce::Path p;
+                if (collapsedFolders.contains (folder->itemID.toString())) {
+                    p.startNewSubPath (chevronR.getX() + 2, chevronR.getY());
+                    p.lineTo (chevronR.getRight(), chevronR.getCentreY());
+                    p.lineTo (chevronR.getX() + 2, chevronR.getBottom());
+                } else {
+                    p.startNewSubPath (chevronR.getX(), chevronR.getY() + 2);
+                    p.lineTo (chevronR.getCentreX(), chevronR.getBottom());
+                    p.lineTo (chevronR.getRight(), chevronR.getY() + 2);
+                }
+                g.strokePath (p, juce::PathStrokeType (1.5f));
+                g.setColour (Theme::textMain);
+            }
+
+            juce::String label = track->getName();
+            if (folder != nullptr && ! submixFolder)
+                label += "  [GROUP]";
+            g.drawText(label, textX, y + 8, kHeaderWidth - textX - 8, 20, juce::Justification::left);
+
+            if (submixFolder)
+            {
+                auto br = juce::Rectangle<int> (kHeaderWidth - 22, y + 6, 14, 14);
+                g.setColour (tColor.withAlpha (0.45f));
+                g.fillRoundedRectangle (br.toFloat(), 2.0f);
+                g.setColour (Theme::textMain);
+                g.setFont (Theme::uiSize (9.0f).boldened());
+                g.drawText ("S", br, juce::Justification::centred);
+            }
+
+            // M / S / R / A buttons (top row), FX button below. Bounds were cached
+            // for hit-testing above, before the row-culling early-out.
+            const auto& btns = trackButtonCache[track->itemID.toString()];
+            const auto mB = btns.m;
+            const auto sB = btns.s;
+            const auto rB = btns.r;
+            const auto aB = btns.a;
+
+            bool isMute = track->isMuted(false);
+            bool isSolo = track->isSolo(false);
+            bool isArm  = audioEngine.isTrackArmed(track);
+
+            drawTrackIconBtn(g, mB, iconMute.get(), isMute, Theme::meterYellow);
+            drawTrackIconBtn(g, sB, iconSolo.get(), isSolo, Theme::accent);
+            drawTrackIconBtn(g, rB, iconArm.get(),  isArm,  Theme::recordRed);
+            drawTrackIconBtn(g, aB, iconAuto.get(), isAuto, Theme::active);
+
+            int fxY = btnY + 24;
+            auto fxB = juce::Rectangle<int>(textX, fxY, 76, 20);
+            int  numFx = track->pluginList.size();
+            drawFxBadge (g, fxB, numFx);
+
+            if (audio != nullptr)
+            {
+                const bool frozen = audioEngine.isTrackFrozen (audio);
+                const bool freezing = audioEngine.isTrackFreezing (audio);
+                if (frozen || freezing)
+                {
+                    auto badge = juce::Rectangle<int> (kHeaderWidth - 88, y + rowH - 24, 76, 18);
+                    const auto badgeColour = freezing ? Theme::meterYellow : juce::Colours::skyblue;
+                    g.setColour (badgeColour.withAlpha (0.20f));
+                    g.fillRoundedRectangle (badge.toFloat(), 4.0f);
+                    g.setColour (badgeColour.withAlpha (0.95f));
+                    g.drawRoundedRectangle (badge.toFloat(), 4.0f, 1.0f);
+                    g.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
+                    g.drawText (freezing ? "FREEZING..." : "FROZEN", badge, juce::Justification::centred);
+                }
             }
         }
 
@@ -6210,6 +6254,7 @@ public:
                     
                     juce::Rectangle<float> cb (timeToX (startT), clipY, (float) (endT - startT) * pxPerSec, laneH - 2.0f);
                     if (cb.getRight() < kHeaderWidth || cb.getX() > getWidth()) continue;
+                    if (! clipArea.intersects (cb.expanded (kClipPaintMargin))) continue;
 
                     g.setColour (tColor.withAlpha (clip->isMuted() ? 0.15f : 0.6f));
                     g.fillRoundedRectangle (cb, 2.0f);
@@ -6259,6 +6304,7 @@ public:
                                               (float)y + 2.0f, len * pxPerSec, (float)kTrackH - 4.0f);
 
                     if (cb.getRight() < kHeaderWidth || cb.getX() > getWidth()) continue;
+                    if (! clipArea.intersects (cb.expanded (kClipPaintMargin))) continue;
 
                     // Clip styling: subtle shadow, rich gradient, crisp highlight.
                     {
@@ -7657,6 +7703,15 @@ public:
 
             double mouseTime = xToTime((float)e.x);
 
+            // Only the clip's old and new footprint change while it is dragged,
+            // so repaint those instead of the whole Timeline on every mouse move.
+            // The final full repaint happens in mouseUp.
+            const bool partialRepaint = isClipEditDrag (dragMode);
+            const auto oldClipArea    = partialRepaint ? getClipPaintBounds (*selectedClip)
+                                                       : juce::Rectangle<int>();
+            const auto oldTooltipArea = currentTooltip.isValid ? currentTooltip.bounds
+                                                               : juce::Rectangle<int>();
+
             if (dragMode == DragMode::move)
             {
                 double newStart = mouseTime + dragOffset;
@@ -7737,7 +7792,22 @@ public:
                 double newLen = juce::jmax(0.01, newEnd - start.inSeconds());
                 selectedClip->setLength(tracktion::TimeDuration::fromSeconds(newLen), true);
             }
-            repaint();
+
+            // selectedClip can be dropped by valueTreeParentChanged during the
+            // edit above; fall back to a full repaint rather than guess.
+            if (partialRepaint && selectedClip != nullptr)
+            {
+                repaint (oldClipArea.getUnion (getClipPaintBounds (*selectedClip)));
+
+                if (! oldTooltipArea.isEmpty())
+                    repaint (oldTooltipArea);
+                if (currentTooltip.isValid)
+                    repaint (currentTooltip.bounds);
+            }
+            else
+            {
+                repaint();
+            }
         }
     }
 
@@ -7859,6 +7929,12 @@ public:
                     applyAutoCrossfadesForTrack (*t);
             }
         }
+
+        // Clip drags repaint only the clip while moving (see mouseDrag). A drop
+        // can move the clip to another track or crossfade its neighbours, so
+        // bring the whole view up to date once here.
+        if (isClipEditDrag (dragMode))
+            repaint();
 
         dragMode = DragMode::none;
     }
@@ -8025,6 +8101,12 @@ public:
 
     void valueTreePropertyChanged (juce::ValueTree& v, const juce::Identifier& i) override
     {
+        // mouseDrag repaints just the dragged clip's area, and mouseUp repaints
+        // everything; a full refresh here would undo that on every mouse move.
+        if (isClipEditDrag (dragMode) && selectedClipState.isValid()
+            && (v == selectedClipState || v.isAChildOf (selectedClipState)))
+            return;
+
         if (i == IDs::snapEnabled)
             snapEnabled = v.getProperty (i);
         else if (i == IDs::snapInterval)

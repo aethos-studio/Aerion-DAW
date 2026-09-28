@@ -12,7 +12,7 @@
 //                        MainComponent::timerCallback does during playback
 //   mixer full / meters - full console vs the strip body repainted for meters
 //   clip drag          - what one mouse move costs while dragging a clip:
-//                        the Edit update plus the full Timeline repaint
+//                        the Edit update plus the repaint of the clip area
 //
 // Each scenario runs once per renderer: "native" (Direct2D on Windows, which is
 // what app windows use) and "software" (JUCE's CPU rasteriser). Direct2D work
@@ -27,6 +27,7 @@
 // you run and read, not a pass/fail gate.
 //
 //   AerionBench --tracks=32 --clips=20 --frames=200 [--renderer=both|native|software]
+//               [--verify]   exit code 2 if a partial repaint differs from a full one
 //==============================================================================
 
 namespace
@@ -111,6 +112,38 @@ namespace
         return false;
     }
 
+    /** Checks that painting only `region` gives the same pixels there as a full
+        repaint. Culling in paint() must only skip work the clip would discard
+        anyway, so any mismatch is a culling bug. Uses the software renderer so
+        the comparison is deterministic. Returns the number of differing pixels. */
+    int countPartialRepaintMismatches (juce::Component& c, int width, int height,
+                                       juce::Rectangle<int> region)
+    {
+        const juce::SoftwareImageType software;
+        juce::Image full (juce::Image::ARGB, width, height, true, software);
+        {
+            juce::Graphics g (full);
+            c.paintEntireComponent (g, false);
+        }
+
+        auto partial = full.createCopy();
+        partial.clear (region);
+        {
+            juce::Graphics g (partial);
+            g.reduceClipRegion (region);
+            c.paintEntireComponent (g, false);
+        }
+
+        int mismatches = 0;
+        const auto area = region.getIntersection ({ 0, 0, width, height });
+        for (int y = area.getY(); y < area.getBottom(); ++y)
+            for (int x = area.getX(); x < area.getRight(); ++x)
+                if (full.getPixelAt (x, y) != partial.getPixelAt (x, y))
+                    ++mismatches;
+
+        return mismatches;
+    }
+
     double elapsedMsSince (juce::int64 startTicks)
     {
         return 1000.0 * (double) (juce::Time::getHighResolutionTicks() - startTicks)
@@ -157,15 +190,15 @@ namespace
     }
 
     /** Mirrors Timeline::mouseDrag in DragMode::move: every mouse event moves the
-        clip in the live Edit, then invalidates the whole Timeline. The two halves
-        are timed separately so the report shows whether input delay comes from
-        the model update or from the repaint that follows it. */
+        clip in the live Edit, then repaints the union of the clip's old and new
+        area. The two halves are timed separately so the report shows whether
+        input delay comes from the model update or from the repaint after it. */
     struct DragResult
     {
         Result modelUpdate, repaint, total;
     };
 
-    DragResult timeClipDrag (juce::Component& timeline, tracktion::Clip& clip,
+    DragResult timeClipDrag (Timeline& timeline, tracktion::Clip& clip,
                              int width, int height, int frames, const juce::ImageType& imageType)
     {
         juce::Image image (juce::Image::ARGB, width, height, true, imageType);
@@ -182,6 +215,8 @@ namespace
             // Sweep back and forth over ~2 s, like a user nudging a clip around.
             const double offset = 0.01 * (double) ((i % 200) < 100 ? (i % 100) : 100 - (i % 100));
 
+            const auto oldArea = timeline.getClipPaintBounds (clip);
+
             const auto start = juce::Time::getHighResolutionTicks();
             clip.setStart (tracktion::TimePosition::fromSeconds (originalStart + offset), false, true);
             const double modelMs = elapsedMsSince (start);
@@ -189,6 +224,7 @@ namespace
             const auto paintStart = juce::Time::getHighResolutionTicks();
             {
                 juce::Graphics g (image);
+                g.reduceClipRegion (oldArea.getUnion (timeline.getClipPaintBounds (clip)));
                 timeline.paintEntireComponent (g, false);
             }
             const double paintMs = elapsedMsSince (paintStart);
@@ -327,6 +363,35 @@ int main (int argc, char* argv[])
     const juce::Rectangle<int> mixerBody (0, Mixer::kHeaderH + 8, width,
                                           juce::jmax (0, mixerHeight - Mixer::kHeaderH - 8));
 
+    if (args.contains ("--verify"))
+    {
+        std::cout << std::endl << "[verify partial repaints match a full repaint]" << std::endl;
+
+        juce::Array<std::pair<juce::String, juce::Rectangle<int>>> regions;
+        regions.add ({ "timeline playhead 16px", playheadStrip });
+        regions.add ({ "timeline header column", { 0, 0, Timeline::kHeaderWidth, height } });
+
+        if (dragClip != nullptr)
+            regions.add ({ "timeline dragged clip", timeline.getClipPaintBounds (*dragClip) });
+
+        int failures = 0;
+        for (auto& [name, region] : regions)
+        {
+            const int mismatches = countPartialRepaintMismatches (timeline, width, height, region);
+            std::cout << "  " << name.paddedRight (' ', 28)
+                      << (mismatches == 0 ? juce::String ("ok")
+                                          : juce::String (mismatches) + " pixels differ")
+                      << std::endl;
+            failures += mismatches > 0 ? 1 : 0;
+        }
+
+        if (failures > 0)
+        {
+            sourceFile.deleteFile();
+            return 2;
+        }
+    }
+
     for (auto& renderer : renderersFromArgs (stringArg (args, "--renderer")))
     {
         std::cout << std::endl << "[" << renderer.name << " renderer]" << std::endl;
@@ -346,7 +411,7 @@ int main (int argc, char* argv[])
         {
             const auto drag = timeClipDrag (timeline, *dragClip, width, height, frames, *renderer.type);
             report ("clip drag: model update", drag.modelUpdate);
-            report ("clip drag: full repaint", drag.repaint);
+            report ("clip drag: repaint", drag.repaint);
             report ("clip drag: per mouse move", drag.total);
         }
 
