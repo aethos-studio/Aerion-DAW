@@ -1,7 +1,7 @@
-# Aerion DAW Project Status — July 9, 2026 (v0.3.0 Pre-Alpha)
+# Aerion DAW Project Status — September 28, 2026 (v0.3.0 Pre-Alpha)
 
 ## Overview
-Aerion DAW has closed the **Milestone 4 completion sprint** (v0.3.0). Milestones 1–4 — Editing, Mixing, Recording & Monitoring, and Project & Workflow — are **complete and verified against the source** (codebase audit, July 2026). The current focus is **Milestone 5: Polish & Stability (v0.4.0)**, where CI now builds and smoke-tests on **both Windows and macOS**, release packaging is a separate workflow, and optional self-signed Windows code signing has landed. Both workflows are **manual (`workflow_dispatch`) only** — run them from the Actions tab. Typography scaling and packaging scaffolds remain partial.
+Aerion DAW has closed the **Milestone 4 completion sprint** (v0.3.0). Milestones 1–4 — Editing, Mixing, Recording & Monitoring, and Project & Workflow — are **complete and verified against the source** (codebase audit, July 2026). The current focus is **Milestone 5: Polish & Stability (v0.4.0)**, where CI now builds and smoke-tests on **both Windows and macOS**, release packaging is a separate workflow, and optional self-signed Windows code signing has landed. Both workflows are **manual (`workflow_dispatch`) only** — run them from the Actions tab. Typography scaling and packaging scaffolds remain partial. After M5, the new **Milestone 6: Complete Core (v0.5.0)** closes the remaining gaps to a modern DAW baseline before the differentiator milestones (M7–M9).
 
 ## Milestone Progress
 
@@ -12,7 +12,8 @@ Aerion DAW has closed the **Milestone 4 completion sprint** (v0.3.0). Milestones
 | M3: DAW Essentials — Recording & Monitoring (v0.2.0) | **Complete** — Metronome, Count-In, Punch In/Out, PDC, multi-channel input routing, buffer safety readout, live recording waveform, full driver pack (ASIO/WASAPI/DirectSound/CoreAudio/ALSA/JACK/WinRT MIDI), Reset Audio Settings, per-track monitor modes, per-track MIDI controller selector |
 | M4: DAW Essentials — Project & Workflow (v0.3.0) | **Complete** — Save/Load (`.aerion`), Collect & Save, Bounce/Freeze, Mixdown + Stems export, Tempo Map, Time Signature changes, per-track input/monitor persistence, customisable keyboard shortcuts (`AerionKeymap`), Recent Projects, Auto-save / Crash Recovery, icon system |
 | M5: DAW Essentials — Polish & Stability (v0.4.0) | **In progress** — see inventory below |
-| M6–M8 + Future USPs | Not started — `AIManager` is still a 2-second mock; ONNX Runtime declared in CMake but intentionally not linked |
+| M6: DAW Essentials — Complete Core (v0.5.0) | Not started — stock instruments and effects, full parameter automation, time-stretch, sidechain, MIDI learn and control surfaces, clip processing, templates, loudness metering, CLAP spike |
+| M7–M9 + Future USPs | Not started — `AIManager` is still a 2-second mock; ONNX Runtime declared in CMake but intentionally not linked |
 
 ---
 
@@ -28,7 +29,9 @@ What already exists versus what remains, verified against the source tree:
 | Packaging — Windows | **~Done** | NSIS installer scaffolded in `CMakeLists.txt` (CPack, shortcuts, VC++ runtime bundling, installer icon). **Optional self-signed code signing** now available (`AerionDawCpp/Tools/New-AerionSelfSignedCert.ps1` + `WINDOWS_CERT_PFX_BASE64` / `WINDOWS_CERT_PASSWORD` secrets); a paid OV/EV certificate is still required to clear the SmartScreen "unknown publisher" prompt. |
 | Packaging — macOS | **Partial** | DMG + universal binary (ARM64 + x86_64) built by the release workflow; signing is ad-hoc only, **notarization not implemented** (requires a paid Apple Developer account). |
 | High-DPI / Retina | **Partial (~40 %)** | `Theme::uiSize()` / `kUiFontScale` typography layer shipped; fixed-pixel layout audit not started. |
-| Performance Optimization | **Partial** | Splash/deferred device init, repaint scoping, tooltip/toolbar cadence done; timeline/piano-roll paint profiling outstanding. |
+| Performance Optimization | **Partial** | Measurement tooling and baseline done (`PERFORMANCE.md`); Timeline culling, clip-drag partial repaint and Mixer meters-only repaint shipped (September 2026). Remaining: graphics engine setting, display-synced UI clock, cached chrome, Timeline layers, device init off the message thread, light mode. |
+| Plugin Crash Protection | **Missing** | A crashing plugin takes the session down. |
+| Unsaved-Changes Tracking | **Bug** | A new, untouched project is marked as modified, so quitting always asks to save. |
 | Workspace Layouts | **Done** | **View → Workspace** submenu: built-in Editing / Mixing / Recording presets + save/delete custom layouts. Captures inspector/browser collapse, mixer dock/detach, bottom panel, and console height; custom layouts + last-active layout persist via `appProperties` and restore on launch. |
 | Accessibility | **Missing** | No `setAccessibleName()` usage; keyboard-navigable mixer not started. |
 | Error Reporting / Console panel | **Missing** | JUCE default dialogs only; no in-app crash reporter or DBG console. |
@@ -53,9 +56,9 @@ What already exists versus what remains, verified against the source tree:
 
 ## Known scaffolding ahead of its milestone
 
-- **Google Drive client (M8 footprint):** `GoogleDriveClient` implements OAuth2 + PKCE, token persistence, and a Browser "Cloud" tab — but **`clientId` / `clientSecret` are still placeholders** (`YOUR_CLIENT_ID`) until a Google Cloud desktop OAuth client is configured. Do not rewrite from scratch for M8; wire credentials and finish sync semantics instead.
-- **ONNX Runtime:** declared via `FetchContent_Declare` in CMake but deliberately not linked (build-size cost); linking is the first M8 task.
-- **`AIManager`:** still the 2-second mock returning a hardcoded MIDI note — replaced as part of M8 Real Audio-to-MIDI.
+- **Google Drive client (M9 footprint):** `GoogleDriveClient` implements OAuth2 + PKCE, token persistence, and a Browser "Cloud" tab — but **`clientId` / `clientSecret` are still placeholders** (`YOUR_CLIENT_ID`) until a Google Cloud desktop OAuth client is configured. Do not rewrite from scratch for M8; wire credentials and finish sync semantics instead.
+- **ONNX Runtime:** declared via `FetchContent_Declare` in CMake but deliberately not linked (build-size cost); linking is the first M9 task.
+- **`AIManager`:** still the 2-second mock returning a hardcoded MIDI note — replaced as part of M9 Real Audio-to-MIDI.
 
 ---
 
@@ -68,14 +71,17 @@ What already exists versus what remains, verified against the source tree:
 
 ## Next Steps (priority order)
 
-Mirrors Milestone 5 in [`ROADMAP.md`](./ROADMAP.md) so the two documents agree.
+Mirrors Milestones 5 and 6 in [`ROADMAP.md`](./ROADMAP.md) so the two documents agree.
 
-1. **CI build-on-PR + first smoke tests** — protect the codebase before the polish work churns it. *(Done — `build-test.yml` runs `AerionTests` on Windows and macOS; grow `AudioEngine` coverage next.)*
-2. **Performance profiling** — timeline/piano-roll paint profiling; eliminate hot-path allocations.
-3. **High-DPI audit** — sweep fixed pixel layouts now that the typography token layer exists.
-4. **Error reporting** — in-app console panel for DBG logs in dev builds; structured crash reporter.
-5. **Workspace layouts & accessibility** — named window layouts; screen-reader labels and keyboard-navigable mixer.
-6. **Packaging finish line** — self-signed Windows code signing is done *(`release-package` + `New-AerionSelfSignedCert.ps1`)*; production OV/EV code-signing (to clear SmartScreen) and macOS notarization still require a paid certificate/Apple Developer account.
+**Finish M5 (v0.4.0):**
+
+1. **Performance** — graphics engine setting (Auto / Direct2D / Software), one display-synced UI clock, cached chrome, then Timeline layers; device init off the message thread. Measure every step with `AerionBench` against the targets in [`PERFORMANCE.md`](./PERFORMANCE.md).
+2. **Stability** — plugin crash protection, unsaved-changes tracking fix, error reporting (log console in dev builds, structured crash reporter), `AerionBench --verify` in CI.
+3. **High-DPI audit** — sweep fixed pixel layouts, using `AerionBench --snapshots` renders at 150 % / 200 %.
+4. **Accessibility** — screen-reader labels and keyboard-navigable mixer.
+5. **Packaging finish line** — self-signed Windows code signing is done *(`release-package` + `New-AerionSelfSignedCert.ps1`)*; production OV/EV code-signing (to clear SmartScreen) and macOS notarization still require a paid certificate/Apple Developer account.
+
+**Then M6 — Complete Core (v0.5.0)**, in this order: stock instruments and effects, full parameter automation, audio warping and time-stretch, sidechain routing, MIDI learn and control surfaces, clip processing, templates, analysis metering, CLAP spike.
 
 ## Trademarks
 

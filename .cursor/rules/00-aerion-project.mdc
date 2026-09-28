@@ -34,7 +34,7 @@ Do not bypass the ValueTree for persistent UI state. Do not put audio-thread wor
 3. **Windows-first shell commands** — use **PowerShell** from the repo root unless the user explicitly asks for Linux/macOS CI steps.
 4. **Theme tokens for UI** — prefer `Theme::` tokens (`ThemeTokens.h`) over magic pixel values; Milestone 5 is auditing fixed layouts.
 5. **Tests are opt-in** — configure with `-DAERION_BUILD_TESTS=ON` or the `win-msvc-debug-tests` preset for `AerionTests`; do not enable by default in packaging presets.
-6. **Do not link ONNX Runtime** — declared in CMake but intentionally stubbed until Milestone 8.
+6. **Do not link ONNX Runtime** — declared in CMake but intentionally stubbed until Milestone 9.
 7. **ASIO SDK** — Windows-only, GPLv3, bundled under `AerionDawCpp/External/`. Do not remove trademark notices or splash/About attribution.
 
 ## Milestone context

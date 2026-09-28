@@ -2,11 +2,20 @@
 
 This document outlines the development path for Aerion DAW. The strategy is simple: **ship a rock-solid, feature-complete DAW first — then layer in the USPs that make Aerion unique.**
 
+In practice that means two phases:
+
+| Phase | Milestones | Goal |
+|---|---|---|
+| **DAW essentials** | M1–M6 | Everything a producer expects from any modern DAW: editing, mixing, recording, project workflow, stability, and the core feature set (stock devices, full automation, time-stretch, sidechain, controller mapping). |
+| **Differentiators** | M7–M9 + Future | What makes Aerion distinct: composition tools, creative/performance workflows, AI, cloud and collaboration. |
+
+A milestone is done when its items are verified: benchmark targets for performance work (see [`PERFORMANCE.md`](./PERFORMANCE.md)), pixel checks and snapshot renders for UI work (`AerionBench --verify` / `--snapshots`), and smoke tests in CI for engine work.
+
 ---
 
-## Current State (v0.3.0 Pre-Alpha — July 2026)
+## Current State (v0.3.0 Pre-Alpha — September 2026)
 
-**Milestones 1–4 are complete.** Active development is **Milestone 5 (Polish & Stability, targeting v0.4.0)**. The shipped app version is **v0.3.0** (CMake `project` version); the latest git tag may still read `v0.2.0` until the next release is tagged.
+**Milestones 1–4 are complete.** Active development is **Milestone 5 (Polish & Stability, targeting v0.4.0)**, followed by **Milestone 6 (Complete Core, v0.5.0)**, which closes the remaining gaps to a modern DAW baseline. The shipped app version is **v0.3.0** (CMake `project` version); the latest git tag may still read `v0.2.0` until the next release is tagged.
 
 All items below are fully implemented and working in the current build (unless marked as partial).
 
@@ -64,11 +73,14 @@ All items below are fully implemented and working in the current build (unless m
 - Project title bar updates to `<ProjectName> — Aerion DAW` after save/load
 - Reactive UI state — all components bound to `ProjectData` ValueTree
 - Recent passes: tooltip timing, toolbar hover invalidation, throttled idle transport readout, tuned inspector/meter refresh
+- Icon system (`UI/Icons.h`): SVG icons fitted to their 24×24 viewBox and tinted per state; track toggles are letter buttons (M / S / R / A) shared by Timeline, Mixer and Inspector (`paintLetterButton`); in-app logo variant without SVG filters (`aerion_logo_ui.svg`)
+- Partial repaints: clip drags repaint only the clip, the playhead only its strip, the Mixer only its meters during playback
 
 ### Architecture
 - MVC pattern: `AudioEngineManager` (model), `ProjectData` (ValueTree), UI components (view)
 - `ProjectData::syncWithEngine()` keeps ValueTree in sync with live engine state
 - `AudioDeviceSelectorComponent` settings panel (ASIO / CoreAudio / ALSA)
+- Performance tooling: `AerionBench` (headless Timeline/Mixer paint benchmark with Direct2D and software renderers, `--verify` pixel checks, `--snapshots` UI renders) and a message-thread stall watchdog in profiling builds
 
 ---
 
@@ -146,20 +158,36 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
 - [x] **Recent Projects List:** Menu → Open Recent with up to 10 entries.
 - [x] **Crash Recovery:** Auto-save every N minutes to a recovery folder; prompt to restore on next launch.
 - [x] **Hotkey implementation:** All catalog actions (File new/open/save, Edit undo/redo, Transport play-stop/record/go-to-start, Clip nudge/trim/delete, Audio crossfade, Track mute/solo/arm, Piano Roll select-all/copy/cut/paste/duplicate/delete/nudge/transpose/quantize/clear-selection) now flow through the `AerionKeymap` dispatch layer.
-- [x] **UX Redesign — Icon System (Milestone 4 Polish):** Inspector ARM/MUTE/SOLO icons, Toolbar XF icon, Timeline M/S/R/A track buttons, SVG Transport icons, and Mixer-side M/S icons now render via the shared `drawTrackIconBtn`.
+- [x] **UX Redesign — Icon System (Milestone 4 Polish):** Inspector ARM/MUTE/SOLO icons, Toolbar XF icon, Timeline M/S/R/A track buttons, SVG Transport icons, and Mixer-side M/S icons now render via the shared `drawTrackIconBtn`. *Superseded in M5 (September 2026): track toggles are letter buttons again (`paintLetterButton`), and the remaining icons render through `UI/Icons.h`.*
 
 ---
 
 ## Milestone 5 — DAW Essentials: Polish & Stability (v0.4.0)
 *Ship-ready quality. **In progress** — CI now covers Windows + macOS and release packaging is a separate workflow; both are manual (`workflow_dispatch`) only; see inventory below.*
 
-- [ ] **Performance Optimization:** Multi-threaded audio graph; minimize UI thread blocking; profile and eliminate hot-path allocations. *Partial: splash/deferred device init, repaint scoping, tooltip/toolbar cadence done — timeline/piano-roll paint profiling still outstanding.*
-- [ ] **High-DPI / Retina Support:** All custom-drawn components scale correctly at 150 % / 200 % display scaling. *Partial (~40 %): typography tokens (`Theme::uiSize` / `kUiFontScale`) shipped; fixed-pixel layout audit not started.*
+- [ ] **Performance Optimization:** Fast and responsive on older machines without a dedicated GPU. Targets: every input answered within one 60 Hz frame (≤ 16.7 ms paint), steady 60 fps playhead and meters, no message-thread stalls over 50 ms after startup, idle UI CPU under 2 %. Baseline and progress in [`PERFORMANCE.md`](./PERFORMANCE.md).
+  - [x] Splash / deferred device init, repaint scoping, tooltip/toolbar cadence
+  - [x] Measurement: `AerionBench` for Timeline and Mixer with both renderers, clip-drag scenario, `--verify` pixel checks; message-thread watchdog in profiling builds
+  - [x] Timeline culling and clip-drag partial repaint (drag: 19–33 ms → 0.08–2.5 ms per mouse move)
+  - [x] Mixer meters-only repaint during playback (5.7–7.3 ms → 2.4–3.3 ms per tick)
+  - [ ] Graphics engine setting (Auto / Direct2D / Software), Auto measuring both on first launch; Direct2D costs 10× the software renderer for small repaints
+  - [ ] One display-synced UI clock (`VBlankAttachment`) replacing the separate component timers; paused while minimised or idle
+  - [ ] Cache static chrome as images: background and header gradients, SVG icons, the fader cap
+  - [ ] Timeline layers: cached background plus a lightweight overlay, so scroll, zoom and playhead stop re-running the full paint (full repaint is still 19–31 ms)
+  - [ ] Move audio device init off the message thread (about 0.5 s UI stall on every launch)
+  - [ ] Light mode for low-end machines: no decorative gradients or animations, 30 Hz meters; auto-enabled on weak hardware
+  - [ ] Split `UIComponents.h` (9,000+ lines) into one file per view
+  - [ ] Audio side: multi-threaded audio graph; eliminate hot-path allocations
+- [ ] **High-DPI / Retina Support:** All custom-drawn components scale correctly at 150 % / 200 % display scaling. *Partial (~40 %): typography tokens (`Theme::uiSize` / `kUiFontScale`) shipped; fixed-pixel layout audit not started. `AerionBench --snapshots` renders the main components at 100 % and 150 % for the audit.*
+- [x] **Icon & Logo Rendering:** Icons fitted to their viewBox instead of their drawn content (no more oversized or edge-touching glyphs), tinted per state, transport icons follow active state, labels no longer overlap icons; letter buttons for track toggles; redrawn metronome icon; in-app logo without SVG filters so it shows on dark backgrounds.
+- [x] **Edit Teardown Crash:** Track meters and thumbnails are released before the Edit is destroyed or replaced (quit, open project, new project); previously a meter holding the last `LevelMeterPlugin` reference could crash.
+- [ ] **Plugin Crash Protection:** A crashing third-party plugin must not take the session down. First step: catch plugin faults, disable the plugin and tell the user; then evaluate out-of-process plugin hosting.
+- [ ] **Unsaved-Changes Tracking:** A new, untouched project is currently marked as modified, so quitting always asks to save. Only real edits should mark the project dirty.
 - [x] **Workspace Layouts:** Named window layouts under **View → Workspace**. Three built-in presets (Editing, Mixing, Recording) plus "Save Current Layout…" for custom layouts and "Delete Layout". A layout captures inspector/browser collapse state, mixer dock/detach, the active bottom panel (Mixer / Piano Roll), and the console height. Custom layouts and the last-active layout persist app-wide via `appProperties` and the active layout is restored on launch (`MainComponent::applyWorkspaceLayout` / `captureCurrentLayout` / `loadWorkspaceLayouts`).
 - [ ] **Accessibility:** Screen-reader labels on all interactive controls; keyboard-navigable mixer.
 - [ ] **Error Reporting:** Structured in-app crash reporter; DBG logs surfaced to a `Console` panel in dev builds.
 - [x] **CI pipeline (GitHub Actions):** `.github/workflows/build-test.yml` — Debug build of `AerionDaw` + `AerionTests` smoke tests, **manually triggered** (`workflow_dispatch`), on **both** a Windows MSVC/Ninja runner and a macOS Clang/Ninja runner.
-- [x] **Unit & Integration Tests (smoke):** `AerionTests` — `ProjectData` XML round-trip, track lookup, and `AerionKeymap` serialisation/conflict/import tests, green on both platforms. *Grow toward `AudioEngine` smoke coverage next.*
+- [x] **Unit & Integration Tests (smoke):** `AerionTests` — `ProjectData` XML round-trip, track lookup, and `AerionKeymap` serialisation/conflict/import tests, plus `AudioEngineManager` smoke tests (tracks, mute/solo, tempo map, snapshots, transport flags), green on both platforms. *Next: run `AerionBench --verify` in CI so repaint culling regressions fail the build.*
 - [x] **Release packaging workflow:** `.github/workflows/package-release.yml` (`release-package`) — standalone manual (`workflow_dispatch`) workflow, decoupled from the smoke-test workflow, that builds the Windows NSIS installer and macOS DMG on demand and publishes both to a GitHub Release (tag/title/draft/pre-release/notes set via the workflow's run inputs).
 - [x] **Windows self-signed code signing:** `AerionDawCpp/Tools/New-AerionSelfSignedCert.ps1` generates a no-admin-required self-signed certificate; `release-package` signs + timestamps the app and installer when `WINDOWS_CERT_PFX_BASE64` / `WINDOWS_CERT_PASSWORD` secrets are configured, and still packages unsigned otherwise. Does not clear the SmartScreen "unknown publisher" prompt — that needs a paid OV/EV certificate.
 - [ ] **macOS Packaging:** DMG built by the release workflow; production code-signing and notarization for Gatekeeper still outstanding (local builds use ad-hoc signing only; requires a paid Apple Developer account).
@@ -167,7 +195,23 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
 
 ---
 
-## Milestone 6 — Pro Composition & Audio Editing (v0.5.0)
+## Milestone 6 — DAW Essentials: Complete Core (v0.5.0)
+*Close the gaps every mainstream DAW already covers, so Aerion is complete before it adds differentiators. Several items build on capabilities Tracktion Engine already ships, so they are exposure and UI work rather than new DSP.*
+
+- [ ] **Stock Instruments & Effects:** Expose Tracktion's built-in devices as Aerion devices with styled editors: EQ, Compressor / Limiter, Reverb, Delay, Chorus, Phaser, Pitch Shift, the 4OSC synth and the Sampler. Add a "Stock" category to the Browser and put a default instrument on new MIDI tracks, so a MIDI track makes sound without third-party plugins.
+- [ ] **Full Parameter Automation:** Automate any plugin or mixer parameter, not just volume and pan. Per-track lane chooser, multiple visible lanes, automation modes (Read / Write / Touch / Latch) that record from UI and controller moves, point thinning, and copy/paste of automation with clips.
+- [ ] **Audio Warping & Time-Stretch:** Audio clips follow tempo changes (auto-tempo), warp markers for manual timing correction, per-clip pitch and speed controls. SoundTouch is already compiled in (`TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH`); evaluate higher-quality stretchers (Rubber Band, élastique) and their licences.
+- [ ] **Sidechain Routing:** Sidechain inputs for stock and hosted plugins that support them, set up from the Inspector and the Mixer strip context menu (for ducking, sidechain compression and gating).
+- [ ] **MIDI Learn & Controller Mapping:** Map hardware knobs, faders and buttons to any parameter by moving the control; mappings saved per project, with user-level defaults.
+- [ ] **Control Surface Support:** Mackie Control (MCU) and HUI transport and mixer control, building on Tracktion's control surface support.
+- [ ] **Audio Clip Processing:** Reverse, normalise, clip gain envelope, and pitch/speed per clip; non-destructive where possible, with rendered results kept in the project folder.
+- [ ] **Project & Track Templates:** Save and start from project templates (tracks, routing, devices, layout) and insert track templates (a track or folder with its devices and sends).
+- [ ] **Analysis Metering:** Loudness meter on the master (integrated / short-term / momentary LUFS and true peak), spectrum analyser, and phase correlation meter; loudness targets for common delivery platforms.
+- [ ] **CLAP Plugin Hosting — Feasibility Spike:** Check how JUCE 8 and Tracktion Engine support CLAP hosting today, then implement it if the support is solid enough.
+
+---
+
+## Milestone 7 — Pro Composition & Audio Editing (v0.6.0)
 *Close pro-composition DAW gaps for songwriters, composers, and vocal producers.*
 
 *Custom keyboard shortcuts shipped in Milestone 4 — see `AerionKeymap` / `KeyboardShortcutsPanel`.*
@@ -183,7 +227,7 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
 
 ---
 
-## Milestone 7 — Creative Production & Performance (v0.6.0)
+## Milestone 8 — Creative Production & Performance (v0.7.0)
 *Close the Ableton / Bitwig / FL Studio gaps for loop-based writing, modulation, and beat production.*
 
 - [ ] **Clip Launcher:** Add a non-linear scene/clip grid beside the Arranger. Clips should launch in sync, support follow actions later, and record performances back into the Timeline.
@@ -198,8 +242,10 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
 
 ---
 
-## Milestone 8 — AI, Cloud & Collaboration Differentiators (v0.7.0+)
+## Milestone 9 — AI, Cloud & Collaboration Differentiators (v0.8.0+)
 *Make Aerion feel distinct instead of just feature-complete.*
+
+*If AI becomes Aerion's headline feature, ONNX Runtime Integration and Real Audio-to-MIDI can be pulled forward to start right after Milestone 6; today the only AI piece is the `AIManager` mock.*
 
 - [ ] **ONNX Runtime Integration:** Link runtime, manage model loading off the UI thread, and expose a model capability registry to the app.
 - [ ] **Model Manager UI:** Download, update, remove, and select AI models. Keep the base installer lean and make model storage/versioning explicit.
@@ -240,10 +286,10 @@ All M4 completion-sprint items shipped:
 1. ✅ **Per-track Input + Monitor Persistence** — Inspector audio input, MIDI controller pin, and monitor mode persist on the track `ValueTree`; legacy RuntimeState XML migrated on load.
 2. ✅ **Time Signature Changes UI** — Transport edits insert/update at the playhead bar; Timeline ruler shows selectable/drag-editable signature flags with preset and remove actions.
 3. ✅ **Customisable Keyboard Shortcuts** — `Source/Keymap.h` defines `AerionKeymap` + `AerionActionCatalog`; the new `KeyboardShortcutsPanel` (in `UIComponents.h`) is an editable list with click-to-capture, conflict detection (offers reassign/cancel), reset-to-defaults, and import/export of `.aerionkeys` files; bindings persist via `appProperties` under key `keymap`.
-4. ✅ **Mixer M/S Icons** — `Mixer::drawSideButtonColumn` renders mute/solo via `Timeline::drawTrackIconBtn` using `BinaryData::aerion_mute_svg` / `aerion_Solo_svg`, matching Timeline and Inspector.
+4. ✅ **Mixer M/S Icons** — `Mixer::drawSideButtonColumn` renders mute/solo via `Timeline::drawTrackIconBtn` using `BinaryData::aerion_mute_svg` / `aerion_Solo_svg`, matching Timeline and Inspector. *Superseded in M5: now letter buttons via `paintLetterButton`.*
 5. ✅ **Freeze/Tempo Polish Pass** — Tempo lane now shows a resize cursor and a brighter highlight on hover (`hoveredTempoNodeIndex`); non-root tempo nodes are clamped between their neighbours during drag so ordering can no longer flip; freeze/unfreeze guards (empty track, already-freezing, missing freeze WAV) verified.
 
-**Next (M5):** performance profiling, high-DPI audit, workspace layouts, error reporting, grow test coverage (`AudioEngine` smoke tests), and the packaging finish line — production OV/EV code-signing (to clear SmartScreen; self-signed already done) and macOS notarization.
+**Next:** finish M5 — the remaining performance steps (graphics engine setting, display-synced UI clock, cached chrome, Timeline layers), plugin crash protection, unsaved-changes tracking, high-DPI audit, error reporting, accessibility, and the packaging finish line (production OV/EV code-signing and macOS notarization). Then M6 — Complete Core.
 
 ---
 
