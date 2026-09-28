@@ -74,7 +74,7 @@ All items below are fully implemented and working in the current build (unless m
 - Reactive UI state — all components bound to `ProjectData` ValueTree
 - Recent passes: tooltip timing, toolbar hover invalidation, throttled idle transport readout, tuned inspector/meter refresh
 - Icon system (`UI/Icons.h`): SVG icons fitted to their 24×24 viewBox and tinted per state; track toggles are letter buttons (M / S / R / A) shared by Timeline, Mixer and Inspector (`paintLetterButton`); in-app logo variant without SVG filters (`aerion_logo_ui.svg`)
-- Partial repaints: clip drags repaint only the clip, the playhead only its strip, the Mixer only its meters during playback
+- Rendering performance: the Timeline is a cached layer with the playhead on its own overlay; clip drags repaint only the clip; the Mixer repaints only meters during playback; one display-synced UI clock. **View → Graphics Engine** (Auto uses the software renderer up to 2560 × 1600) and **View → Lightweight UI** (Auto on weak machines). Numbers in [`PERFORMANCE.md`](./PERFORMANCE.md)
 
 ### Architecture
 - MVC pattern: `AudioEngineManager` (model), `ProjectData` (ValueTree), UI components (view)
@@ -290,7 +290,7 @@ All M4 completion-sprint items shipped:
 4. ✅ **Mixer M/S Icons** — `Mixer::drawSideButtonColumn` renders mute/solo via `Timeline::drawTrackIconBtn` using `BinaryData::aerion_mute_svg` / `aerion_Solo_svg`, matching Timeline and Inspector. *Superseded in M5: now letter buttons via `paintLetterButton`.*
 5. ✅ **Freeze/Tempo Polish Pass** — Tempo lane now shows a resize cursor and a brighter highlight on hover (`hoveredTempoNodeIndex`); non-root tempo nodes are clamped between their neighbours during drag so ordering can no longer flip; freeze/unfreeze guards (empty track, already-freezing, missing freeze WAV) verified.
 
-**Next:** finish M5 — the remaining performance steps (graphics engine setting, display-synced UI clock, cached chrome, Timeline layers), plugin crash protection, unsaved-changes tracking, high-DPI audit, error reporting, accessibility, and the packaging finish line (production OV/EV code-signing and macOS notarization). Then M6 — Complete Core.
+**Next:** finish M5 — remaining performance steps (scroll by copying, splitting `UIComponents.h`, audio-side hot-path review), plugin crash protection, error reporting, high-DPI audit, accessibility, and the packaging finish line (production OV/EV code-signing and macOS notarization). Then M6 — Complete Core.
 
 ---
 
