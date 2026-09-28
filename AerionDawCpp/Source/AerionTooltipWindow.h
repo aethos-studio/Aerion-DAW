@@ -31,14 +31,22 @@ private:
 
     void paint (juce::Graphics& g) override;
     void mouseEnter (const juce::MouseEvent& e) override;
+    void mouseExit (const juce::MouseEvent& e) override;
+    void mouseMove (const juce::MouseEvent& e) override;
     void mouseDown (const juce::MouseEvent& e) override;
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
     void timerCallback() override;
+
+    // The hover poll only runs while something can change: any mouse event
+    // (seen through the global mouse listener) wakes it, and it goes back to
+    // sleep once the mouse is still and no tip is waiting to appear.
+    void wake();
+    bool updateTip();   // returns true while a tip is waiting for its delay
     float getDesktopScaleFactor() const override;
 
     std::unique_ptr<juce::AccessibilityHandler> createAccessibilityHandler() override;
 
-    juce::Point<float> lastMousePos {};
+    juce::Point<float> lastMousePos {}, lastPolledMousePos {};
     juce::Component::SafePointer<juce::Component> lastComponentUnderMouse {};
     juce::String tipShowing, lastTipUnderMouse, manuallyShownTip {};
     int millisecondsBeforeTipAppears = 700;

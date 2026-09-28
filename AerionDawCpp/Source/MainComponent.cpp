@@ -639,8 +639,9 @@ MainComponent::MainComponent()
     if (activeLayoutName.isNotEmpty())
         applyWorkspaceLayoutByName (activeLayoutName);
 
-    // 25 Hz: playhead + meters; avoids piling on top of other ~30 Hz component timers.
-    startTimerHz (25);
+    // Playhead, meters and readouts run on the display clock (onDisplayFrame);
+    // this timer only handles slow chores such as the auto-save countdown.
+    startTimerHz (5);
 
     juce::Logger::writeToLog ("Startup: MainComponent ctor completed in "
                               + juce::String (juce::Time::getMillisecondCounterHiRes() - ctorStartMs, 1)
@@ -1281,12 +1282,31 @@ void MainComponent::exportMixdown()
     juce::Logger::writeToLog ("ExportMixdown: launchAsync returned");
 }
 
-void MainComponent::timerCallback()
+void MainComponent::onDisplayFrame (double nowSec)
 {
-    AERION_PROFILE_TICK (profileReporter);
-
     const double pos = audioEngine.getTransportPosition();
     const bool playing = audioEngine.isPlaying();
+    const bool recording = audioEngine.isRecording();
+
+    // The playhead moves on every display frame; meters, the transport readout
+    // and live recording rows update at most 30 times a second. The tolerance
+    // keeps a 60 Hz display at exactly every other frame despite timestamp jitter.
+    constexpr double kMeterIntervalSec = 1.0 / 30.0;
+    const bool meterFrame = nowSec - lastMeterFrameSec >= kMeterIntervalSec * 0.9;
+
+    // Keep meters running briefly after the transport stops so they fall back
+    // to silence instead of freezing at their last level.
+    if (playing || recording)
+        meterTailUntilSec = nowSec + 1.5;
+
+    if (! meterFrame)
+    {
+        if (playing && ! recording)
+            movePlayhead (pos);
+        return;
+    }
+
+    lastMeterFrameSec = nowSec;
 
     if (pos != lastTransportPos || playing != lastIsPlaying)
     {
@@ -1295,59 +1315,62 @@ void MainComponent::timerCallback()
         lastIsPlaying = playing;
     }
 
-    // While playing, avoid full repaints: only move the playhead + update meters.
-    // Full timeline repaints are reserved for recording or explicit edits.
-    if (playing && ! audioEngine.isRecording())
+    if (nowSec < meterTailUntilSec)
     {
-        // Mixer: strips only (CONSOLE header is static). Mixer no longer runs its own 30 Hz timer.
+        // Only the meters, fader caps and readouts; see Mixer::getPlaybackRepaintRegion.
         mixer.repaintStripMetersArea();
-
-        // Inspector: fader/meters refresh on Inspector's own timer (partial repaint).
-
-        // Timeline: repaint only the old/new playhead strips.
-        // Needs to be wide enough to fully clear anti-aliased strokes + waveform pixels.
-        const float newX = timeline.timeToX (pos);
-        const int laneH = timeline.getHeight();
-        const int w = 16;
-        const int newXi = (int) std::round (newX);
-
-        if (lastPlayheadX < -9000.0f)
-        {
-            timeline.repaint (newXi - w / 2, 0, w, laneH);
-            lastPlayheadX = newX;
-        }
-        else
-        {
-            const int oldXi = (int) std::round (lastPlayheadX);
-            if (oldXi != newXi)
-            {
-                timeline.repaint (oldXi - w / 2, 0, w, laneH);
-                timeline.repaint (newXi - w / 2, 0, w, laneH);
-                lastPlayheadX = newX;
-            }
-        }
-        return;
+        inspector.repaintMeters();
     }
 
-    if (audioEngine.isRecording())
-    {
-        // Recording changes waveform data continuously; keep invalidation to live rows/meters.
-        mixer.repaintStripMetersArea();
+    // Recording changes waveform data continuously; keep invalidation to live rows.
+    if (recording)
         timeline.repaintRecordingRows();
+    else if (playing)
+        movePlayhead (pos);
+}
+
+void MainComponent::movePlayhead (double pos)
+{
+    // Full timeline repaints are reserved for edits; playback repaints only the
+    // old and new playhead strips, wide enough to clear anti-aliased strokes.
+    const float newX = timeline.timeToX (pos);
+    const int laneH = timeline.getHeight();
+    const int w = 16;
+    const int newXi = (int) std::round (newX);
+
+    if (lastPlayheadX < -9000.0f)
+    {
+        timeline.repaint (newXi - w / 2, 0, w, laneH);
+        lastPlayheadX = newX;
         return;
     }
 
-    // Stopped: refresh transport CPU / buffer line occasionally (otherwise it looks "frozen").
-    if (! playing && ++idleCpuRefreshTick >= 5) // ~5 Hz at 25 Hz main timer
+    const int oldXi = (int) std::round (lastPlayheadX);
+    if (oldXi != newXi)
     {
-        idleCpuRefreshTick = 0;
-        transport.repaint();
+        timeline.repaint (oldXi - w / 2, 0, w, laneH);
+        timeline.repaint (newXi - w / 2, 0, w, laneH);
+        lastPlayheadX = newX;
     }
+}
 
-    // Auto-save countdown
+void MainComponent::timerCallback()
+{
+    // Slow chores only; everything that animates runs on the display clock.
+    AERION_PROFILE_TICK (profileReporter);
+
+    const auto nowMs = juce::Time::getMillisecondCounter();
+    const int elapsedMs = lastChoreMs == 0 ? 0 : (int) (nowMs - lastChoreMs);
+    lastChoreMs = nowMs;
+
+    // Stopped: refresh the transport CPU / buffer readout so it doesn't look frozen.
+    if (! audioEngine.isPlaying() && ! audioEngine.isRecording())
+        transport.repaint();
+
+    // Auto-save countdown, in real time rather than ticks.
     if (autoSaveIntervalMs > 0)
     {
-        autoSaveElapsedMs += 40;  // 25 Hz = 40 ms per tick
+        autoSaveElapsedMs += elapsedMs;
         if (autoSaveElapsedMs >= autoSaveIntervalMs)
         {
             autoSaveElapsedMs = 0;

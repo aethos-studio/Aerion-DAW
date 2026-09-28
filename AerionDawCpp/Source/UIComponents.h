@@ -1871,8 +1871,7 @@ private:
 //==============================================================================
 class Inspector : public DAWPanel,
                   public juce::ValueTree::Listener,
-                  public AudioEngineManager::Listener,
-                  private juce::Timer
+                  public AudioEngineManager::Listener
 {
 public:
     Inspector (AudioEngineManager& ae, ProjectData& pd)
@@ -1880,7 +1879,6 @@ public:
     {
         projectData.getProjectTree().addListener (this);
         audioEngine.addListener (this);
-        startTimerHz (20); // fader/meter animation (avoid stacking multiple 30 Hz surfaces)
 
         if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::aerion_fader_svg, BinaryData::aerion_fader_svgSize)))
             faderKnobDrawable = juce::Drawable::createFromSVG (*svgXml);
@@ -1899,7 +1897,14 @@ public:
 
     void editStateChanged() override { repaint(); }
 
-    void timerCallback() override { if (selectedTrack != nullptr) repaint (faderArea); }
+    /** Called by MainComponent's display clock while audio is moving: repaints
+        the meters, fader cap and peak readout of the selected track only. */
+    void repaintMeters()
+    {
+        if (selectedTrack != nullptr && isShowing())
+            for (auto& r : faderLiveAreas (faderArea))
+                repaint (r);
+    }
 
     juce::String trackName  { "(no selection)" };
     int          trackIndex { -1 };

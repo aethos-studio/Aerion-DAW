@@ -171,7 +171,7 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
   - [x] Timeline culling and clip-drag partial repaint (drag: 19–33 ms → 0.08–2.5 ms per mouse move)
   - [x] Mixer meters-only repaint during playback (5.7–7.3 ms → 2.4–3.3 ms per tick)
   - [x] Graphics engine setting (**View → Graphics Engine**: Auto / Hardware Accelerated / Software). Auto uses the software renderer up to 2560 × 1600 displays; Direct2D costs 10× more for small repaints
-  - [ ] One display-synced UI clock (`VBlankAttachment`) replacing the separate component timers; paused while minimised or idle
+  - [x] One display-synced UI clock (`VBlankAttachment`) replacing the separate component timers: playhead at display rate, meters at 30 Hz with a decay tail, no idle repaints, event-driven tooltip poll
   - [ ] Cache static chrome as images: background and header gradients, SVG icons, the fader cap
   - [ ] Timeline layers: cached background plus a lightweight overlay, so scroll, zoom and playhead stop re-running the full paint (full repaint is still 19–31 ms)
   - [ ] Move audio device init off the message thread (about 0.5 s UI stall on every launch)

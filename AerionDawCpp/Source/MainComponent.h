@@ -187,9 +187,11 @@ private:
     double lastTransportPos = -1.0;
     bool lastIsPlaying = false;
     float lastPlayheadX = -10000.0f;
-    uint32_t idleCpuRefreshTick = 0;
+    double lastMeterFrameSec = 0.0;
+    double meterTailUntilSec = 0.0;
+    juce::uint32 lastChoreMs = 0;
 
-    // Drives periodic profiling reports off the existing 25 Hz timer; compiles
+    // Drives periodic profiling reports off the existing chores timer; compiles
     // away entirely unless AERION_ENABLE_PROFILING is on.
     AERION_PROFILE_REPORTER (profileReporter);
 
@@ -209,6 +211,12 @@ private:
 
     std::vector<WorkspaceLayout> customLayouts;
     juce::String activeLayoutName;
+
+    // Display-synced clock for everything that animates during playback. Declared
+    // last so it is destroyed first, before anything its callback touches.
+    void onDisplayFrame (double nowSec);
+    void movePlayhead (double pos);
+    juce::VBlankAttachment displayClock { this, [this] (double nowSec) { onDisplayFrame (nowSec); } };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
 };

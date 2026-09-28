@@ -15,8 +15,14 @@ AerionTooltipWindow::AerionTooltipWindow (juce::Component* parentComp, int delay
     if (desktop.getMainMouseSource().canHover())
     {
         desktop.addGlobalMouseListener (this);
-        startTimer (50); // ~20 Hz: responsive hover without hammering the message thread
+        wake();
     }
+}
+
+void AerionTooltipWindow::wake()
+{
+    if (! isTimerRunning())
+        startTimer (50); // ~20 Hz while the mouse is active
 }
 
 AerionTooltipWindow::~AerionTooltipWindow()
@@ -39,18 +45,34 @@ void AerionTooltipWindow::mouseEnter (const juce::MouseEvent& e)
 {
     if (e.eventComponent == this)
         hideTip();
+
+    wake();
+}
+
+void AerionTooltipWindow::mouseExit (const juce::MouseEvent&)
+{
+    wake();
+}
+
+void AerionTooltipWindow::mouseMove (const juce::MouseEvent&)
+{
+    wake();
 }
 
 void AerionTooltipWindow::mouseDown (const juce::MouseEvent&)
 {
     if (isVisible())
         dismissalMouseEventOccurred = true;
+
+    wake();
 }
 
 void AerionTooltipWindow::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&)
 {
     if (isVisible())
         dismissalMouseEventOccurred = true;
+
+    wake();
 }
 
 void AerionTooltipWindow::updatePosition (const juce::String& tip, juce::Point<int> pos, juce::Rectangle<int> parentArea)
@@ -63,6 +85,7 @@ void AerionTooltipWindow::displayTip (juce::Point<int> screenPos, const juce::St
 {
     jassert (tip.isNotEmpty());
     displayTipInternal (screenPos, tip, ShownManually::yes);
+    wake();
 }
 
 void AerionTooltipWindow::displayTipInternal (juce::Point<int> screenPos, const juce::String& tip, ShownManually shownManually)
@@ -134,6 +157,18 @@ std::unique_ptr<juce::AccessibilityHandler> AerionTooltipWindow::createAccessibi
 
 void AerionTooltipWindow::timerCallback()
 {
+    const auto mousePos = juce::Desktop::getInstance().getMainMouseSource().getScreenPosition();
+    const bool mouseStill = mousePos == lastPolledMousePos;
+    lastPolledMousePos = mousePos;
+
+    const bool waitingToShow = updateTip();
+
+    if (mouseStill && ! waitingToShow)
+        stopTimer();
+}
+
+bool AerionTooltipWindow::updateTip()
+{
     const auto mouseSource = juce::Desktop::getInstance().getMainMouseSource();
     auto* newComp = mouseSource.isTouch() ? nullptr : mouseSource.getComponentUnderMouse();
 
@@ -142,14 +177,14 @@ void AerionTooltipWindow::timerCallback()
         if (dismissalMouseEventOccurred || newComp == nullptr)
             hideTip();
 
-        return;
+        return false;
     }
 
     auto* parent = getParentComponent();
     if (parent == nullptr)
     {
         hideTip();
-        return;
+        return false;
     }
 
     // Parented tooltips: ignore hover targeting components on a different peer (other window).
@@ -159,7 +194,7 @@ void AerionTooltipWindow::timerCallback()
         auto* hostPeer = parent->getPeer();
         auto* underPeer = newComp->getPeer();
         if (hostPeer != nullptr && underPeer != nullptr && hostPeer != underPeer)
-            return;
+            return false;
     }
 
     const auto newTip = newComp != nullptr ? getTipFor (*newComp) : juce::String();
@@ -179,7 +214,7 @@ void AerionTooltipWindow::timerCallback()
     if (newComp == nullptr || dismissalMouseEventOccurred || newTip.isEmpty())
     {
         hideTip();
-        return;
+        return false;
     }
 
     if (tipChanged && isVisible())
@@ -188,4 +223,6 @@ void AerionTooltipWindow::timerCallback()
     if (! isVisible()
         && now > lastCompChangeTime + (juce::uint32) millisecondsBeforeTipAppears)
         displayTipInternal (mousePos.roundToInt(), newTip, ShownManually::no);
+
+    return ! isVisible();
 }

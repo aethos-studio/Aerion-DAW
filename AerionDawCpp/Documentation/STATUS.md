@@ -29,7 +29,7 @@ What already exists versus what remains, verified against the source tree:
 | Packaging — Windows | **~Done** | NSIS installer scaffolded in `CMakeLists.txt` (CPack, shortcuts, VC++ runtime bundling, installer icon). **Optional self-signed code signing** now available (`AerionDawCpp/Tools/New-AerionSelfSignedCert.ps1` + `WINDOWS_CERT_PFX_BASE64` / `WINDOWS_CERT_PASSWORD` secrets); a paid OV/EV certificate is still required to clear the SmartScreen "unknown publisher" prompt. |
 | Packaging — macOS | **Partial** | DMG + universal binary (ARM64 + x86_64) built by the release workflow; signing is ad-hoc only, **notarization not implemented** (requires a paid Apple Developer account). |
 | High-DPI / Retina | **Partial (~40 %)** | `Theme::uiSize()` / `kUiFontScale` typography layer shipped; fixed-pixel layout audit not started. |
-| Performance Optimization | **Partial** | Measurement tooling and baseline done (`PERFORMANCE.md`); Timeline culling, clip-drag partial repaint and Mixer meters-only repaint shipped (September 2026). Graphics engine setting (View → Graphics Engine) shipped. Remaining: display-synced UI clock, cached chrome, Timeline layers, device init off the message thread, light mode. |
+| Performance Optimization | **Partial** | Measurement tooling and baseline done (`PERFORMANCE.md`); Timeline culling, clip-drag partial repaint and Mixer meters-only repaint shipped (September 2026). Graphics engine setting (View → Graphics Engine) and display-synced UI clock shipped. Remaining: cached chrome, Timeline layers, device init off the message thread, light mode. |
 | Plugin Crash Protection | **Missing** | A crashing plugin takes the session down. |
 | Unsaved-Changes Tracking | **Bug** | A new, untouched project is marked as modified, so quitting always asks to save. |
 | Workspace Layouts | **Done** | **View → Workspace** submenu: built-in Editing / Mixing / Recording presets + save/delete custom layouts. Captures inspector/browser collapse, mixer dock/detach, bottom panel, and console height; custom layouts + last-active layout persist via `appProperties` and restore on launch. |
@@ -75,7 +75,7 @@ Mirrors Milestones 5 and 6 in [`ROADMAP.md`](./ROADMAP.md) so the two documents 
 
 **Finish M5 (v0.4.0):**
 
-1. **Performance** — one display-synced UI clock, cached chrome, then Timeline layers; device init off the message thread. Measure every step with `AerionBench` against the targets in [`PERFORMANCE.md`](./PERFORMANCE.md).
+1. **Performance** — cached chrome, then Timeline layers; device init off the message thread. Measure every step with `AerionBench` against the targets in [`PERFORMANCE.md`](./PERFORMANCE.md).
 2. **Stability** — plugin crash protection, unsaved-changes tracking fix, error reporting (log console in dev builds, structured crash reporter), `AerionBench --verify` in CI.
 3. **High-DPI audit** — sweep fixed pixel layouts, using `AerionBench --snapshots` renders at 150 % / 200 %.
 4. **Accessibility** — screen-reader labels and keyboard-navigable mixer.

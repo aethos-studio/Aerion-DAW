@@ -108,6 +108,20 @@ JUCE 8 opens every window with Direct2D, and the numbers above show it is the sl
 
 The 2560 × 1600 threshold is a heuristic and should be revisited once Timeline layers make full repaints cheap. The benchmark numbers are CPU submission cost measured offscreen. To compare engines in a real window, switch in the View menu and read the `Timeline::paint` and `message thread` lines of a profiling build's log.
 
+### Phase 1.4: One display-synced UI clock (2026-09-28)
+
+Before, four timers drove the UI independently: MainComponent at 25 Hz (playhead, meters, transport), the Inspector at 20 Hz, the tooltip window at 20 Hz, and the plugin manager at 10 Hz while it was open. The Inspector repainted its fader 20 times a second whenever a track was selected, even with the transport stopped, and the tooltip polled the mouse the whole time the app was open.
+
+Now:
+
+- A `juce::VBlankAttachment` on MainComponent drives everything that animates. The playhead moves on every display frame (smooth at the monitor's refresh rate instead of 25 Hz). Meters, the transport readout and live recording rows update at most 30 times a second.
+- Meters keep updating for 1.5 s after the transport stops, so they fall back to silence instead of freezing at their last level.
+- The Inspector has no timer. The display clock repaints only its meter column, and only while audio is moving.
+- The tooltip poll runs only after mouse activity and stops once the mouse is still and no tip is waiting to appear.
+- MainComponent's own timer runs at 5 Hz for slow chores: the idle transport readout, the auto-save countdown (now in real elapsed time) and profiling reports.
+
+When idle, the display clock still fires every frame, but each idle frame only reads the transport state and returns. Nothing repaints while nothing changes.
+
 ### Fixed along the way: crash when releasing the Edit
 
 `AudioEngineManager` kept each track's LevelMeterPlugin alive in `trackMeters` and released it only after the Edit was destroyed or replaced. If that was the last reference, the plugin's destructor called into the dead Edit (`Edit::getParameterChangeHandler`). This affected quitting, opening a project and creating a new one. It showed up as the benchmark crashing on exit in about half of its runs, and it now releases meters and thumbnails before the Edit goes away (0 crashes in 10 runs).
