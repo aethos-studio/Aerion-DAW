@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "UI/Dialogs.h"
 
 namespace te = tracktion;
 
@@ -162,22 +163,28 @@ MainComponent::MainComponent()
 
         if (! projectHasUnsavedChanges()) { doOpen(); return; }
 
-        juce::AlertWindow::showAsync(
-            juce::MessageBoxOptions()
-                .withTitle("Open Recent")
-                .withMessage("Save changes to the current project?")
-                .withButton("Cancel")
-                .withButton("Discard")
-                .withButton("Save"),
-            [this, doOpen](int result) {
-                if (result == 0) return;
-                if (result == 2 && currentProjectFile.existsAsFile())
+        Dialogs::askToSaveChanges ("Open Recent", "Save changes to the current project?",
+            [this, doOpen] (Dialogs::SaveChoice choice)
+            {
+                if (choice == Dialogs::SaveChoice::cancel)
+                    return;
+
+                if (choice == Dialogs::SaveChoice::save)
                 {
-                    audioEngine.saveProject(currentProjectFile, &projectData);
+                    // An unsaved project has no file yet: save it under a name
+                    // first instead of opening the other project over it.
+                    if (! currentProjectFile.existsAsFile())
+                    {
+                        saveProjectAs();
+                        return;
+                    }
+
+                    audioEngine.saveProject (currentProjectFile, &projectData);
                     markProjectClean();
                     updateTitleBar();
                 }
-                if (result != 0) doOpen();
+
+                doOpen();
             });
     };
     menuBar.onClearRecent   = [this] { audioEngine.clearRecentProjects(); };
@@ -536,15 +543,12 @@ MainComponent::MainComponent()
     {
         juce::MessageManager::callAsync ([this]
         {
-            juce::AlertWindow::showAsync(
-                juce::MessageBoxOptions()
-                    .withTitle("Crash Recovery")
-                    .withMessage("Aerion DAW didn't shut down cleanly. Restore the auto-saved session?")
-                    .withButton("Discard")
-                    .withButton("Restore"),
-                [this](int result)
+            Dialogs::confirm ("Crash Recovery",
+                "Aerion DAW didn't shut down cleanly. Restore the auto-saved session?",
+                "Restore", "Discard",
+                [this] (bool restore)
                 {
-                    if (result == 1)
+                    if (restore)
                     {
                         closeEmbeddedPianoRoll();
                         timeline.clearSelectedClip();
@@ -839,17 +843,11 @@ void MainComponent::createNewProject()
         return;
     }
 
-    juce::AlertWindow::showAsync (
-        juce::MessageBoxOptions()
-            .withTitle ("New Project")
-            .withMessage ("Save changes to the current project?")
-            .withButton ("Cancel")
-            .withButton ("Discard")
-            .withButton ("Save"),
-        [this] (int result) {
-            if (result == 0) return;                // Cancel
-            if (result == 1) { doCreateNewProject(); return; }  // Discard
-            // Save
+    Dialogs::askToSaveChanges ("New Project", "Save changes to the current project?",
+        [this] (Dialogs::SaveChoice choice) {
+            if (choice == Dialogs::SaveChoice::cancel) return;
+            if (choice == Dialogs::SaveChoice::discard) { doCreateNewProject(); return; }
+
             if (currentProjectFile.existsAsFile())
             {
                 audioEngine.saveProject (currentProjectFile, &projectData);
@@ -1006,17 +1004,11 @@ void MainComponent::openProject()
         return;
     }
 
-    juce::AlertWindow::showAsync(
-        juce::MessageBoxOptions()
-            .withTitle("Open Project")
-            .withMessage("Save changes to the current project?")
-            .withButton("Cancel")
-            .withButton("Discard")
-            .withButton("Save"),
-        [this](int result) {
-            if (result == 0) return;                // Cancel
-            if (result == 1) { doOpenProjectChooser(); return; }  // Discard
-            // Save
+    Dialogs::askToSaveChanges ("Open Project", "Save changes to the current project?",
+        [this] (Dialogs::SaveChoice choice) {
+            if (choice == Dialogs::SaveChoice::cancel) return;
+            if (choice == Dialogs::SaveChoice::discard) { doOpenProjectChooser(); return; }
+
             if (currentProjectFile.existsAsFile())
             {
                 audioEngine.saveProject(currentProjectFile, &projectData);
@@ -1035,17 +1027,10 @@ void MainComponent::requestQuit()
 {
     if (! projectHasUnsavedChanges()) { juce::JUCEApplication::getInstance()->quit(); return; }
 
-    juce::AlertWindow::showAsync(
-        juce::MessageBoxOptions()
-            .withTitle("Quit Aerion DAW")
-            .withMessage("Save changes before quitting?")
-            .withIconType(juce::AlertWindow::InfoIcon)
-            .withButton("Cancel")
-            .withButton("Discard & Quit")
-            .withButton("Save & Quit"),
-        [this](int result) {
-            if (result == 1) return;   // Cancel (button 1)
-            if (result == 3)           // Save & Quit (button 3)
+    Dialogs::askToSaveChanges ("Quit Aerion DAW", "Save changes before quitting?",
+        [this] (Dialogs::SaveChoice choice) {
+            if (choice == Dialogs::SaveChoice::cancel) return;
+            if (choice == Dialogs::SaveChoice::save)
             {
                 if (currentProjectFile.existsAsFile())
                 {
@@ -1060,9 +1045,9 @@ void MainComponent::requestQuit()
                     return;
                 }
             }
-            // result == 2 is Discard & Quit, fall through to quit
             juce::JUCEApplication::getInstance()->quit();
-        });
+        },
+        "Save & Quit", "Discard & Quit");
 }
 
 void MainComponent::saveProject()

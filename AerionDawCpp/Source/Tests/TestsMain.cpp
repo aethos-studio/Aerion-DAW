@@ -3,6 +3,7 @@
 #include "../ProjectData.h"
 #include "../Keymap.h"
 #include "../UI/GraphicsEngine.h"
+#include "../UI/Dialogs.h"
 
 //==============================================================================
 // Aerion smoke tests (Milestone 5).
@@ -196,6 +197,57 @@ public:
     }
 };
 
+//==============================================================================
+// Builds each question dialog the way JUCE does (the default look-and-feel's
+// createAlertWindow) and checks what each labelled button returns, so a
+// reordered button can never again save when the user asked to cancel.
+class DialogTests final : public juce::UnitTest
+{
+public:
+    DialogTests() : juce::UnitTest ("Dialogs", "Aerion") {}
+
+    static std::unique_ptr<juce::AlertWindow> build (const juce::MessageBoxOptions& o)
+    {
+        return std::unique_ptr<juce::AlertWindow> (juce::LookAndFeel::getDefaultLookAndFeel()
+            .createAlertWindow (o.getTitle(), o.getMessage(), o.getButtonText (0), o.getButtonText (1),
+                                o.getButtonText (2), o.getIconType(), o.getNumButtons(), nullptr));
+    }
+
+    static int resultOf (juce::AlertWindow& w, const juce::String& label)
+    {
+        for (int i = 0; i < w.getNumButtons(); ++i)
+            if (w.getButton (i)->getButtonText() == label)
+                return w.getButton (i)->getCommandID();
+
+        return -1;
+    }
+
+    void runTest() override
+    {
+        using namespace Dialogs;
+
+        beginTest ("save-changes buttons give the choice they are labelled with");
+        {
+            auto w = build (saveChangesOptions ("Quit", "Save?", "Save & Quit", "Discard & Quit"));
+            expectEquals (w->getNumButtons(), 3);
+            expect (saveChoiceFromResult (resultOf (*w, "Save & Quit")) == SaveChoice::save);
+            expect (saveChoiceFromResult (resultOf (*w, "Discard & Quit")) == SaveChoice::discard);
+            expect (saveChoiceFromResult (resultOf (*w, "Cancel")) == SaveChoice::cancel);
+            expect (saveChoiceFromResult (0) == SaveChoice::cancel, "Escape must cancel");
+        }
+
+        beginTest ("confirm buttons give the answer they are labelled with");
+        {
+            auto w = build (confirmOptions ("Crash Recovery", "Restore?", "Restore", "Discard"));
+            expectEquals (w->getNumButtons(), 2);
+            expect (confirmedFromResult (resultOf (*w, "Restore")));
+            expect (! confirmedFromResult (resultOf (*w, "Discard")));
+            expect (! confirmedFromResult (0), "Escape must decline");
+        }
+    }
+};
+
+static DialogTests dialogTests;
 static ProjectDataTests projectDataTests;
 static KeymapTests keymapTests;
 static GraphicsEngineTests graphicsEngineTests;
