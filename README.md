@@ -49,6 +49,7 @@ The long-term vision includes AI-assisted workflows and cloud project sync, but 
 
 - Save and load **`.aerion`** project files with full round-trip state
 - Collect & save, auto-save, and crash recovery
+- **Plugin crash protection** (Windows): a plugin that crashes while processing audio is caught and bypassed, and the session keeps playing
 - **Freeze / bounce** tracks; mixdown and **stems** export to WAV / AIFF / FLAC / OGG
 - Customisable **keyboard shortcuts** (`.aerionkeys` import/export)
 - **Workspace layouts** — built-in Editing / Mixing / Recording presets plus saved custom layouts
@@ -67,13 +68,15 @@ The long-term vision includes AI-assisted workflows and cloud project sync, but 
 
 ## Recent progress (September 2026)
 
-Work landed on `main` as part of the Milestone 5 performance push:
+Milestone 5 work on `main`:
 
-- **Timeline row culling** — playback playhead repaints skip off-screen track rows, roughly halving paint cost on the hot path during transport
-- **Paint profiling** — opt-in `AERION_PROFILE_*` probes and a `win-msvc-profiling` CMake preset for measuring UI cost in Release builds
-- **Headless benchmark** — `AerionBench` renders the Timeline offscreen for repeatable paint timings
-- **AudioEngine smoke tests** — 13 headless tests covering tracks, mute/solo, tempo map, snapshots, and transport flags
-- **Stability fixes** — clip/piano-roll lifetime safety and guards against editing tracks while freeze is in progress
+- **Save prompts fixed (data loss)** — the Quit, New Project, Open Project, Open Recent and Crash Recovery prompts acted on the wrong buttons ("Save & Quit" quit without saving, "Cancel" discarded the project). Each button now does what it says, and Escape cancels
+- **Plugin crash protection** (Windows) — a plugin that crashes while processing audio is caught, silenced, bypassed and reported, instead of taking the session down
+- **UI performance** — everything measured fits a 60 Hz frame at 1080p: the Timeline draws from a cached layer with the playhead on its own overlay, clip drags repaint only the clip, the Mixer repaints only meters during playback, and one display-synced clock drives all animation. **View → Graphics Engine** and **View → Lightweight UI** help on older machines. Numbers in [`PERFORMANCE.md`](AerionDawCpp/Documentation/PERFORMANCE.md)
+- **Unsaved-changes tracking** — a fresh project no longer counts as changed; clip drags and other direct edits now do
+- **Stability** — crashes on quit / open / new project and an unfreeze data-loss bug fixed
+- **Code layout** — the 9,000-line `UIComponents.h` is split into one header per view under `Source/Views/`
+- **Tooling** — `AerionBench` headless paint benchmark with pixel checks (`--verify`), and smoke tests for the engine, plugin fault handling and dialogs
 
 ---
 
@@ -81,9 +84,11 @@ Work landed on `main` as part of the Milestone 5 performance push:
 
 | Area | State |
 |---|---|
-| UI performance | Profiling infrastructure in place; static chrome caching and edit-driven repaint storms remain |
+| UI performance | Mostly done; scrolling by copying cached pixels and an audio-side hot-path review remain |
+| Plugin crash protection | Crashes during audio processing are caught on Windows; crashes in plugin editors or state save/load, and all plugin crashes on macOS, still need out-of-process hosting |
+| Error reporting | Not started: in-app crash reporter and a log console for dev builds |
 | High-DPI / Retina | Typography tokens shipped (~40%); fixed-pixel layout audit not started |
-| Tests | `ProjectData`, `AerionKeymap`, and `AudioEngineManager` smoke tests; no GUI or audio-thread tests yet |
+| Tests | Smoke tests for `ProjectData`, `AerionKeymap`, `AudioEngineManager`, graphics engine choice, plugin fault handling and dialogs; `AerionBench --verify` pixel checks run locally, not yet in CI |
 | Packaging | Windows NSIS + optional self-signed signing; macOS DMG without notarization |
 | Accessibility | Not started |
 | AI / Cloud | `AIManager` is a mock; Google Drive client has placeholder OAuth credentials |
@@ -98,7 +103,7 @@ See [`STATUS.md`](AerionDawCpp/Documentation/STATUS.md) and [`ROADMAP.md`](Aerio
 
 - **CMake** 3.20+
 - **Visual Studio 2022** with the *Desktop development with C++* workload (MSVC, x64)
-- **Git** (Tracktion Engine is fetched on first configure)
+- **Git** (Tracktion Engine is fetched on first configure, and Aerion's small engine patches in `AerionDawCpp/Patches/` are applied with `git apply`)
 
 Open the **repository root** in your editor. Root `CMakePresets.json` includes the Aerion presets; `.vscode/settings.json` points CMake Tools at `AerionDawCpp/`.
 
@@ -118,6 +123,12 @@ cmake --build build --preset win-msvc-release
 cmake --preset win-msvc-debug-tests -S AerionDawCpp -B build
 cmake --build build --preset win-msvc-debug-tests
 ctest --test-dir build -C Debug --output-on-failure
+```
+
+If a full build fails in one of Tracktion's example programs, build only Aerion's targets:
+
+```powershell
+cmake --build build --config Debug --target AerionDaw AerionTests --parallel
 ```
 
 The app binary:
@@ -149,7 +160,9 @@ Aerion follows strict **Model–View–Controller** separation:
 | Controller | `AudioEngineManager` | Wraps the Tracktion `Edit`, transport, and real-time audio graph |
 | View | JUCE components | Observe the ValueTree; UI repaints when state changes |
 
-Application code lives under `AerionDawCpp/Source/`. Each UI view (Timeline, Mixer, Piano Roll, Inspector, Browser, Transport, menu bar, toolbar, dialogs) has its own header in `Source/Views/`; `UIComponents.h` includes them all. Shared drawing code (theme, icons, cached layers) is in `Source/UI/`.
+Application code lives under `AerionDawCpp/Source/`. Each UI view (Timeline, Mixer, Piano Roll, Inspector, Browser, Transport, menu bar, toolbar, dialogs) has its own header in `Source/Views/`; `UIComponents.h` includes them all. Shared drawing code (theme, icons, cached layers, dialogs) is in `Source/UI/`.
+
+Aerion carries a few small patches to Tracktion Engine in `AerionDawCpp/Patches/` (currently one: a hook around each hosted plugin's `processBlock`, used for plugin crash protection). CMake applies them at configure time.
 
 ---
 
@@ -163,6 +176,11 @@ Aerion-DAW/
   .github/                  CI workflows
   AerionDawCpp/             CMake project root
     Source/                 Application code
+      Views/                One header per UI view
+      UI/                   Theme, icons, cached layers, dialogs
+      Tests/                Smoke tests and the AerionBench paint benchmark
+    Patches/                Aerion's patches to Tracktion Engine
+    CMake/                  CMake helpers (patch application, packaging)
     Resources/              Icons, fonts, SVG assets
     External/               Third-party SDKs (e.g. Steinberg ASIO on Windows)
     Documentation/          Roadmap, status, dev guides

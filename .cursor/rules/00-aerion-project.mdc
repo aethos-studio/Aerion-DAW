@@ -23,7 +23,7 @@ Strict **MVC** separation:
 |-------|-------|------|
 | Model | `ProjectData` | `juce::ValueTree` is the single source of truth for project state |
 | Controller | `AudioEngineManager` | Wraps Tracktion `Edit`, real-time audio graph, transport |
-| View | JUCE components in `UIComponents.h` et al. | Observe `ValueTree`; repaint only when state changes |
+| View | JUCE components in `Source/Views/` (one header per view) | Observe `ValueTree`; repaint only when state changes |
 
 Do not bypass the ValueTree for persistent UI state. Do not put audio-thread work on the message thread without the existing patterns in `AudioEngine.cpp`.
 
@@ -47,7 +47,9 @@ Read the relevant source before proposing changes. Canonical examples:
 
 - Audio / plugins: `AerionDawCpp/Source/AudioEngine.cpp`
 - Project persistence: `AerionDawCpp/Source/ProjectData.cpp`
-- UI patterns: `AerionDawCpp/Source/UIComponents.h`, `AerionDawCpp/Source/UI/ThemeTokens.h`
+- UI patterns: `AerionDawCpp/Source/Views/` (e.g. `Timeline.h`, `Mixer.h`), `AerionDawCpp/Source/UI/ThemeTokens.h`
+- Question dialogs: `AerionDawCpp/Source/UI/Dialogs.h` (never compare raw JUCE button results)
+- Tracktion changes: `AerionDawCpp/Patches/` — keep patches small; put Aerion logic behind the hook
 - Build / backends: `AerionDawCpp/CMakeLists.txt`
 
 Full Windows setup and build commands: `AerionDawCpp/Documentation/CURSOR_DEVELOPMENT.md`

@@ -50,6 +50,11 @@ Aerion-DAW/                    ← open this folder in Cursor
     CMakePresets.json
     Documentation/             ← this file, ROADMAP, STATUS
     Source/                    ← application C++
+      Views/                   ← one header per UI view (UIComponents.h includes them all)
+      UI/                      ← theme, icons, cached layers, dialogs
+      Tests/                   ← AerionTests smoke tests, AerionBench
+    Patches/                   ← Aerion's patches to Tracktion Engine (applied at configure)
+    CMake/                     ← ApplyPatches.cmake, packaging helpers
     Resources/
     External/                  ← ASIO SDK (Windows; GPLv3)
   build/                       ← local only (gitignored)
@@ -221,6 +226,10 @@ cmake --build build --preset win-msvc-debug
 ```
 
   `tracktion_engine-src/` is gitignored (local cache, same pattern as CI).
+
+- **Engine patches:** configure applies each patch in `AerionDawCpp/Patches/tracktion/` to the engine tree it uses, including this local checkout, with `git apply`. So `git status` in `tracktion_engine-src/` shows them as local changes; that is expected. A patch already applied is skipped; one that no longer applies stops the configure with the `git apply` error. See `Patches/README.md` for how to change a patch.
+- **Exception model:** MSVC builds use `/EHa` instead of `/EHsc` (set in `CMakeLists.txt`), which plugin crash protection needs. Changing it rebuilds everything.
+- **Full builds:** if building everything fails in one of Tracktion's example programs, build only Aerion's targets: `cmake --build build --config Debug --target AerionDaw AerionTests --parallel`.
 
 - **ASIO SDK** is already in-tree — no download step.
 - **Tests** are off by default; use `win-msvc-debug-tests` or `-DAERION_BUILD_TESTS=ON`.
