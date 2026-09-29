@@ -1735,6 +1735,16 @@ void MainComponent::engineStatusChanged()
     refreshFromEngine();
 }
 
+void MainComponent::pluginFaulted (const juce::String& pluginName, const juce::String& reason)
+{
+    juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
+        "Plugin Crashed",
+        pluginName + " crashed while processing audio (" + reason + ").\n\n"
+        "Aerion caught the crash and bypassed the plugin, so the rest of your session keeps playing. "
+        "Save your project, then restart Aerion before turning the plugin back on: "
+        "after a crash its state may be damaged.");
+}
+
 void MainComponent::refreshFromEngine()
 {
     AERION_PROFILE_SCOPE ("MainComponent::editStateChanged");

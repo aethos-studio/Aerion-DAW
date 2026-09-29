@@ -32,7 +32,7 @@ What already exists versus what remains, verified against the source tree:
 | Performance Optimization | **Mostly done** | Baseline, targets and results in [`PERFORMANCE.md`](./PERFORMANCE.md). Everything measured now fits a 60 Hz frame at 1080p: Timeline full repaint 19–33 → 7.6–14.7 ms, playhead move 13.7 → 1.5 ms (Direct2D) and 1.2 → 0.1 ms (software) via a cached Timeline layer with a playhead overlay, clip drag 19–33 → 0.08–2.1 ms, meters 5.7–7.3 → 1.7–2.4 ms. Also shipped: **View → Graphics Engine**, a display-synced UI clock, cached chrome and icons, **View → Lightweight UI**, audio startup behind the splash. `UIComponents.h` is split into one header per view under `Source/Views/`. Remaining: scroll by copying (prototype not yet pixel-exact), audio-side hot-path review. |
 | Icon & Logo Rendering | **Done** | `UI/Icons.h` fits icons to their viewBox and tints them per state; letter buttons for track toggles (`paintLetterButton`); redrawn metronome icon; filter-free in-app logo (`aerion_logo_ui.svg`). |
 | Crash & Data-Loss Fixes | **Done** | Track meters and thumbnails released before the Edit is destroyed (crash on quit / open / new project); unfreeze restores trimmed clips exactly and collapsed folders hide their children in paint and scroll height (PR #15). |
-| Plugin Crash Protection | **Missing** | A crashing plugin takes the session down. |
+| Plugin Crash Protection | **Started** | Windows: a plugin that crashes in `processBlock` is caught, bypassed and reported; the session keeps playing (`PluginFaultMonitor`, Tracktion hook in `Patches/tracktion/`, `/EHa`). Crashes in plugin editors, state save/load or instantiation, and all plugin crashes on macOS, still take the app down; out-of-process hosting is the next step. |
 | Unsaved-Changes Tracking | **Done** | Non-edit engine notifications no longer mark the project changed; direct Edit changes (clip drags) now do, through Tracktion's own change tracking. |
 | Workspace Layouts | **Done** | **View → Workspace** submenu: built-in Editing / Mixing / Recording presets + save/delete custom layouts. Captures inspector/browser collapse, mixer dock/detach, bottom panel, and console height; custom layouts + last-active layout persist via `appProperties` and restore on launch. |
 | Accessibility | **Missing** | No `setAccessibleName()` usage; keyboard-navigable mixer not started. |
@@ -83,7 +83,7 @@ What already exists versus what remains, verified against the source tree:
 ## Current Build State
 - **Platform**: Windows 11 (primary local dev — Visual Studio 2022, MSVC x64). macOS builds via CI/release workflow.
 - **Presets**: `win-msvc-debug`, `win-msvc-release`, `win-msvc-debug-tests`, `win-msvc-profiling` (see root `CMakePresets.json` + `AerionDawCpp/Documentation/CURSOR_DEVELOPMENT.md`)
-- **Engine**: Tracktion Engine v3.2 / JUCE 8
+- **Engine**: Tracktion Engine v3.2 / JUCE 8, with small Aerion patches from `AerionDawCpp/Patches/` applied at configure time (also to a local `FETCHCONTENT_SOURCE_DIR_TRACKTION_ENGINE` checkout)
 - **Build**: build the app and tests as targets, `cmake --build build --config Debug --target AerionDaw AerionTests --parallel`; a full solution build still fails in an unrelated Tracktion example target. After the embedded resource list changes, a parallel build can produce a damaged `AerionDawResources` object (`LNK1236`); rebuild that target on its own to fix it.
 - **Performance builds**: a separate Release build with `AERION_ENABLE_PROFILING=ON` (`build-profiling`) holds `AerionBench` and the profiling app; timings from Debug builds are not meaningful.
 - **CI**: both workflows are manual (`workflow_dispatch`) only. `build-test.yml` runs the Debug build + `AerionSmokeTests` on Windows (MSVC/Ninja) and macOS (Clang/Ninja) — run it before merging a PR. `package-release.yml` (`release-package`) builds the Windows NSIS installer and macOS DMG, with optional self-signed Windows code signing, then publishes a GitHub Release with both attached.
@@ -95,7 +95,7 @@ Mirrors Milestones 5 and 6 in [`ROADMAP.md`](./ROADMAP.md) so the two documents 
 **Finish M5 (v0.4.0):**
 
 1. **Performance** — scroll by copying (needs pixel-exact edges), audio-side hot-path review. Measure every step with `AerionBench` against the targets in [`PERFORMANCE.md`](./PERFORMANCE.md).
-2. **Stability** — plugin crash protection, error reporting (log console in dev builds, structured crash reporter), `AerionBench --verify` in CI.
+2. **Stability** — plugin crash protection beyond audio processing (out-of-process hosting), error reporting (log console in dev builds, structured crash reporter), `AerionBench --verify` in CI.
 3. **High-DPI audit** — sweep fixed pixel layouts, using `AerionBench --snapshots` renders at 150 % / 200 %.
 4. **Accessibility** — screen-reader labels and keyboard-navigable mixer.
 5. **Packaging finish line** — self-signed Windows code signing is done *(`release-package` + `New-AerionSelfSignedCert.ps1`)*; production OV/EV code-signing (to clear SmartScreen) and macOS notarization still require a paid certificate/Apple Developer account.

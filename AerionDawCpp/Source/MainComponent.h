@@ -33,6 +33,7 @@ public:
     // AudioEngineManager::Listener
     void editStateChanged() override;
     void engineStatusChanged() override;
+    void pluginFaulted (const juce::String& pluginName, const juce::String& reason) override;
 
     AudioEngineManager& getAudioEngine() { return audioEngine; }
     void requestQuit();

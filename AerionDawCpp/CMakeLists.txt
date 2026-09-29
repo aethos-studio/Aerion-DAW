@@ -24,6 +24,18 @@ FetchContent_Declare(
 )
 
 FetchContent_MakeAvailable(tracktion_engine)
+
+# Aerion's changes to Tracktion Engine (see Patches/README.md). Applied to the
+# tree FetchContent uses, including a local FETCHCONTENT_SOURCE_DIR checkout.
+include(CMake/ApplyPatches.cmake)
+aerion_apply_patches("${tracktion_engine_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/Patches/tracktion")
+
+# MSVC: /EHa instead of /EHsc, so that when PluginFaultGuard catches a crash
+# inside a hosted plugin, the destructors of the frames in between run. That
+# releases the lock JUCE's plugin wrapper holds while the plugin processes.
+if (MSVC)
+    string(REPLACE "/EHsc" "/EHa" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+endif()
 # Note: We won't FetchContent_MakeAvailable(onnxruntime) because it's massive to build from source.
 # In a real environment, we'd use prebuilt binaries. For this prototype, 
 # we'll stub the AI logic if the build takes too long, but we'll try to set up the structure.
@@ -98,6 +110,8 @@ target_sources(AerionDaw PRIVATE
     Source/ProjectData.cpp
     Source/AudioEngine.h
     Source/AudioEngine.cpp
+    Source/PluginFaultGuard.h
+    Source/PluginFaultGuard.cpp
     Source/Keymap.h
     Source/LogoComponent.h
     Source/GoogleDriveClient.h
@@ -305,10 +319,13 @@ if (AERION_BUILD_TESTS)
     target_sources(AerionTests PRIVATE
         Source/Tests/TestsMain.cpp
         Source/Tests/AudioEngineTests.cpp
+        Source/Tests/PluginFaultTests.cpp
         Source/ProjectData.h
         Source/ProjectData.cpp
         Source/AudioEngine.h
         Source/AudioEngine.cpp
+        Source/PluginFaultGuard.h
+        Source/PluginFaultGuard.cpp
         Source/Export/MixdownExportJob.h
         Source/Export/MixdownExportJob.cpp
         Source/Keymap.h
@@ -356,6 +373,7 @@ if (AERION_BUILD_TESTS)
         Source/Tests/PaintBenchmark.cpp
         Source/ProjectData.cpp
         Source/AudioEngine.cpp
+        Source/PluginFaultGuard.cpp
         Source/GoogleDriveClient.cpp
         Source/AerionTooltipWindow.cpp
         Source/Export/MixdownExportJob.cpp

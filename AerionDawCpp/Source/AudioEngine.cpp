@@ -234,6 +234,22 @@ namespace
             return {};
         }
     };
+
+    // Runs every hosted plugin's processBlock through the fault monitor, so a
+    // plugin crash is caught instead of taking the app down. The hook is added
+    // to Tracktion by Patches/tracktion/0001-external-plugin-process-hook.patch.
+    class AerionEngineBehaviour : public te::EngineBehaviour
+    {
+    public:
+        PluginFaultMonitor pluginFaults;
+
+        void processExternalPluginBlock (te::ExternalPlugin& plugin, juce::AudioPluginInstance& instance,
+                                         juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi,
+                                         bool bypassed) override
+        {
+            pluginFaults.process (&plugin, plugin.isEnabled(), instance, buffer, midi, bypassed);
+        }
+    };
 }
 
 std::unique_ptr<te::UIBehaviour> AudioEngineManager::makeUIBehaviour()
@@ -241,9 +257,53 @@ std::unique_ptr<te::UIBehaviour> AudioEngineManager::makeUIBehaviour()
     return std::make_unique<AerionUIBehaviour>();
 }
 
+std::unique_ptr<te::EngineBehaviour> AudioEngineManager::makeEngineBehaviour()
+{
+    return std::make_unique<AerionEngineBehaviour>();
+}
+
+bool AudioEngineManager::handlePluginFault (const void* key, const juce::String& reason)
+{
+    if (edit == nullptr)
+        return false;
+
+    for (auto* plugin : te::getAllPlugins (*edit, false))
+    {
+        auto* external = dynamic_cast<te::ExternalPlugin*> (plugin);
+
+        if (external == nullptr || static_cast<const void*> (external) != key)
+            continue;
+
+        const auto name = external->getName();
+        juce::Logger::writeToLog ("Plugin fault: " + name + " crashed while processing audio ("
+                                  + reason + "); bypassing it.");
+
+        external->setEnabled (false);
+        edit->pluginChanged (*external);
+        broadcastChange();
+        listeners.call ([&] (Listener& l) { l.pluginFaulted (name, reason); });
+        return true;
+    }
+
+    // Not in the current Edit (e.g. a render). It stays skipped.
+    return false;
+}
+
+bool AudioEngineManager::hasPluginFaulted (te::Plugin* plugin) const
+{
+    auto* external = dynamic_cast<te::ExternalPlugin*> (plugin);
+    return external != nullptr && pluginFaults->hasFaulted (external);
+}
+
 AudioEngineManager::AudioEngineManager()
 {
     const auto ctorStartMs = juce::Time::getMillisecondCounterHiRes();
+
+    pluginFaults = &static_cast<AerionEngineBehaviour&> (engine.getEngineBehaviour()).pluginFaults;
+    pluginFaults->onFault = [this] (const void* key, const juce::String& reason)
+    {
+        return handlePluginFault (key, reason);
+    };
 
     juce::PropertiesFile::Options options;
     options.applicationName     = "Aerion DAW";
@@ -358,6 +418,7 @@ AudioEngineManager::~AudioEngineManager()
 
     engine.getDeviceManager().closeDevices();
     releaseEditResources();
+    pluginFaults->onFault = nullptr;
     edit = nullptr;
 }
 
@@ -368,6 +429,9 @@ void AudioEngineManager::releaseEditResources()
     // these must go while the Edit is still alive, never after it is replaced.
     trackMeters.clear();
     thumbnails.clear();
+
+    // Faults are keyed by plugin address, which a new Edit may reuse.
+    pluginFaults->clear();
 }
 
 //==============================================================================

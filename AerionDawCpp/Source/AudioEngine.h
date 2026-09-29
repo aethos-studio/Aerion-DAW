@@ -4,6 +4,7 @@
 #include <memory>
 #include "Keymap.h"
 #include "Export/MixdownExportJob.h"
+#include "PluginFaultGuard.h"
 
 class AudioEngineManager : public juce::ChangeListener,
                            private juce::Timer
@@ -20,6 +21,10 @@ public:
             device finished starting, a plugin scan ended, a project was loaded,
             created or saved, a freeze failed. Defaults to a plain refresh. */
         virtual void engineStatusChanged() { editStateChanged(); }
+
+        /** A hosted plugin crashed while processing audio. It has been
+            bypassed and the session kept running. */
+        virtual void pluginFaulted (const juce::String& /*pluginName*/, const juce::String& /*reason*/) {}
     };
 
     /** Tracktion's own change tracking: true after any undoable edit (clip
@@ -173,6 +178,9 @@ public:
     tracktion::Plugin::Ptr addPluginToTrack (tracktion::Track* track, const juce::PluginDescription& desc);
     void removePlugin (tracktion::Plugin* plugin);
     bool isExternalPluginBypassed (tracktion::Plugin* plugin) const;
+    /** True while a plugin that crashed is being kept out of processing. */
+    bool hasPluginFaulted (tracktion::Plugin* plugin) const;
+    PluginFaultMonitor& getPluginFaultMonitor() { return *pluginFaults; }
     void setPluginBypassed (tracktion::Plugin* plugin, bool bypassed);
     void moveExternalPlugin (tracktion::Track* track, tracktion::ExternalPlugin* plugin, int newExternalIndex);
     tracktion::Plugin* getPluginFor (juce::ValueTree& v);
@@ -348,8 +356,11 @@ private:
     friend struct FreezeListener;
 
     static std::unique_ptr<tracktion::UIBehaviour> makeUIBehaviour();
+    static std::unique_ptr<tracktion::EngineBehaviour> makeEngineBehaviour();
 
-    tracktion::Engine engine { ProjectInfo::projectName, makeUIBehaviour(), nullptr };
+    tracktion::Engine engine { ProjectInfo::projectName, makeUIBehaviour(), makeEngineBehaviour() };
+    PluginFaultMonitor* pluginFaults = nullptr; // owned by the engine's behaviour
+    bool handlePluginFault (const void* key, const juce::String& reason);
     std::unique_ptr<tracktion::Edit> edit;
 
     juce::ApplicationProperties appProperties;
