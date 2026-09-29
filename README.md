@@ -149,7 +149,7 @@ Aerion follows strict **Model–View–Controller** separation:
 | Controller | `AudioEngineManager` | Wraps the Tracktion `Edit`, transport, and real-time audio graph |
 | View | JUCE components | Observe the ValueTree; UI repaints when state changes |
 
-Application code lives under `AerionDawCpp/Source/`. The largest UI surface is currently consolidated in `UIComponents.h` (a known refactor target as M5 performance work continues).
+Application code lives under `AerionDawCpp/Source/`. Each UI view (Timeline, Mixer, Piano Roll, Inspector, Browser, Transport, menu bar, toolbar, dialogs) has its own header in `Source/Views/`; `UIComponents.h` includes them all. Shared drawing code (theme, icons, cached layers) is in `Source/UI/`.
 
 ---
 

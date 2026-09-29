@@ -177,7 +177,7 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
   - [ ] Scroll by copying cached pixels (prototype removed: not yet pixel-exact at the edges of the moved area)
   - [x] Audio device startup: stays on the message thread (Tracktion and ASIO require it) but now runs behind the splash, which waits for it, instead of freezing the fade or the fresh main window
   - [x] Lightweight UI for low-end machines (View → Lightweight UI; Auto on ≤ 2 cores or < 6 GB RAM): flat fills, square clip bodies, 20 Hz meters, 30 Hz playhead
-  - [ ] Split `UIComponents.h` (9,000+ lines) into one file per view
+  - [x] Split `UIComponents.h` (9,000+ lines) into one header per view under `Source/Views/`; `UIComponents.h` is now an umbrella include. Code moved unchanged; moving method bodies into `.cpp` files (for build times) is a later step
   - [ ] Audio side: multi-threaded audio graph; eliminate hot-path allocations
 - [ ] **High-DPI / Retina Support:** All custom-drawn components scale correctly at 150 % / 200 % display scaling. *Partial (~40 %): typography tokens (`Theme::uiSize` / `kUiFontScale`) shipped; fixed-pixel layout audit not started. `AerionBench --snapshots` renders the main components at 100 % and 150 % for the audit.*
 - [x] **Icon & Logo Rendering:** Icons fitted to their viewBox instead of their drawn content (no more oversized or edge-touching glyphs), tinted per state, transport icons follow active state, labels no longer overlap icons; letter buttons for track toggles; redrawn metronome icon; in-app logo without SVG filters so it shows on dark backgrounds.
@@ -286,11 +286,11 @@ All M4 completion-sprint items shipped:
 
 1. ✅ **Per-track Input + Monitor Persistence** — Inspector audio input, MIDI controller pin, and monitor mode persist on the track `ValueTree`; legacy RuntimeState XML migrated on load.
 2. ✅ **Time Signature Changes UI** — Transport edits insert/update at the playhead bar; Timeline ruler shows selectable/drag-editable signature flags with preset and remove actions.
-3. ✅ **Customisable Keyboard Shortcuts** — `Source/Keymap.h` defines `AerionKeymap` + `AerionActionCatalog`; the new `KeyboardShortcutsPanel` (in `UIComponents.h`) is an editable list with click-to-capture, conflict detection (offers reassign/cancel), reset-to-defaults, and import/export of `.aerionkeys` files; bindings persist via `appProperties` under key `keymap`.
+3. ✅ **Customisable Keyboard Shortcuts** — `Source/Keymap.h` defines `AerionKeymap` + `AerionActionCatalog`; the new `KeyboardShortcutsPanel` (now in `Views/KeyboardShortcutsDialog.h`) is an editable list with click-to-capture, conflict detection (offers reassign/cancel), reset-to-defaults, and import/export of `.aerionkeys` files; bindings persist via `appProperties` under key `keymap`.
 4. ✅ **Mixer M/S Icons** — `Mixer::drawSideButtonColumn` renders mute/solo via `Timeline::drawTrackIconBtn` using `BinaryData::aerion_mute_svg` / `aerion_Solo_svg`, matching Timeline and Inspector. *Superseded in M5: now letter buttons via `paintLetterButton`.*
 5. ✅ **Freeze/Tempo Polish Pass** — Tempo lane now shows a resize cursor and a brighter highlight on hover (`hoveredTempoNodeIndex`); non-root tempo nodes are clamped between their neighbours during drag so ordering can no longer flip; freeze/unfreeze guards (empty track, already-freezing, missing freeze WAV) verified.
 
-**Next:** finish M5 — remaining performance steps (scroll by copying, splitting `UIComponents.h`, audio-side hot-path review), plugin crash protection, error reporting, high-DPI audit, accessibility, and the packaging finish line (production OV/EV code-signing and macOS notarization). Then M6 — Complete Core.
+**Next:** finish M5 — remaining performance steps (scroll by copying, audio-side hot-path review), plugin crash protection, error reporting, high-DPI audit, accessibility, and the packaging finish line (production OV/EV code-signing and macOS notarization). Then M6 — Complete Core.
 
 ---
 
