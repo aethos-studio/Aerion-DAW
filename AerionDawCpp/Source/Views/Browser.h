@@ -235,6 +235,7 @@ public:
             rowFiles.add (currentDir.getParentDirectory());
             rowDescs.add ({});
 
+            paintSelection (g, r, currentDir.getParentDirectory());
             g.setColour (Theme::active);
             g.drawText ("..", r.withTrimmedLeft (12), juce::Justification::centredLeft);
             y += 22;
@@ -247,6 +248,7 @@ public:
             rowFiles.add (f);
             rowDescs.add ({});
 
+            paintSelection (g, r, f);
             g.setColour (f.isDirectory() ? Theme::active : Theme::textMain);
             g.drawText ((f.isDirectory() ? juce::String ("[D] ") : juce::String ("    ")) + f.getFileName(),
                         r.withTrimmedLeft (12), juce::Justification::centredLeft);
@@ -305,9 +307,19 @@ public:
             {
                 if (tab == Tab::files && i < rowFiles.size())
                 {
-                    auto& f = rowFiles.getReference (i);
-                    if (f.existsAsFile() && ! f.isDirectory())
+                    const auto f = rowFiles[i];
+                    if (f.isDirectory())
+                    {
+                        // Folders open on double-click; a single click selects them.
+                        currentDir = f;
+                        selectedFile = juce::File();
+                        refreshFileCache();
+                        repaint();
+                    }
+                    else if (f.existsAsFile())
+                    {
                         if (onFileDoubleClicked) onFileDoubleClicked (f);
+                    }
                 }
                 return;
             }
@@ -388,9 +400,7 @@ public:
                 else {
                     auto& f = rowFiles.getReference (i);
                     if (f.isDirectory()) {
-                        currentDir = f;
-                        selectedFile = juce::File();
-                        refreshFileCache();
+                        selectedFile = f;   // opened by mouseDoubleClick
                         repaint();
                     } else {
                         if (f != selectedFile) {
@@ -429,6 +439,15 @@ public:
 
 private:
     static constexpr int kPreviewH = 80;
+
+    void paintSelection (juce::Graphics& g, juce::Rectangle<int> row, const juce::File& f) const
+    {
+        if (f != selectedFile)
+            return;
+
+        g.setColour (Theme::active.withAlpha (0.16f));
+        g.fillRoundedRectangle (row.toFloat(), 3.0f);
+    }
 
     void refreshFileCache()
     {

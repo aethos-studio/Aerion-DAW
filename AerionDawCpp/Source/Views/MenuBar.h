@@ -6,7 +6,8 @@
 #include "AboutDialog.h"
 
 //==============================================================================
-class DAWMenuBar : public juce::Component
+class DAWMenuBar : public juce::Component,
+                   private juce::Timer
 {
 public:
     // === Sync state  -  populated by onBeforeMenuOpen ===
@@ -115,14 +116,48 @@ public:
 
     void mouseExit (const juce::MouseEvent&) override
     {
-        if (hoveredMenu != -1) { hoveredMenu = -1; repaint(); }
+        if (openMenuIndex < 0 && hoveredMenu != -1) { hoveredMenu = -1; repaint(); }
     }
 
     void mouseDown (const juce::MouseEvent& e) override
     {
+        const int idx = menuIndexAt (e.x);
+
+        // Clicking the open menu's title closes it, as in other menu bars.
+        if (idx >= 0 && idx == openMenuIndex)
+        {
+            closeOpenMenu();
+            return;
+        }
+
+        openMenu (idx);
+    }
+
+private:
+    std::unique_ptr<juce::Drawable> logoDrawable;
+    int hoveredMenu = -1;
+    int lastPopupMenuIndex = -1;
+    int openMenuIndex = -1;    // the menu showing now, or -1
+    int menuGeneration = 0;    // tells a dismissed menu's callback from the open one's
+
+    void openMenu (int idx)
+    {
+        if (idx < 0)
+            return;
+
         if (onBeforeMenuOpen) onBeforeMenuOpen();
-        lastPopupMenuIndex = menuIndexAt (e.x);
-        switch (lastPopupMenuIndex)
+
+        ++menuGeneration;
+        openMenuIndex = idx;
+        hoveredMenu = idx;
+        lastPopupMenuIndex = idx;
+        repaint();
+
+        // An open menu takes the mouse, so the bar polls the pointer to switch
+        // menus when it moves onto another title.
+        startTimerHz (30);
+
+        switch (idx)
         {
             case 0: showFileMenu();      break;
             case 1: showEditMenu();      break;
@@ -137,10 +172,54 @@ public:
         }
     }
 
-private:
-    std::unique_ptr<juce::Drawable> logoDrawable;
-    int hoveredMenu = -1;
-    int lastPopupMenuIndex = -1;
+    void closeOpenMenu()
+    {
+        ++menuGeneration;
+        openMenuIndex = -1;
+        stopTimer();
+        juce::PopupMenu::dismissAllActiveMenus();
+        repaint();
+    }
+
+    void timerCallback() override
+    {
+        if (openMenuIndex < 0)
+        {
+            stopTimer();
+            return;
+        }
+
+        const auto pos = getLocalPoint (nullptr, juce::Desktop::getMousePosition());
+        if (! getLocalBounds().contains (pos))
+            return;
+
+        const int idx = menuIndexAt (pos.x);
+        if (idx >= 0 && idx != openMenuIndex)
+        {
+            ++menuGeneration;   // the dismissed menu's callback must not reset the new one
+            juce::PopupMenu::dismissAllActiveMenus();
+            openMenu (idx);
+        }
+    }
+
+    /** Shows a title's menu below it; onResult gets the chosen item id, or 0. */
+    void showMenu (juce::PopupMenu& m, std::function<void (int)> onResult)
+    {
+        const int generation = menuGeneration;
+        m.showMenuAsync (anchoredMenuOptions(), [this, generation, onResult = std::move (onResult)] (int r)
+        {
+            if (generation == menuGeneration)
+            {
+                openMenuIndex = -1;
+                stopTimer();
+                const auto pos = getMouseXYRelative();
+                hoveredMenu = getLocalBounds().contains (pos) ? menuIndexAt (pos.x) : -1;
+                repaint();
+            }
+
+            onResult (r);
+        });
+    }
 
     juce::Rectangle<int> menuItemBounds (int idx) const
     {
@@ -195,7 +274,7 @@ private:
         m.addItem (7, "Export Mixdown...");
         m.addSeparator();
         m.addItem (5, "Audio Settings...");
-        m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
+        showMenu (m, [this] (int r) {
             if (r == 1 && onNew)      onNew();
             if (r == 2 && onOpen)     onOpen();
             if (r == 3 && onSave)     onSave();
@@ -218,7 +297,7 @@ private:
         juce::PopupMenu m;
         m.addItem (1, "Undo\tCtrl+Z");
         m.addItem (2, "Redo\tCtrl+Shift+Z");
-        m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
+        showMenu (m, [this] (int r) {
             if (r == 1 && onUndo) onUndo();
             if (r == 2 && onRedo) onRedo();
         });
@@ -246,7 +325,7 @@ private:
         m.addSubMenu ("Snap Interval", snapSub);
         m.addSeparator();
         m.addSubMenu ("Count-In", countInSub);
-        m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
+        showMenu (m, [this] (int r) {
             if (r == 1  && onToggleMetronome)       onToggleMetronome();
             if (r == 2  && onShowMetronomeSettings)  onShowMetronomeSettings();
             if (r == 3  && onToggleSnap)             onToggleSnap();
@@ -270,7 +349,7 @@ private:
         m.addItem (5, "Arm",  hasSelectedTrack, trackArmed);
         m.addItem (6, "Mute", hasSelectedTrack, trackMuted);
         m.addItem (7, "Solo", hasSelectedTrack, trackSolo);
-        m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
+        showMenu (m, [this] (int r) {
             if (r == 1 && onAddAudioTrack)   onAddAudioTrack();
             if (r == 2 && onAddMidiTrack)    onAddMidiTrack();
             if (r == 3 && onAddFolderTrack)  onAddFolderTrack();
@@ -291,7 +370,7 @@ private:
         m.addItem (4, "Trim Right",  hasSelectedClip, false);
         m.addSeparator();
         m.addItem (5, "Delete",      hasSelectedClip, false);
-        m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
+        showMenu (m, [this] (int r) {
             if (r == 1 && onNudgeLeft)   onNudgeLeft();
             if (r == 2 && onNudgeRight)  onNudgeRight();
             if (r == 3 && onTrimLeft)    onTrimLeft();
@@ -315,7 +394,7 @@ private:
             xfadeLen.addItem (1000 + ms, juce::String (ms) + " ms", true, autoCrossfadeMaxMs == ms);
         m.addSubMenu ("Auto Crossfade Length", xfadeLen, autoCrossfadeOn);
 
-        m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
+        showMenu (m, [this] (int r) {
             if (r == 1 && onSettings)      onSettings();
             if (r == 2 && onRescanPlugins) onRescanPlugins();
             if (r == 3 && onTogglePdc)     onTogglePdc();
@@ -341,7 +420,7 @@ private:
         m.addItem (5, "Loop",         true, loopEnabled);
         m.addItem (6, "Punch In/Out", true, punchEnabled);
         m.addSubMenu ("Count-In", countInSub);
-        m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
+        showMenu (m, [this] (int r) {
             if (r == 1  && onPlay)           onPlay();
             if (r == 2  && onStop)           onStop();
             if (r == 3  && onRecord)         onRecord();
@@ -406,7 +485,7 @@ private:
         lightSub.addItem (602, "Off", true, lightweightUiChoice == 2);
         m.addSubMenu ("Lightweight UI", lightSub);
 
-        m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
+        showMenu (m, [this] (int r) {
             if (r >= 500 && r <= 502 && onGraphicsEngineChanged)
                 onGraphicsEngineChanged (r - 500);
             if (r >= 600 && r <= 602 && onLightweightUiChanged)
@@ -431,7 +510,7 @@ private:
         m.addItem (1, "Keyboard Shortcuts...");
         m.addSeparator();
         m.addItem (2, "About Aerion DAW");
-        m.showMenuAsync (anchoredMenuOptions(), [this] (int r) {
+        showMenu (m, [this] (int r) {
             if (r == 1 && onShowKeyboardShortcuts)
                 onShowKeyboardShortcuts();
             if (r == 2)

@@ -45,6 +45,8 @@ What already exists versus what remains, verified against the source tree:
 
 ### October 2026
 
+- **Menu bar and Browser (quality of life):** with a menu open, moving the pointer onto another menu title opens that menu and closes the first, without another click. In the Browser's Files tab a single click selects a folder (now highlighted, like the selected file) and a double-click opens it.
+
 - **Scroll by copying (M5 performance):** scrolling the Timeline moves its cached lane pixels and draws only the strip scrolled into view: 13.5 ms → 5.0 ms sideways and 4.0 ms down per wheel step with the software renderer. Direct2D still repaints in full. Along the way, partial repaints could draw clip bodies, waveforms and icons transparent, depending on what had been drawn before them; they now set their opacity.
 - **Crash reports and a log console (M5 error reporting):** a crash writes a folder under `AerionDAW/Crashes` with the reason (e.g. "invalid memory access at 0x…"), the thread, a stack trace, the crashed session's log and, on Windows, a minidump. The log copy matters because each launch deletes `aerion.log`. The next launch says the app crashed and offers to show the report, then asks about Crash Recovery as before. A **Console** tab next to Mixer and Piano Roll shows the app log live, while `aerion.log` keeps receiving it. CI now also runs `AerionBench --verify`.
 
