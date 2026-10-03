@@ -570,20 +570,29 @@ MainComponent::MainComponent()
         });
     }
 
-    // Tab buttons for bottom panel (Mixer / Piano Roll switcher)
+    // Tab buttons for bottom panel (Mixer / Piano Roll / Console switcher)
     addAndMakeVisible (tabMixer);
     addAndMakeVisible (tabPianoRoll);
-    tabMixer.setColour (juce::TextButton::buttonColourId,    Theme::surface);
-    tabMixer.setColour (juce::TextButton::buttonOnColourId,  Theme::active.withAlpha (0.25f));
-    tabMixer.setColour (juce::TextButton::textColourOnId,    Theme::active);
-    tabMixer.setColour (juce::TextButton::textColourOffId,   Theme::textMuted);
-    tabPianoRoll.setColour (juce::TextButton::buttonColourId,    Theme::surface);
-    tabPianoRoll.setColour (juce::TextButton::buttonOnColourId,  Theme::active.withAlpha (0.25f));
-    tabPianoRoll.setColour (juce::TextButton::textColourOnId,    Theme::active);
-    tabPianoRoll.setColour (juce::TextButton::textColourOffId,   Theme::textMuted);
+    addAndMakeVisible (tabConsole);
+    addAndMakeVisible (consolePanel);
+    consolePanel.setVisible (false);
+
+    auto setupTab = [](juce::TextButton& btn) {
+        btn.setColour (juce::TextButton::buttonColourId,    Theme::surface);
+        btn.setColour (juce::TextButton::buttonOnColourId,  Theme::active.withAlpha (0.25f));
+        btn.setColour (juce::TextButton::textColourOnId,    Theme::active);
+        btn.setColour (juce::TextButton::textColourOffId,   Theme::textMuted);
+    };
+    setupTab (tabMixer);
+    setupTab (tabPianoRoll);
+    setupTab (tabConsole);
 
     tabMixer.onClick = [this] {
         bottomPanel = BottomPanel::Mixer;
+        resized();
+    };
+    tabConsole.onClick = [this] {
+        bottomPanel = BottomPanel::Console;
         resized();
     };
     tabPianoRoll.onClick = [this] {
@@ -1432,22 +1441,31 @@ void MainComponent::resized()
         auto tabStrip = bottomArea.removeFromTop (kTabH);
         tabMixer.setBounds (tabStrip.removeFromLeft (80));
         tabPianoRoll.setBounds (tabStrip.removeFromLeft (110));
+        tabConsole.setBounds (tabStrip.removeFromLeft (90));
         tabMixer.setToggleState (bottomPanel == BottomPanel::Mixer, juce::dontSendNotification);
         tabPianoRoll.setToggleState (bottomPanel == BottomPanel::PianoRoll, juce::dontSendNotification);
+        tabConsole.setToggleState (bottomPanel == BottomPanel::Console, juce::dontSendNotification);
 
         // Resizer
         mixerResizer.setBounds (bottomArea.removeFromTop (4));
 
-        // Content: either Mixer or PianoRoll
-        if (bottomPanel == BottomPanel::Mixer || embeddedPianoRoll == nullptr)
+        // Content: either Mixer, Console, or PianoRoll
+        mixer.setVisible (false);
+        consolePanel.setVisible (false);
+        if (embeddedPianoRoll) { embeddedPianoRoll->setVisible (false); }
+
+        if (bottomPanel == BottomPanel::Console)
+        {
+            consolePanel.setVisible (true);
+            consolePanel.setBounds (bottomArea);
+        }
+        else if (bottomPanel == BottomPanel::Mixer || embeddedPianoRoll == nullptr)
         {
             mixer.setVisible (true);
             mixer.setBounds (bottomArea);
-            if (embeddedPianoRoll) { embeddedPianoRoll->setVisible (false); }
         }
         else  // PianoRoll
         {
-            mixer.setVisible (false);
             embeddedPianoRoll->setVisible (true);
             embeddedPianoRoll->setBounds (bottomArea);
         }
@@ -1459,15 +1477,26 @@ void MainComponent::resized()
         auto tabStrip = centerBounds.removeFromBottom (kTabH);
         tabMixer.setBounds (tabStrip.removeFromLeft (80));
         tabPianoRoll.setBounds (tabStrip.removeFromLeft (110));
+        tabConsole.setBounds (tabStrip.removeFromLeft (90));
+        tabMixer.setToggleState (bottomPanel == BottomPanel::Mixer, juce::dontSendNotification);
+        tabPianoRoll.setToggleState (bottomPanel == BottomPanel::PianoRoll, juce::dontSendNotification);
+        tabConsole.setToggleState (bottomPanel == BottomPanel::Console, juce::dontSendNotification);
 
-        if (embeddedPianoRoll && bottomPanel == BottomPanel::PianoRoll)
+        consolePanel.setVisible (false);
+        if (embeddedPianoRoll) embeddedPianoRoll->setVisible (false);
+
+        if (bottomPanel == BottomPanel::Console)
+        {
+            auto cArea = centerBounds.removeFromBottom (mixerHeight);
+            consolePanel.setVisible (true);
+            consolePanel.setBounds (cArea);
+        }
+        else if (embeddedPianoRoll && bottomPanel == BottomPanel::PianoRoll)
         {
             auto prArea = centerBounds.removeFromBottom (mixerHeight);
             embeddedPianoRoll->setVisible (true);
             embeddedPianoRoll->setBounds (prArea);
         }
-        else if (embeddedPianoRoll)
-            embeddedPianoRoll->setVisible (false);
     }
 
     timeline.setBounds (centerBounds);
@@ -1542,7 +1571,7 @@ MainComponent::WorkspaceLayout MainComponent::captureCurrentLayout (juce::String
     l.inspectorCollapsed = inspectorToggle.collapsed;
     l.browserCollapsed   = browserToggle.collapsed;
     l.mixerDetached      = mixer.detached;
-    l.bottomPanel        = (bottomPanel == BottomPanel::PianoRoll) ? 1 : 0;
+    l.bottomPanel        = (bottomPanel == BottomPanel::Console) ? 2 : ((bottomPanel == BottomPanel::PianoRoll) ? 1 : 0);
     l.mixerHeight        = mixerHeight;
     return l;
 }
@@ -1554,7 +1583,12 @@ void MainComponent::applyWorkspaceLayout (const WorkspaceLayout& layout)
     browserToggle.collapsed   = layout.browserCollapsed;
     toolbar.browserVisible    = ! layout.browserCollapsed;
 
-    bottomPanel = (layout.bottomPanel == 1) ? BottomPanel::PianoRoll : BottomPanel::Mixer;
+    if (layout.bottomPanel == 2)
+        bottomPanel = BottomPanel::Console;
+    else if (layout.bottomPanel == 1)
+        bottomPanel = BottomPanel::PianoRoll;
+    else
+        bottomPanel = BottomPanel::Mixer;
 
     const int maxMixerH = juce::jmax (140, getHeight() - 400);
     mixerHeight = juce::jlimit (100, maxMixerH, layout.mixerHeight);

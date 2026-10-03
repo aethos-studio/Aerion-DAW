@@ -6,6 +6,7 @@
 #include "AIManager.h"
 #include "AerionTooltipWindow.h"
 #include "UIComponents.h"
+#include "Views/ConsolePanel.h"
 #include "Export/MixdownExportDialog.h"
 #include "UI/GraphicsEngine.h"
 
@@ -167,7 +168,7 @@ private:
     PanelCollapseBtn inspectorToggle { true  };
     PanelCollapseBtn browserToggle   { false };
 
-    enum class BottomPanel { Mixer, PianoRoll };
+    enum class BottomPanel { Mixer, PianoRoll, Console };
     BottomPanel bottomPanel = BottomPanel::Mixer;
     std::unique_ptr<PianoRollEditor> embeddedPianoRoll;
     tracktion::MidiClip* embeddedClip = nullptr;
@@ -177,6 +178,8 @@ private:
     void closeEmbeddedPianoRoll();
     juce::TextButton tabMixer     { "MIXER" };
     juce::TextButton tabPianoRoll { "PIANO ROLL" };
+    juce::TextButton tabConsole   { "CONSOLE" };
+    ConsolePanel consolePanel;
 
     static constexpr int kInspectorW = 260;
     static constexpr int kBrowserW   = 270;
