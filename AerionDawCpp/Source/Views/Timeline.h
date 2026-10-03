@@ -73,9 +73,11 @@ public:
         zoomSlider.setRange (1.0, 2000.0, 1.0);
         zoomSlider.setValue (pxPerSec);
         zoomSlider.onValueChange = [this] {
+            const double start = getStartTime();
             pxPerSec = zoomSlider.getValue();
-            updateScrollBar();
+            scrollPx = pixelsForStartTime (start);
             repaint();
+            updateScrollBar();
         };
 
         addChildComponent (trackNameEditor);
@@ -145,9 +147,8 @@ public:
     /** Scroll the timeline so bar 1 aligns with the start of the content area. */
     void scrollViewToBarOne()
     {
-        startTime = 0.0;
+        scrollTo (0.0, scrollY);
         updateScrollBar();
-        requestTimelineRefresh (false);
     }
 
     juce::MouseCursor getMouseCursor() override
@@ -530,8 +531,8 @@ public:
 
     void scrollBarMoved (juce::ScrollBar* bar, double newRangeStart) override
     {
-        if (bar == &horizontalScrollBar) { startTime = newRangeStart; requestTimelineRefresh (false); }
-        else if (bar == &verticalScrollBar) { scrollY = (int) newRangeStart; requestTimelineRefresh (false); }
+        if (bar == &horizontalScrollBar)     scrollTo (pixelsForStartTime (newRangeStart), scrollY);
+        else if (bar == &verticalScrollBar)  scrollTo (scrollPx, (int) newRangeStart);
     }
 
     void repaintRecordingRows()
@@ -936,12 +937,101 @@ public:
         }
     }
 
+    double pixelsForStartTime (double seconds) const
+    {
+        return std::floor (juce::jmax (0.0, seconds) * pxPerSec + 0.5);
+    }
+
+    int clampScrollY (int y) const
+    {
+        const int visibleH = juce::jmax (1, laneBottom() - laneTop());
+        return juce::jlimit (0, juce::jmax (0, contentHeight() - visibleH), y);
+    }
+
+    /** Every scroll goes through here. Moves the cached pixels of the lane area
+        when it can, so only the strip scrolled into view is drawn again;
+        otherwise repaints everything. Returns true when pixels were moved. */
+    bool scrollTo (double newScrollPx, int newScrollY)
+    {
+        const double dx = scrollPx - newScrollPx;
+        const int    dy = scrollY - newScrollY;
+
+        if (dx == 0.0 && dy == 0)
+            return false;
+
+        scrollPx = newScrollPx;
+        scrollY  = newScrollY;
+
+        if (scrollCachedPixels ((int) dx, dy))
+            return true;
+
+        repaint();
+        return false;
+    }
+
+    double getScrollPx() const   { return scrollPx; }
+    int    getScrollY() const    { return scrollY; }
+
+    /** Shows a track's automation lane, as its A button does. */
+    void showAutomationLane (tracktion::Track& track)
+    {
+        automationVisibleTracks.addIfNotAlreadyThere (track.itemID.toString());
+        updateScrollBar();
+        repaint();
+    }
+
+    /** Things drawn at a fixed place on screen (drag previews, the razor line,
+        a value tooltip, editors) would be carried along by moving pixels. */
+    bool canScrollByCopying() const
+    {
+        return ! dragging && ! fileDragActive && ! pluginDragActive
+            && dragMode == DragMode::none
+            && activeTool != EditTool::razor && activeTool != EditTool::comp
+            && ! currentTooltip.isValid
+            && ! trackNameEditor.isVisible() && ! rulerValueEditor.isVisible()
+            && ! audioEngine.isRecording();
+    }
+
+    /** Scroll by moving the cached lane pixels (see CachedLayer::scroll).
+        Everything in the lane area is drawn at positions that move by exactly
+        the scroll distance: whole-pixel scroll steps, timeToX on a 1/256 px
+        grid, clip edges and waveform tiles at whole pixels, and a flat lane
+        background. A horizontal scroll redraws the ruler, whose labels are
+        laid out per view. */
+    bool scrollCachedPixels (int dx, int dy)
+    {
+        auto* layer = dynamic_cast<CachedLayer*> (getCachedComponentImage());
+
+        if (layer == nullptr || (dx != 0 && dy != 0) || ! canScrollByCopying())
+            return false;
+
+        const juce::Rectangle<int> lanes (dx != 0 ? kHeaderWidth : 0, laneTop(),
+                                          getWidth() - kVScrollW - (dx != 0 ? kHeaderWidth : 0),
+                                          laneBottom() - laneTop());
+
+        if (! layer->scroll (lanes, dx, dy))
+            return false;
+
+        if (dx != 0)
+        {
+            layer->invalidateOnly ({ kHeaderWidth, 0, getWidth() - kHeaderWidth, kRulerH });
+            // Automation lanes mark the current value at the right edge: redraw
+            // the edge, and the place the moved pixels carried the old mark to.
+            const juce::Rectangle<int> valueMarks (lanes.getRight() - 4, lanes.getY(), 4, lanes.getHeight());
+            layer->invalidateOnly (valueMarks);
+            layer->invalidateOnly (valueMarks.translated (dx, 0));
+        }
+
+        layer->repaintKeepingContents();
+        return true;
+    }
+
     void updateScrollBar()
     {
         double totalLen = audioEngine.getEdit().getLength().inSeconds() + 60.0;
         double viewLen  = (getWidth() - kHeaderWidth - kVScrollW) / pxPerSec;
         horizontalScrollBar.setRangeLimits (0.0, totalLen);
-        horizontalScrollBar.setCurrentRange (startTime, viewLen);
+        horizontalScrollBar.setCurrentRange (getStartTime(), viewLen);
 
         int visibleH = juce::jmax (1, laneBottom() - laneTop());
         int totalH   = juce::jmax (visibleH, contentHeight());
@@ -949,7 +1039,7 @@ public:
         verticalScrollBar.setCurrentRange ((double) scrollY, (double) visibleH);
 
         // Clamp scrollY when content shrinks.
-        scrollY = juce::jlimit (0, juce::jmax (0, totalH - visibleH), scrollY);
+        scrollTo (scrollPx, clampScrollY (scrollY));
     }
 
     void resized() override
@@ -961,8 +1051,20 @@ public:
         updateScrollBar();
     }
 
-    float timeToX (double t) const { return (float)kHeaderWidth + (float)((t - startTime) * pxPerSec); }
-    double xToTime (float x) const { return (double)(x - kHeaderWidth) / pxPerSec + startTime; }
+    // Positions are rounded to 1/256 px (the software renderer's subpixel
+    // grid) with floor (v + 0.5), so scrolling by whole pixels moves every
+    // position by exactly that many pixels and cached pixels can be reused
+    // (scrollCachedPixels).
+    float timeToX (double t) const
+    {
+        const double x = t * pxPerSec - scrollPx;
+        return (float) kHeaderWidth + (float) (std::floor (x * 256.0 + 0.5) / 256.0);
+    }
+
+    double xToTime (float x) const { return ((double) (x - kHeaderWidth) + scrollPx) / pxPerSec; }
+
+    /** Time at the left edge of the lane area. */
+    double getStartTime() const { return scrollPx / pxPerSec; }
 
     double pxPerBeatAt (tracktion::TempoSequence& ts, double beat) const
     {
@@ -1047,7 +1149,16 @@ public:
         currentTooltip.isValid = false;
 
         AERION_PROFILE_SECTION (chromeZone, "Timeline.chrome");
-        Theme::fillBackgroundGradient (g, getLocalBounds());
+        {
+            // The lane area scrolls by moving its pixels (scrollCachedPixels), so
+            // its background must not depend on where it is on screen: flat, not
+            // the window gradient.
+            juce::Graphics::ScopedSaveState s (g);
+            g.excludeClipRegion ({ 0, laneTop(), getWidth(), laneBottom() - laneTop() });
+            Theme::fillBackgroundGradient (g, getLocalBounds());
+        }
+        g.setColour (Theme::backgroundMid());
+        g.fillRect (0, laneTop(), getWidth(), laneBottom() - laneTop());
 
         // Header column action bar (+ Track / + MIDI / + Folder)
         int btnW = (kHeaderWidth - 24) / 3;
@@ -1058,8 +1169,11 @@ public:
         // Header column (slightly raised)
         Theme::fillVerticalGradient (g, { 0, 0, kHeaderWidth, kHeaderBarH },
                                      Theme::bgPanel.brighter (0.08f), Theme::bgPanel.darker (0.06f));
+        // Borders next to the lane area are crisp 1 px fills on their own side:
+        // an anti-aliased line on the edge would put half a pixel into the lanes,
+        // which scroll by moving pixels (scrollCachedPixels).
         g.setColour(Theme::border);
-        g.drawLine((float)kHeaderWidth, 0.0f, (float)kHeaderWidth, (float)kHeaderBarH);
+        g.fillRect (kHeaderWidth - 1, 0, 1, kHeaderBarH);
 
         drawHeaderButton(g, addTrackBtn,     "+ Audio", Theme::accent);
         drawHeaderButton(g, addMidiTrackBtn, "+ MIDI",  Theme::trackColours[3]);
@@ -1072,7 +1186,7 @@ public:
         Theme::fillVerticalGradient (g, { kHeaderWidth, 0, getWidth() - kHeaderWidth, kRulerH },
                                      Theme::bgPanel.brighter (0.09f), Theme::bgPanel.darker (0.06f));
         g.setColour(Theme::border);
-        g.drawLine(0.0f, (float)kRulerH, (float)getWidth(), (float)kRulerH);
+        g.fillRect (0, kRulerH - 1, getWidth(), 1);
         g.drawLine((float)kHeaderWidth, 0.0f, (float)getWidth(), 0.0f);
 
         auto& transport = audioEngine.getEdit().getTransport();
@@ -1134,7 +1248,7 @@ public:
         g.setFont (Theme::uiSize (10.0f));
 
         auto& ts = audioEngine.getEdit().tempoSequence;
-        const auto startBB = ts.toBarsAndBeats (tracktion::TimePosition::fromSeconds (startTime));
+        const auto startBB = ts.toBarsAndBeats (tracktion::TimePosition::fromSeconds (getStartTime()));
         const auto endBB   = ts.toBarsAndBeats (tracktion::TimePosition::fromSeconds (xToTime ((float) getWidth())));
         const int startBar = juce::jmax (0, (int) startBB.bars);
         const int endBar   = (int) endBB.bars + 1;
@@ -1409,7 +1523,7 @@ public:
         g.setColour (Theme::bgPanel);
         g.fillRect (0, getHeight() - kFooterH, getWidth(), kFooterH);
         g.setColour (Theme::border);
-        g.drawLine (0.0f, (float)(getHeight() - kFooterH), (float) getWidth(), (float)(getHeight() - kFooterH));
+        g.fillRect (0, getHeight() - kFooterH, getWidth(), 1);
 
         // The playhead is drawn by TimelinePlayheadOverlay, not here, so that
         // moving it never invalidates this component's cached layer.
@@ -1553,7 +1667,8 @@ public:
         // drawing call is thrown away by the clip. Skip that work, but keep
         // advancing y and still descend into folder children, which may be
         // visible even when their parent row is not.
-        if (! g.clipRegionIntersects (juce::Rectangle<int> (0, y, getWidth(), rowH)))
+        // + 1: the row's bottom line is anti-aliased into the next row's first pixel.
+        if (! g.clipRegionIntersects (juce::Rectangle<int> (0, y, getWidth(), rowH + 1)))
         {
             y += rowH;
 
@@ -1592,7 +1707,7 @@ public:
             g.fillRect(hb);
             g.setColour(Theme::border);
             g.drawLine(0.0f, (float)(y + rowH), (float)kHeaderWidth, (float)(y + rowH));
-            g.drawLine((float)kHeaderWidth, (float)y, (float)kHeaderWidth, (float)(y + rowH));
+            g.fillRect (kHeaderWidth - 1, y, 1, rowH);
 
             g.setColour(tColor);
             const bool submixFolder = folder != nullptr && audioEngine.isFolderSubmix (folder);
@@ -1761,7 +1876,9 @@ public:
 
                     // Whole-pixel clip edges, so the frame and waveform are copied
                     // from cached images rather than resampled at fractional offsets.
-                    cb = cb.withLeft (std::round (cb.getX())).withRight (std::round (cb.getRight()));
+                    // floor (x + 0.5), not std::round: a scroll by whole pixels must
+                    // move every edge by exactly that much (see scrollCachedPixels).
+                    cb = cb.withLeft (std::floor (cb.getX() + 0.5f)).withRight (std::floor (cb.getRight() + 0.5f));
 
                     if (cb.getRight() < kHeaderWidth || cb.getX() > getWidth()) continue;
                     if (! g.clipRegionIntersects (cb.expanded (kClipPaintMargin).getSmallestIntegerContainer())) continue;
@@ -1787,11 +1904,11 @@ public:
                         if (! viewportCb.isEmpty() && innerCb.getWidth() > 0.0f)
                         {
                             AERION_PROFILE_SCOPE ("Timeline.waveform");
-                            double fullW         = (double) innerCb.getWidth();
-                            double audioStart    = offset + (double) (viewportCb.getX() - innerCb.getX()) * clipLen / fullW;
-                            double audioDuration = (double) viewportCb.getWidth() * clipLen / fullW;
-                            int w = juce::jmax (1, (int) std::ceil (viewportCb.getWidth()));
-                            int h = juce::jmax (1, (int) std::ceil (viewportCb.getHeight()));
+                            // innerCb has whole-pixel edges (cb is rounded above).
+                            const int fullW = (int) innerCb.getWidth();
+                            const int h     = juce::jmax (1, (int) innerCb.getHeight());
+                            const int waveX = (int) innerCb.getX();
+                            const int waveY = (int) innerCb.getY();
 
                             juce::int64 samplesNow = 0;
                             if (recThumb != nullptr)
@@ -1801,58 +1918,89 @@ public:
 
                             auto& entry = waveformCache[wave->itemID.getRawID()];
                             const bool softwareCtx = isSoftwareContext (g);
-                            if (entry.width != w || entry.height != h || entry.software != softwareCtx
+                            if (entry.width != fullW || entry.height != h || entry.software != softwareCtx
                                 || ! juce::approximatelyEqual (entry.pxPerSec, pxPerSec)
-                                || std::abs (entry.audioStart    - audioStart)    > 0.001
-                                || std::abs (entry.audioDuration - audioDuration) > 0.001
+                                || ! juce::approximatelyEqual (entry.offset, offset)
+                                || ! juce::approximatelyEqual (entry.clipLen, clipLen)
                                 || entry.samplesLoaded != samplesNow)
                             {
-                                // Opaque and matched to the renderer, so drawing it is a plain copy.
-                                entry.image = makeImageFor (softwareCtx, juce::Image::RGB, w, h, false);
-                                entry.software = softwareCtx;
-                                juce::Graphics ig (entry.image);
-                                auto drawWave = [&] ()
-                                {
-                                    if (recThumb != nullptr)
-                                    {
-                                        recThumb->thumb->drawChannels (ig, { 0, 0, w, h }, audioStart, audioStart + audioDuration, 1.0f);
-                                    }
-                                    else
-                                    {
-                                        auto& thumb = audioEngine.getThumbnailForClip (*wave, *this);
-                                        tracktion::TimeRange vRange (tracktion::TimePosition::fromSeconds (audioStart),
-                                                                     tracktion::TimeDuration::fromSeconds (audioDuration));
-                                        thumb.drawChannel (ig, { 0, 0, w, h }, vRange, 0, 1.0f);
-                                    }
-                                };
-
-                                // Dark background so the waveform is always readable
-                                // regardless of clip colour, then white waveform on top.
-                                ig.setColour (juce::Colours::black);
-                                ig.fillAll();
-
-                                ig.setColour (juce::Colours::white.withAlpha (1.0f));
-                                drawWave();
-                                {
-                                    juce::Graphics::ScopedSaveState ss (ig);
-                                    ig.addTransform (juce::AffineTransform::translation (0.0f, -1.0f));
-                                    drawWave();
-                                }
-                                {
-                                    juce::Graphics::ScopedSaveState ss (ig);
-                                    ig.addTransform (juce::AffineTransform::translation (0.0f,  1.0f));
-                                    drawWave();
-                                }
-
+                                entry.tiles.clear();
                                 entry.pxPerSec      = pxPerSec;
-                                entry.audioStart    = audioStart;
-                                entry.audioDuration = audioDuration;
-                                entry.width         = w;
+                                entry.offset        = offset;
+                                entry.clipLen       = clipLen;
+                                entry.width         = fullW;
                                 entry.height        = h;
+                                entry.software      = softwareCtx;
                                 entry.samplesLoaded = samplesNow;
                             }
-                            g.drawImageAt (entry.image, juce::roundToInt (viewportCb.getX()),
-                                                        juce::roundToInt (viewportCb.getY()));
+
+                            const int firstTile = juce::jmax (0, ((int) viewportCb.getX() - waveX) / kWaveTileW);
+                            const int lastTile  = juce::jmin ((fullW - 1) / kWaveTileW,
+                                                              ((int) std::ceil (viewportCb.getRight()) - 1 - waveX) / kWaveTileW);
+
+                            for (int tile = firstTile; tile <= lastTile; ++tile)
+                            {
+                                const int tileX = tile * kWaveTileW;
+                                const int tileW = juce::jmin (kWaveTileW, fullW - tileX);
+                                const juce::Rectangle<int> onScreen (waveX + tileX, waveY, tileW, h);
+
+                                if (! g.clipRegionIntersects (onScreen))
+                                    continue;
+
+                                auto& image = entry.tiles[tile];
+                                if (image.isNull())
+                                {
+                                    const double audioStart    = offset + (double) tileX * clipLen / (double) fullW;
+                                    const double audioDuration = (double) tileW * clipLen / (double) fullW;
+
+                                    // Opaque and matched to the renderer, so drawing it is a plain copy.
+                                    image = makeImageFor (softwareCtx, juce::Image::RGB, tileW, h, false);
+                                    juce::Graphics ig (image);
+                                    auto drawWave = [&] ()
+                                    {
+                                        if (recThumb != nullptr)
+                                        {
+                                            recThumb->thumb->drawChannels (ig, { 0, 0, tileW, h }, audioStart, audioStart + audioDuration, 1.0f);
+                                        }
+                                        else
+                                        {
+                                            auto& thumb = audioEngine.getThumbnailForClip (*wave, *this);
+                                            tracktion::TimeRange vRange (tracktion::TimePosition::fromSeconds (audioStart),
+                                                                         tracktion::TimeDuration::fromSeconds (audioDuration));
+                                            thumb.drawChannel (ig, { 0, 0, tileW, h }, vRange, 0, 1.0f);
+                                        }
+                                    };
+
+                                    // Dark background so the waveform is always readable
+                                    // regardless of clip colour, then white waveform on top.
+                                    ig.setColour (juce::Colours::black);
+                                    ig.fillAll();
+
+                                    ig.setColour (juce::Colours::white.withAlpha (1.0f));
+                                    drawWave();
+                                    {
+                                        juce::Graphics::ScopedSaveState ss (ig);
+                                        ig.addTransform (juce::AffineTransform::translation (0.0f, -1.0f));
+                                        drawWave();
+                                    }
+                                    {
+                                        juce::Graphics::ScopedSaveState ss (ig);
+                                        ig.addTransform (juce::AffineTransform::translation (0.0f,  1.0f));
+                                        drawWave();
+                                    }
+                                }
+
+                                // drawImage uses the current colour's opacity, which
+                                // depends on what was drawn before in this paint.
+                                g.setOpacity (1.0f);
+                                g.drawImageAt (image, onScreen.getX(), onScreen.getY());
+                            }
+
+                            // Keep the tiles near the view; a long clip at high zoom
+                            // would otherwise collect hundreds of them while scrolling.
+                            const int keepFrom = firstTile - 8, keepTo = lastTile + 8;
+                            for (auto it = entry.tiles.begin(); it != entry.tiles.end();)
+                                it = (it->first < keepFrom || it->first > keepTo) ? entry.tiles.erase (it) : std::next (it);
                         }
 
                         // Fade curves (drawn over full unclipped clip bounds)
@@ -2256,8 +2404,7 @@ public:
         g.fillRect (curveArea);
         g.setColour (Theme::border);
         g.drawLine (0.0f, (float) laneTopY, (float) getWidth(), (float) laneTopY);
-        g.drawLine ((float) kHeaderWidth, (float) laneTopY,
-                    (float) kHeaderWidth, (float) (laneTopY + kTrackH));
+        g.fillRect (kHeaderWidth - 1, laneTopY, 1, kTrackH);
 
         // Header: param selector + label.
         auto kind = paramKindFor (track);
@@ -2297,29 +2444,52 @@ public:
         auto& curve = param->getCurve();
         const int n = curve.getNumPoints();
 
-        // Build path. Always anchor at left/right edges using getValueAt().
         juce::Graphics::ScopedSaveState s (g);
         g.reduceClipRegion (curveArea);
 
-        juce::Path path;
-        const double tLeft  = juce::jmax (0.0, xToTime ((float) curveArea.getX()));
-        const double tRight = xToTime ((float) curveArea.getRight());
-
-        float yLeft  = valueToY (param, curve.getValueAt (tracktion::TimePosition::fromSeconds (tLeft)), curveArea);
-        path.startNewSubPath ((float) curveArea.getX(), yLeft);
-
-        for (int i = 0; i < n; ++i)
+        // The path runs through the nearest point beyond each edge of the view,
+        // or level past the edge before the first and after the last point. It
+        // is not anchored at the view's edges, so its shape does not depend on
+        // the scroll position (scrollCachedPixels moves these pixels). Points up
+        // to edgeMargin outside the view count, as their dots reach into it.
+        const float edgeMargin = 8.0f;
+        const double tLeft  = xToTime ((float) curveArea.getX() - edgeMargin);
+        const double tRight = xToTime ((float) curveArea.getRight() + edgeMargin);
+        auto pointTime = [&] (int i) { return curve.getPointTime (i).inSeconds(); };
+        auto pointPos  = [&] (int i)
         {
-            double pt = curve.getPointTime (i).inSeconds();
-            if (pt < tLeft) continue;
-            if (pt > tRight) break;
-            float px = timeToX (pt);
-            float py = valueToY (param, curve.getPointValue (i), curveArea);
-            path.lineTo (px, py);
-        }
+            return juce::Point<float> (timeToX (pointTime (i)), valueToY (param, curve.getPointValue (i), curveArea));
+        };
 
-        float yRight = valueToY (param, curve.getValueAt (tracktion::TimePosition::fromSeconds (tRight)), curveArea);
-        path.lineTo ((float) curveArea.getRight(), yRight);
+        juce::Path path;
+
+        if (n == 0)
+        {
+            const float y = valueToY (param, curve.getValueAt (tracktion::TimePosition()), curveArea);
+            path.startNewSubPath ((float) curveArea.getX() - edgeMargin, y);
+            path.lineTo ((float) curveArea.getRight() + edgeMargin, y);
+        }
+        else
+        {
+            int first = 0;
+            while (first < n && pointTime (first) < tLeft) ++first;
+            int last = n - 1;
+            while (last >= 0 && pointTime (last) > tRight) --last;
+
+            const int from = juce::jmax (0, first - 1);
+            const int to   = juce::jmin (n - 1, last + 1);
+
+            if (from == first) // no point left of the view: level line in from the edge
+                path.startNewSubPath ((float) curveArea.getX() - edgeMargin, pointPos (from).y);
+            else
+                path.startNewSubPath (pointPos (from));
+
+            for (int i = (from == first ? from : from + 1); i <= to; ++i)
+                path.lineTo (pointPos (i));
+
+            if (to == last) // no point right of the view: level line out past the edge
+                path.lineTo ((float) curveArea.getRight() + edgeMargin, pointPos (to).y);
+        }
 
         g.setColour (Theme::active.withAlpha (0.7f));
         g.strokePath (path, juce::PathStrokeType (1.6f));
@@ -3507,22 +3677,23 @@ public:
             pxPerSec = juce::jlimit (1.0, 2000.0, pxPerSec * zoomFactor);
             zoomSlider.setValue (pxPerSec, juce::dontSendNotification);
 
-            startTime = mouseTime - (e.x - kHeaderWidth) / pxPerSec;
-            startTime = juce::jmax (0.0, startTime);
+            scrollPx = pixelsForStartTime (mouseTime - (e.x - kHeaderWidth) / pxPerSec);
 
+            // Now, not on the async refresh: a scroll arriving first must not
+            // reuse pixels drawn at the old zoom.
+            repaint();
             requestTimelineRefresh (true);
         }
         else if (shiftDown)
         {
-            startTime -= wheel.deltaY * (100.0 / pxPerSec);
-            startTime = juce::jmax (0.0, startTime);
-            requestTimelineRefresh (true);
+            scrollTo (pixelsForStartTime (getStartTime() - wheel.deltaY * (100.0 / pxPerSec)), scrollY);
+            updateScrollBar();
         }
         else
         {
             // Default vertical scroll through the track list.
-            scrollY -= (int) (wheel.deltaY * 60.0);
-            requestTimelineRefresh (true);
+            scrollTo (scrollPx, clampScrollY (scrollY - (int) (wheel.deltaY * 60.0)));
+            updateScrollBar();
         }
     }
 
@@ -3672,7 +3843,9 @@ private:
     };
     std::map<juce::String, TrackButtonBounds> trackButtonCache;
 
-    double startTime = 0.0;
+    // Horizontal scroll position in whole pixels at the current zoom: the time
+    // at the lane area's left edge is scrollPx / pxPerSec.
+    double scrollPx  = 0.0;
     double pxPerSec  = 100.0;
     int    scrollY   = 0;
     juce::ScrollBar horizontalScrollBar { false };
@@ -3687,17 +3860,21 @@ private:
     };
     TooltipInfo currentTooltip;
 
-    // Per-clip waveform image cache  -  keyed by Tracktion EditItemID raw value.
-    // Each entry stores the last rendered image together with the parameters that
-    // produced it. A cache miss (zoom change, scroll, clip edit) triggers one
-    // SmartThumbnail render into a viewport-sized Image; subsequent identical
-    // frames blit that Image without touching SmartThumbnail again.
+    // Per-clip waveform images, keyed by Tracktion EditItemID raw value. A
+    // clip's waveform is cut into tiles kWaveTileW pixels wide, counted from the
+    // clip's left edge, and only tiles on screen are rendered. Because tiles are
+    // anchored to the clip rather than to the visible area, scrolling moves a
+    // waveform without changing a single pixel of it, and newly scrolled-in
+    // tiles are the only ones rendered. Any change of zoom, clip size, trim or
+    // loaded audio drops the clip's tiles.
+    static constexpr int kWaveTileW = 256;
+
     struct WaveformCacheEntry {
-        juce::Image   image;
+        std::map<int, juce::Image> tiles;      // tile index -> image
         double        pxPerSec      = 0.0;
-        double        audioStart    = 0.0;
-        double        audioDuration = 0.0;
-        int           width         = 0;
+        double        offset        = 0.0;     // clip offset into the source, seconds
+        double        clipLen       = 0.0;
+        int           width         = 0;       // whole waveform, pixels
         int           height        = 0;
         juce::int64   samplesLoaded = -1;
         bool          software      = false;   // image type matches the renderer

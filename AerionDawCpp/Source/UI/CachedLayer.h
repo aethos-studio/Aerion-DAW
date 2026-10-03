@@ -96,15 +96,69 @@ public:
                                                                           (float) compBounds.getHeight() / (float) imageBounds.getHeight()));
     }
 
-    bool invalidateAll() override                                 { validArea.clear(); return true; }
-    bool invalidate (const juce::Rectangle<int>& area) override   { validArea.subtract (area); return true; }
+    bool invalidateAll() override
+    {
+        if (! keepContents)
+            validArea.clear();
+        return true;
+    }
+
+    bool invalidate (const juce::Rectangle<int>& area) override
+    {
+        if (! keepContents)
+            validArea.subtract (area);
+        return true;
+    }
+
     void releaseResources() override                              { image = {}; }
+
+    /** Moves the cached pixels inside `area` (component coordinates) by dx, dy,
+        as scrolling that area does, and marks the part left uncovered as
+        needing a repaint. Call repaintKeepingContents() afterwards so the
+        window shows the result.
+
+        Returns false and changes nothing when the pixels cannot be reused:
+        part of `area` is not cached yet, the image is not a software image
+        (moving a Direct2D image's pixels means a GPU readback), or the display
+        is scaled. Repaint the whole component then. */
+    bool scroll (juce::Rectangle<int> area, int dx, int dy)
+    {
+        area = area.getIntersection (owner.getLocalBounds());
+
+        if (area.isEmpty() || image.isNull() || ! imageIsSoftware
+             || image.getBounds() != owner.getLocalBounds()
+             || ! validArea.containsRectangle (area))
+            return false;
+
+        const auto moved = area.getIntersection (area.translated (dx, dy));
+
+        if (! moved.isEmpty())
+            image.moveImageSection (moved.getX(), moved.getY(), moved.getX() - dx, moved.getY() - dy,
+                                    moved.getWidth(), moved.getHeight());
+
+        validArea.subtract (area);
+        validArea.add (moved);
+        return true;
+    }
+
+    /** Marks an area as needing a repaint, like owner.repaint (area), without
+        also asking the window to repaint it. */
+    void invalidateOnly (juce::Rectangle<int> area)   { validArea.subtract (area); }
+
+    /** Repaints the owner on screen without discarding cached pixels: only
+        areas already marked invalid are rendered again. */
+    void repaintKeepingContents()
+    {
+        const juce::ScopedValueSetter<bool> keep (keepContents, true);
+        owner.repaint();
+    }
 
 private:
     juce::Component& owner;
     juce::Image image;
     juce::RectangleList<int> validArea;
     bool imageIsSoftware = false;
+    bool keepContents = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CachedLayer)
 };

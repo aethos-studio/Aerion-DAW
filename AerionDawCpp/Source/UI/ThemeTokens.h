@@ -171,5 +171,12 @@ namespace Theme
     {
         fillVerticalGradient (g, area, bgBase.brighter (0.10f), bgBase.darker (0.05f));
     }
+
+    /** The background gradient's middle colour, for areas that scroll and so
+        cannot have a background fixed to the screen. */
+    inline juce::Colour backgroundMid()
+    {
+        return bgBase.brighter (0.10f).interpolatedWith (bgBase.darker (0.05f), 0.5f);
+    }
 }
 

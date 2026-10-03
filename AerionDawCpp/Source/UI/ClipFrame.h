@@ -72,6 +72,10 @@ public:
         const int dy   = body.getY() - kMargin;
         const int capSrcW = kMargin + kCapW;
 
+        // drawImage uses the current colour's opacity, which otherwise depends
+        // on whatever was drawn before (and so on how much is being repainted).
+        g.setOpacity (1.0f);
+
         // Left cap
         g.drawImage (image, body.getX() - kMargin, dy, capSrcW, imgH, 0, 0, capSrcW, imgH);
 

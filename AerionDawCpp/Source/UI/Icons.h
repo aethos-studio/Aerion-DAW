@@ -106,6 +106,10 @@ namespace Icons
             it = cache.emplace (key, std::move (image)).first;
         }
 
+        // drawImage uses the current colour's opacity; the icon's own ink is
+        // already in the raster.
+        juce::Graphics::ScopedSaveState state (g);
+        g.setOpacity (1.0f);
         g.drawImageTransformed (it->second, juce::AffineTransform::scale (1.0f / scale)
                                                 .translated ((float) origin.x, (float) origin.y));
     }

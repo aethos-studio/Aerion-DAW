@@ -118,12 +118,61 @@ namespace
         return false;
     }
 
+    /** How far two renders of the same thing differ. Shapes at fractional
+        positions can come out a level or two apart in their anti-aliased edge
+        pixels, depending on where a repaint's clip edge cuts them or where on
+        screen a curve was drawn; that is invisible. A real mistake (something
+        missing, misplaced or drawn twice) differs by far more. */
+    struct Comparison
+    {
+        static constexpr int kTolerance = 4;   // levels out of 255, per channel
+
+        int differing = 0;   // pixels that differ at all
+        int visible = 0;     // pixels that differ by more than kTolerance
+
+        juce::String describe() const
+        {
+            if (visible > 0)
+                return juce::String (visible) + " pixels differ";
+            if (differing > 0)
+                return "ok (" + juce::String (differing) + " px within " + juce::String (kTolerance) + " levels)";
+            return "ok";
+        }
+    };
+
+    Comparison compareImages (const juce::Image& a, const juce::Image& b, const juce::RectangleList<int>& region)
+    {
+        Comparison result;
+
+        for (auto& r : region)
+        {
+            const auto area = r.getIntersection (a.getBounds());
+            for (int y = area.getY(); y < area.getBottom(); ++y)
+                for (int x = area.getX(); x < area.getRight(); ++x)
+                {
+                    const auto pa = a.getPixelAt (x, y), pb = b.getPixelAt (x, y);
+                    if (pa == pb)
+                        continue;
+
+                    ++result.differing;
+                    const int diff = juce::jmax (juce::jmax (std::abs (pa.getRed()   - pb.getRed()),
+                                                             std::abs (pa.getGreen() - pb.getGreen())),
+                                                 juce::jmax (std::abs (pa.getBlue()  - pb.getBlue()),
+                                                             std::abs (pa.getAlpha() - pb.getAlpha())));
+                    if (diff > Comparison::kTolerance)
+                        ++result.visible;
+                }
+        }
+
+        return result;
+    }
+
     /** Checks that painting only `region` gives the same pixels there as a full
         repaint. Culling in paint() must only skip work the clip would discard
-        anyway, so any mismatch is a culling bug. Uses the software renderer so
-        the comparison is deterministic. Returns the number of differing pixels. */
-    int countPartialRepaintMismatches (juce::Component& c, int width, int height,
-                                       const juce::RectangleList<int>& region)
+        anyway, so any visible mismatch is a culling bug. Uses the software
+        renderer so the comparison is deterministic. */
+    Comparison checkPartialRepaint (juce::Component& c, int width, int height,
+                                    const juce::RectangleList<int>& region)
     {
         const juce::SoftwareImageType software;
         juce::Image full (juce::Image::ARGB, width, height, true, software);
@@ -141,17 +190,47 @@ namespace
             c.paintEntireComponent (g, false);
         }
 
-        int mismatches = 0;
-        for (auto& r : region)
+        return compareImages (full, partial, region);
+    }
+
+    /** Scrolls the Timeline the way the app does, reusing its cached pixels
+        (Timeline::scrollTo), and compares the result with a full repaint at
+        the new position. Paints `layers`, the Timeline's parent, because only
+        a parent paints a child from its cached layer. */
+    struct ScrollCheck
+    {
+        bool copied = false;   // false: scrollTo fell back to a full repaint
+        Comparison comparison;
+    };
+
+    ScrollCheck checkScrollByCopy (juce::Component& layers, Timeline& timeline,
+                                   double newScrollPx, int newScrollY)
+    {
+        const int w = layers.getWidth(), h = layers.getHeight();
+        const juce::SoftwareImageType software;
+
+        juce::Image viaCopy (juce::Image::ARGB, w, h, true, software);
         {
-            const auto area = r.getIntersection ({ 0, 0, width, height });
-            for (int y = area.getY(); y < area.getBottom(); ++y)
-                for (int x = area.getX(); x < area.getRight(); ++x)
-                    if (full.getPixelAt (x, y) != partial.getPixelAt (x, y))
-                        ++mismatches;
+            juce::Graphics g (viaCopy);
+            layers.paintEntireComponent (g, false);   // fills the cache at the old position
         }
 
-        return mismatches;
+        ScrollCheck result;
+        result.copied = timeline.scrollTo (newScrollPx, newScrollY);
+        {
+            juce::Graphics g (viaCopy);
+            layers.paintEntireComponent (g, false);
+        }
+
+        timeline.repaint();   // drop the cache
+        juce::Image fresh (juce::Image::ARGB, w, h, true, software);
+        {
+            juce::Graphics g (fresh);
+            layers.paintEntireComponent (g, false);
+        }
+
+        result.comparison = compareImages (viaCopy, fresh, juce::Rectangle<int> (w, h));
+        return result;
     }
 
     bool writePng (const juce::Image& image, const juce::File& dest)
@@ -299,6 +378,40 @@ namespace
                 juce::Graphics g (image);
                 g.reduceClipRegion (clipRegion);
                 c.paintEntireComponent (g, false);
+            }
+            accumulate (r, total, elapsedMsSince (start));
+        }
+
+        r.avgMs = frames > 0 ? total / (double) frames : 0.0;
+        return r;
+    }
+
+    /** Mirrors a mouse-wheel scroll: each frame scrolls the Timeline by dxPx
+        or dy (alternating direction, so it stays in range) and repaints the
+        window's view of it. With a software image the scroll moves the cached
+        pixels and draws only the strip scrolled into view; with Direct2D it
+        falls back to a full repaint. */
+    Result timeScroll (juce::Component& layers, Timeline& timeline, int frames,
+                       double dxPx, int dy, const juce::ImageType& imageType)
+    {
+        juce::Image image (juce::Image::ARGB, layers.getWidth(), layers.getHeight(), true, imageType);
+        {
+            juce::Graphics g (image);
+            layers.paintEntireComponent (g, false);
+        }
+
+        Result r;
+        r.minMs = std::numeric_limits<double>::max();
+        double total = 0.0;
+
+        for (int i = 0; i < frames; ++i)
+        {
+            const int sign = (i % 2 == 0) ? 1 : -1;
+            const auto start = juce::Time::getHighResolutionTicks();
+            timeline.scrollTo (timeline.getScrollPx() + sign * dxPx, timeline.getScrollY() + sign * dy);
+            {
+                juce::Graphics g (image);
+                layers.paintEntireComponent (g, false);
             }
             accumulate (r, total, elapsedMsSince (start));
         }
@@ -635,6 +748,52 @@ int main (int argc, char* argv[])
 
         int failures = startupFailures;
 
+        // Scrolling moves the Timeline's cached pixels and draws only what is
+        // scrolled into view; the result must look the same as a full repaint.
+        // See Comparison for the tolerance.
+        {
+            // Things drawn at fractional positions: a MIDI clip and an automation curve.
+            auto tracks = audioEngine.getAudioTracks();
+            if (tracks.size() > 3)
+            {
+                if (auto midi = tracks[1]->insertMIDIClip ({ tracktion::TimePosition::fromSeconds (1.3),
+                                                             tracktion::TimePosition::fromSeconds (9.1) }, nullptr))
+                    for (int i = 0; i < 24; ++i)
+                        midi->getSequence().addNote (48 + (i * 7) % 24, tracktion::BeatPosition::fromBeats (i * 0.6),
+                                                     tracktion::BeatDuration::fromBeats (0.45), 100, 0, nullptr);
+
+                if (auto* param = audioEngine.getAutomationParam (tracks[2], AudioEngineManager::AutomationParamKind::Volume))
+                    for (int i = 0; i < 12; ++i)
+                        param->getCurve().addPoint (tracktion::TimePosition::fromSeconds (0.7 + i * 1.37f),
+                                                    0.2f + 0.6f * (float) ((i * 5) % 7) / 6.0f, 0.0f);
+
+                timeline.showAutomationLane (*tracks[2]);
+            }
+
+            struct Step { const char* name; double dxPx; int dy; };
+            const Step steps[] = { { "scroll right 37 px",  37.0,  0 },
+                                   { "scroll left 113 px", -113.0, 0 },
+                                   { "scroll right 1 px",   1.0,   0 },
+                                   { "scroll down 60 px",   0.0,   60 },
+                                   { "scroll up 23 px",     0.0,  -23 },
+                                   { "scroll past a screen", 3000.0, 0 } };
+
+            timeline.scrollTo (200.0, 0);   // away from the left limit, so scrolling left works
+
+            for (auto& step : steps)
+            {
+                const auto r = checkScrollByCopy (layers, timeline, timeline.getScrollPx() + step.dxPx,
+                                                  timeline.getScrollY() + step.dy);
+                const bool ok = r.copied && r.comparison.visible == 0;
+                std::cout << "  " << juce::String (step.name).paddedRight (' ', 28)
+                          << (r.copied ? r.comparison.describe() : juce::String ("NOT COPIED, repainted"))
+                          << std::endl;
+                failures += ok ? 0 : 1;
+            }
+
+            timeline.scrollTo (0.0, 0);
+        }
+
         // A hidden window must follow the graphics engine choice both ways.
         {
             juce::Component probe;
@@ -660,12 +819,9 @@ int main (int argc, char* argv[])
         for (auto& check : checks)
         {
             const auto& name = check.name;
-            const int mismatches = countPartialRepaintMismatches (*check.component, width, check.height, check.region);
-            std::cout << "  " << name.paddedRight (' ', 28)
-                      << (mismatches == 0 ? juce::String ("ok")
-                                          : juce::String (mismatches) + " pixels differ")
-                      << std::endl;
-            failures += mismatches > 0 ? 1 : 0;
+            const auto result = checkPartialRepaint (*check.component, width, check.height, check.region);
+            std::cout << "  " << name.paddedRight (' ', 28) << result.describe() << std::endl;
+            failures += result.visible > 0 ? 1 : 0;
         }
 
         if (failures > 0)
@@ -692,6 +848,13 @@ int main (int argc, char* argv[])
         // What playback actually costs now: the strip comes from the cached layer.
         report ("playhead move (layered)",
                 timePaint (layers, width, height, frames, playheadStrip, *renderer.type));
+
+        // A mouse-wheel step: the lanes' cached pixels move, only the strip
+        // scrolled into view (and the ruler, sideways) is drawn.
+        report ("scroll 40 px sideways",
+                timeScroll (layers, timeline, frames, 40.0, 0, *renderer.type));
+        report ("scroll 60 px down",
+                timeScroll (layers, timeline, frames, 0.0, 60, *renderer.type));
 
         report ("mixer full repaint",
                 timePaint (mixer, width, mixerHeight, frames, mixer.getLocalBounds(), *renderer.type));

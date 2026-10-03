@@ -177,7 +177,7 @@ Keep the Console clean. Put the advanced technical tools in the Inspector.
   - [x] One display-synced UI clock (`VBlankAttachment`) replacing the separate component timers: playhead at display rate, meters at 30 Hz with a decay tail, no idle repaints, event-driven tooltip poll
   - [x] Cached chrome: background and header gradients drawn as solid bands in software, SVG icons and the fader cap drawn from cached rasters
   - [x] Timeline layers: the Timeline renders into a renderer-matched cached layer with the playhead on an overlay above it (playhead move 13.7 → 1.5 ms Direct2D, 1.2 → 0.1 ms software); full repaints made cheaper with nine-slice clip frames and opaque whole-pixel waveforms (19–33 ms → 7.6–14.7 ms)
-  - [ ] Scroll by copying cached pixels (prototype removed: not yet pixel-exact at the edges of the moved area)
+  - [x] Scroll by copying cached pixels: a scroll moves the Timeline's cached lane pixels and draws only the strip scrolled into view (software renderer: 13.5 ms full repaint → 5.0 ms sideways, 4.0 ms down per wheel step). `AerionBench --verify` compares each scroll with a full repaint
   - [x] Audio device startup: stays on the message thread (Tracktion and ASIO require it) but now runs behind the splash, which waits for it, instead of freezing the fade or the fresh main window
   - [x] Lightweight UI for low-end machines (View → Lightweight UI; Auto on ≤ 2 cores or < 6 GB RAM): flat fills, square clip bodies, 20 Hz meters, 30 Hz playhead
   - [x] Split `UIComponents.h` (9,000+ lines) into one header per view under `Source/Views/`; `UIComponents.h` is now an umbrella include. Code moved unchanged; moving method bodies into `.cpp` files (for build times) is a later step
@@ -296,7 +296,7 @@ All M4 completion-sprint items shipped:
 4. ✅ **Mixer M/S Icons** — `Mixer::drawSideButtonColumn` renders mute/solo via `Timeline::drawTrackIconBtn` using `BinaryData::aerion_mute_svg` / `aerion_Solo_svg`, matching Timeline and Inspector. *Superseded in M5: now letter buttons via `paintLetterButton`.*
 5. ✅ **Freeze/Tempo Polish Pass** — Tempo lane now shows a resize cursor and a brighter highlight on hover (`hoveredTempoNodeIndex`); non-root tempo nodes are clamped between their neighbours during drag so ordering can no longer flip; freeze/unfreeze guards (empty track, already-freezing, missing freeze WAV) verified.
 
-**Next:** finish M5 — remaining performance steps (scroll by copying, audio-side hot-path review), plugin crash protection beyond audio processing (out-of-process hosting), high-DPI audit, accessibility, and the packaging finish line (production OV/EV code-signing and macOS notarization). Then M6 — Complete Core.
+**Next:** finish M5 — remaining performance step (audio-side hot-path review), plugin crash protection beyond audio processing (out-of-process hosting), high-DPI audit, accessibility, and the packaging finish line (production OV/EV code-signing and macOS notarization). Then M6 — Complete Core.
 
 ---
 

@@ -147,7 +147,27 @@ Same machine and project (32 tracks × 20 clips, 1080p):
 
 Everything now fits within a 60 Hz frame on this machine. The software full repaint (14.7 ms) is the closest to the limit, and on hardware 2–3× slower scrolling will still drop frames.
 
-**Tried and not shipped: scroll by copying.** Moving the cached pixels on a scroll and rendering only the exposed strip would make scrolling nearly free. A prototype got within a few hundred pixels of a fresh render, but items crossing the edge of the moved area (the ruler's label gutter, the first clip) and the screen-fixed background gradient for vertical scrolls did not match exactly. It was removed rather than shipped with visible seams. It remains the next step for scroll performance on slow machines.
+### Scroll by copying (2026-10-03)
+
+A scroll now moves the Timeline's cached lane pixels (`CachedLayer::scroll`) and draws only the strip scrolled into view; a sideways scroll also redraws the ruler, whose labels are laid out per view. A first prototype was dropped because the copied pixels did not match a fresh render. What made them match:
+
+- Horizontal scroll position in whole pixels (`Timeline::scrollPx`), and `timeToX` on a 1/256 px grid rounded with `floor (x + 0.5)`, so every position moves by exactly the scroll distance.
+- Waveforms in 256 px tiles counted from each clip's left edge, not one image of the visible part; newly visible tiles are the only ones rendered.
+- A flat lane background instead of the window gradient, which is fixed to the screen.
+- Borders next to the lanes drawn as crisp 1 px fills on their own side, not anti-aliased into the lanes; rows culled with the extra pixel their bottom line reaches into.
+- The automation curve runs through the points just beyond the view instead of being anchored at its edges.
+- Clip frames, waveform tiles and icons set their opacity before drawing images. They used whatever colour was set before them, so a partial repaint could draw a clip body or waveform transparent.
+
+Screen-fixed overlays (drag previews, the razor line, value tooltips, editors) and recording fall back to a full repaint, as do Direct2D (moving its pixels would mean a GPU readback) and scaled displays.
+
+`AerionBench --verify` scrolls 1 to 3000 px in both directions and compares with a full repaint. A few dozen anti-aliased pixels on curves come out up to 4 levels (of 255) apart, because the same curve drawn at a different place on screen rounds slightly differently; the checks allow that and nothing more. Software renderer, Release, 1080p, 32 tracks:
+
+| Scenario | Before (full repaint) | Now |
+|---|---:|---:|
+| Scroll 40 px sideways | 13.5 ms | **5.0 ms** |
+| Scroll 60 px down | 13.5 ms | **4.0 ms** |
+
+Most of the remaining time is copying the window-sized layer and walking every row and clip to find what touches the new strip.
 
 ### Fixed along the way: crash when releasing the Edit
 
