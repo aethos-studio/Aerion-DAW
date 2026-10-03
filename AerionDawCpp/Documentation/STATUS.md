@@ -1,7 +1,7 @@
-# Aerion DAW Project Status — September 29, 2026 (v0.3.0 Pre-Alpha)
+# Aerion DAW Project Status — October 3, 2026 (v0.3.0 Pre-Alpha)
 
 ## Overview
-Aerion DAW has closed the **Milestone 4 completion sprint** (v0.3.0). Milestones 1–4 — Editing, Mixing, Recording & Monitoring, and Project & Workflow — are **complete and verified against the source** (codebase audit, July 2026). The current focus is **Milestone 5: Polish & Stability (v0.4.0)**. In September 2026 the M5 performance work was largely completed: everything measured now fits a 60 Hz frame at 1080p (Timeline layers, cached chrome and icons, a display-synced UI clock, **View → Graphics Engine** and **View → Lightweight UI**), the icon system was fixed, unsaved-changes tracking was corrected, and crash and data-loss bugs were closed, including save prompts that acted on the wrong buttons. Plugins that crash while processing audio are now caught on Windows, and `UIComponents.h` is split into one header per view. Remaining in M5: plugin crash protection beyond audio processing, error reporting, `AerionBench --verify` in CI, high-DPI audit, accessibility, packaging sign-off, and the last performance items (scroll by copying, audio-side hot-path review). CI builds and smoke-tests on **both Windows and macOS**; release packaging is a separate workflow; both are **manual (`workflow_dispatch`) only**. After M5, **Milestone 6: Complete Core (v0.5.0)** closes the remaining gaps to a modern DAW baseline before the differentiator milestones (M7–M9).
+Aerion DAW has closed the **Milestone 4 completion sprint** (v0.3.0). Milestones 1–4 — Editing, Mixing, Recording & Monitoring, and Project & Workflow — are **complete and verified against the source** (codebase audit, July 2026). The current focus is **Milestone 5: Polish & Stability (v0.4.0)**. In September 2026 the M5 performance work was largely completed: everything measured now fits a 60 Hz frame at 1080p (Timeline layers, cached chrome and icons, a display-synced UI clock, **View → Graphics Engine** and **View → Lightweight UI**), the icon system was fixed, unsaved-changes tracking was corrected, and crash and data-loss bugs were closed, including save prompts that acted on the wrong buttons. Plugins that crash while processing audio are now caught on Windows, and `UIComponents.h` is split into one header per view. The app log now shows in a **Console** bottom-panel tab, a crash leaves a report that the next launch points to, and CI runs `AerionBench --verify`. Remaining in M5: plugin crash protection beyond audio processing, high-DPI audit, accessibility, packaging sign-off, and the last performance items (scroll by copying, audio-side hot-path review). CI builds and smoke-tests on **both Windows and macOS**; release packaging is a separate workflow; both are **manual (`workflow_dispatch`) only**. After M5, **Milestone 6: Complete Core (v0.5.0)** closes the remaining gaps to a modern DAW baseline before the differentiator milestones (M7–M9).
 
 ## Milestone Progress
 
@@ -17,7 +17,7 @@ Aerion DAW has closed the **Milestone 4 completion sprint** (v0.3.0). Milestones
 
 ---
 
-## Milestone 5 Inventory (updated September 29, 2026)
+## Milestone 5 Inventory (updated October 3, 2026)
 
 What already exists versus what remains, verified against the source tree:
 
@@ -36,12 +36,16 @@ What already exists versus what remains, verified against the source tree:
 | Unsaved-Changes Tracking | **Done** | Non-edit engine notifications no longer mark the project changed; direct Edit changes (clip drags) now do, through Tracktion's own change tracking. |
 | Workspace Layouts | **Done** | **View → Workspace** submenu: built-in Editing / Mixing / Recording presets + save/delete custom layouts. Captures inspector/browser collapse, mixer dock/detach, bottom panel, and console height; custom layouts + last-active layout persist via `appProperties` and restore on launch. |
 | Accessibility | **Missing** | No `setAccessibleName()` usage; keyboard-navigable mixer not started. |
-| Error Reporting / Console panel | **Partial** | The app log (`Logger::writeToLog`) shows in the **Console** bottom-panel tab and still goes to `aerion.log`; `DBG` output is not captured. No in-app crash reporter yet. |
+| Error Reporting / Console panel | **Done** | The app log (`Logger::writeToLog`) shows in the **Console** bottom-panel tab and still goes to `aerion.log`; `DBG` output is not captured. `CrashReporter` writes a report folder per crash under `AerionDAW/Crashes` (reason, thread, stack, the session's log, a minidump on Windows); the next launch points to it before Crash Recovery. Reports stay local; `std::terminate` / `abort` on Windows are not caught. |
 | App version / title bar | **Done** | CMake `project` version **0.3.0**; menu bar + window title use `Theme::windowTitle()` (`<ProjectName> — Aerion DAW`); About dialog reads `ProjectInfo::versionString`. |
 
 ---
 
 ## Recently shipped
+
+### October 2026
+
+- **Crash reports and a log console (M5 error reporting):** a crash writes a folder under `AerionDAW/Crashes` with the reason (e.g. "invalid memory access at 0x…"), the thread, a stack trace, the crashed session's log and, on Windows, a minidump. The log copy matters because each launch deletes `aerion.log`. The next launch says the app crashed and offers to show the report, then asks about Crash Recovery as before. A **Console** tab next to Mixer and Piano Roll shows the app log live, while `aerion.log` keeps receiving it. CI now also runs `AerionBench --verify`.
 
 ### September 2026
 
@@ -90,7 +94,7 @@ What already exists versus what remains, verified against the source tree:
 - **Engine**: Tracktion Engine v3.2 / JUCE 8, with small Aerion patches from `AerionDawCpp/Patches/` applied at configure time (also to a local `FETCHCONTENT_SOURCE_DIR_TRACKTION_ENGINE` checkout)
 - **Build**: build the app and tests as targets, `cmake --build build --config Debug --target AerionDaw AerionTests --parallel`; a full solution build still fails in an unrelated Tracktion example target. After the embedded resource list changes, a parallel build can produce a damaged `AerionDawResources` object (`LNK1236`); rebuild that target on its own to fix it.
 - **Performance builds**: a separate Release build with `AERION_ENABLE_PROFILING=ON` (`build-profiling`) holds `AerionBench` and the profiling app; timings from Debug builds are not meaningful.
-- **CI**: both workflows are manual (`workflow_dispatch`) only. `build-test.yml` runs the Debug build + `AerionSmokeTests` on Windows (MSVC/Ninja) and macOS (Clang/Ninja) — run it before merging a PR. `package-release.yml` (`release-package`) builds the Windows NSIS installer and macOS DMG, with optional self-signed Windows code signing, then publishes a GitHub Release with both attached.
+- **CI**: both workflows are manual (`workflow_dispatch`) only. `build-test.yml` runs the Debug build, `AerionSmokeTests` and `AerionBench --verify` on Windows (MSVC/Ninja) and macOS (Clang/Ninja) — run it before merging a PR. `package-release.yml` (`release-package`) builds the Windows NSIS installer and macOS DMG, with optional self-signed Windows code signing, then publishes a GitHub Release with both attached.
 
 ## Next Steps (priority order)
 
@@ -99,7 +103,7 @@ Mirrors Milestones 5 and 6 in [`ROADMAP.md`](./ROADMAP.md) so the two documents 
 **Finish M5 (v0.4.0):**
 
 1. **Performance** — scroll by copying (needs pixel-exact edges), audio-side hot-path review. Measure every step with `AerionBench` against the targets in [`PERFORMANCE.md`](./PERFORMANCE.md).
-2. **Stability** — plugin crash protection beyond audio processing (out-of-process hosting), error reporting (log console in dev builds, structured crash reporter), `AerionBench --verify` in CI.
+2. **Stability** — plugin crash protection beyond audio processing (out-of-process hosting). Error reporting (log console, crash reports) is done.
 3. **High-DPI audit** — sweep fixed pixel layouts, using `AerionBench --snapshots` renders at 150 % / 200 %.
 4. **Accessibility** — screen-reader labels and keyboard-navigable mixer.
 5. **Packaging finish line** — self-signed Windows code signing is done *(`release-package` + `New-AerionSelfSignedCert.ps1`)*; production OV/EV code-signing (to clear SmartScreen) and macOS notarization still require a paid certificate/Apple Developer account.

@@ -86,9 +86,9 @@ Milestone 5 work on `main`:
 |---|---|
 | UI performance | Mostly done; scrolling by copying cached pixels and an audio-side hot-path review remain |
 | Plugin crash protection | Crashes during audio processing are caught on Windows; crashes in plugin editors or state save/load, and all plugin crashes on macOS, still need out-of-process hosting |
-| Error reporting | Not started: in-app crash reporter and a log console for dev builds |
+| Error reporting | Done: the app log shows in a **Console** bottom-panel tab; a crash writes a local report (stack, log, Windows minidump) that the next launch points to |
 | High-DPI / Retina | Typography tokens shipped (~40%); fixed-pixel layout audit not started |
-| Tests | Smoke tests for `ProjectData`, `AerionKeymap`, `AudioEngineManager`, graphics engine choice, plugin fault handling and dialogs; `AerionBench --verify` pixel checks run locally, not yet in CI |
+| Tests | Smoke tests for `ProjectData`, `AerionKeymap`, `AudioEngineManager`, graphics engine choice, plugin fault handling and dialogs; `AerionBench --verify` pixel checks run in CI |
 | Packaging | Windows NSIS + optional self-signed signing; macOS DMG without notarization |
 | Accessibility | Not started |
 | AI / Cloud | `AIManager` is a mock; Google Drive client has placeholder OAuth credentials |

@@ -445,9 +445,15 @@ int main (int argc, char* argv[])
     {
         juce::Timer::callAfterDelay (2000, [&audioEngine, &startupFailures]
         {
-            auto check = [&startupFailures] (const juce::String& name, bool ok)
+            auto check = [&startupFailures, &audioEngine] (const juce::String& name, bool ok)
             {
                 std::cout << "  " << name.paddedRight (' ', 40) << (ok ? "ok" : "FAILED") << std::endl;
+                // Failed once in about 40 runs and has not been reproduced since;
+                // say what state the engine was in if it happens again.
+                if (! ok)
+                    std::cout << "    undo history: " << (audioEngine.getEdit().getUndoManager().canUndo() ? "yes" : "empty")
+                              << ", audio devices: " << (audioEngine.areAudioDevicesConnected() ? "open" : "not open")
+                              << std::endl;
                 startupFailures += ok ? 0 : 1;
             };
 

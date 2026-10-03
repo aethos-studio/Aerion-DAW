@@ -112,6 +112,8 @@ target_sources(AerionDaw PRIVATE
     Source/AudioEngine.cpp
     Source/PluginFaultGuard.h
     Source/PluginFaultGuard.cpp
+    Source/CrashReporter.h
+    Source/CrashReporter.cpp
     Source/Keymap.h
     Source/LogoComponent.h
     Source/GoogleDriveClient.h
@@ -320,6 +322,9 @@ if (AERION_BUILD_TESTS)
         Source/Tests/TestsMain.cpp
         Source/Tests/AudioEngineTests.cpp
         Source/Tests/PluginFaultTests.cpp
+        Source/Tests/CrashReporterTests.cpp
+        Source/CrashReporter.h
+        Source/CrashReporter.cpp
         Source/ProjectData.h
         Source/ProjectData.cpp
         Source/AudioEngine.h

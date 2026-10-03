@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 #include "UI/Dialogs.h"
+#include "CrashReporter.h"
 
 namespace te = tracktion;
 
@@ -538,34 +539,64 @@ MainComponent::MainComponent()
     // Initialize auto-save interval from settings
     autoSaveIntervalMs = audioEngine.getAutoSaveIntervalMins() * 60 * 1000;
 
-    // Crash recovery prompt
-    if (audioEngine.hasCrashRecovery())
+    // After a crash: point to the crash report, then offer the auto-saved session.
+    auto offerCrashRecovery = [this]
     {
-        juce::MessageManager::callAsync ([this]
-        {
-            Dialogs::confirm ("Crash Recovery",
-                "Aerion DAW didn't shut down cleanly. Restore the auto-saved session?",
-                "Restore", "Discard",
-                [this] (bool restore)
+        if (! audioEngine.hasCrashRecovery())
+            return;
+
+        Dialogs::confirm ("Crash Recovery",
+            "Aerion DAW didn't shut down cleanly. Restore the auto-saved session?",
+            "Restore", "Discard",
+            [this] (bool restore)
+            {
+                if (restore)
                 {
-                    if (restore)
-                    {
-                        closeEmbeddedPianoRoll();
-                        timeline.clearSelectedClip();
-                        detachFromObservedEditState();
-                        audioEngine.loadProject(audioEngine.getRecoveryFile(), &projectData);
-                        attachToCurrentEditState();
-                        aiManager.setEdit (audioEngine.getEdit());
-                        currentProjectFile = juce::File();
-                        hasUnsavedChanges = true;
-                        updateTitleBar();
-                        syncToolbarFromEngine();
-                        projectData.syncWithEngine(audioEngine.getEdit());
-                        syncInspectorToTrack (nullptr);
-                        syncMenuBarState();
-                        mixer.repaint();
-                        timeline.repaint();
-                    }
+                    closeEmbeddedPianoRoll();
+                    timeline.clearSelectedClip();
+                    detachFromObservedEditState();
+                    audioEngine.loadProject(audioEngine.getRecoveryFile(), &projectData);
+                    attachToCurrentEditState();
+                    aiManager.setEdit (audioEngine.getEdit());
+                    currentProjectFile = juce::File();
+                    hasUnsavedChanges = true;
+                    updateTitleBar();
+                    syncToolbarFromEngine();
+                    projectData.syncWithEngine(audioEngine.getEdit());
+                    syncInspectorToTrack (nullptr);
+                    syncMenuBarState();
+                    mixer.repaint();
+                    timeline.repaint();
+                }
+            });
+    };
+
+    const auto crashReport = CrashReporter::findUnseenReport (CrashReporter::getDefaultReportsFolder());
+
+    if (crashReport != juce::File() || audioEngine.hasCrashRecovery())
+    {
+        juce::MessageManager::callAsync ([crashReport, offerCrashRecovery]
+        {
+            if (crashReport == juce::File())
+            {
+                offerCrashRecovery();
+                return;
+            }
+
+            CrashReporter::markSeen (crashReport);
+
+            auto reason = CrashReporter::readReason (crashReport);
+            Dialogs::confirm ("Aerion DAW Crashed",
+                "Aerion DAW crashed last time" + (reason.isNotEmpty() ? " (" + reason + ")" : juce::String())
+                    + ".\n\nA crash report with the log of that session was saved in:\n"
+                    + crashReport.getFullPathName(),
+                "Show Report", "Close",
+                [crashReport, offerCrashRecovery] (bool show)
+                {
+                    if (show)
+                        crashReport.getChildFile ("report.txt").revealToUser();
+
+                    offerCrashRecovery();
                 });
         });
     }

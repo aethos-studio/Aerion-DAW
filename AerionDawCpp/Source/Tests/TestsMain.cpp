@@ -4,6 +4,7 @@
 #include "../Keymap.h"
 #include "../UI/GraphicsEngine.h"
 #include "../UI/Dialogs.h"
+#include "../CrashReporter.h"
 
 //==============================================================================
 // Aerion smoke tests (Milestone 5).
@@ -261,9 +262,23 @@ public:
     }
 };
 
-int main()
+// The CrashReporter test runs this app as "--crash-into <reports folder> <log file>":
+// install the crash handler, then crash.
+static int crashInto (const juce::File& reportsFolder, const juce::File& logFile)
+{
+    CrashReporter::install (reportsFolder, logFile);
+
+    volatile int* volatile nowhere = nullptr;
+    *nowhere = 1;
+    return 0;
+}
+
+int main (int argc, char* argv[])
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
+
+    if (argc == 4 && juce::String (argv[1]) == "--crash-into")
+        return crashInto (juce::File (juce::String::fromUTF8 (argv[2])), juce::File (juce::String::fromUTF8 (argv[3])));
 
     ConsoleUnitTestRunner runner;
     runner.setAssertOnFailure (false);

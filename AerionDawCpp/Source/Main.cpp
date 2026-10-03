@@ -2,6 +2,7 @@
 #include "MainComponent.h"
 #include "SplashWindow.h"
 #include "UIComponents.h"
+#include "CrashReporter.h"
 
 class AerionDawApplication  : public juce::JUCEApplication
 {
@@ -26,6 +27,10 @@ public:
             juce::Logger::setCurrentLogger (appLogger.get());
             juce::Logger::writeToLog ("=== Aerion starting ===");
             juce::Logger::writeToLog ("Log file: " + logFile.getFullPathName());
+
+            // Before anything else can crash. The report copies this session's
+            // log, which the next launch would otherwise delete.
+            CrashReporter::install (CrashReporter::getDefaultReportsFolder(), logFile);
             startupStartedMs = juce::Time::getMillisecondCounterHiRes();
         }
 
