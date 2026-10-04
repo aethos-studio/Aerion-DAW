@@ -84,10 +84,11 @@ Milestone 5 work on `main`:
 
 | Area | State |
 |---|---|
-| UI performance | Mostly done; scrolling by copying cached pixels and an audio-side hot-path review remain |
+| UI performance | Mostly done, including scrolling by copying cached pixels; an audio-side hot-path review remains |
 | Plugin crash protection | Crashes during audio processing are caught on Windows; crashes in plugin editors or state save/load, and all plugin crashes on macOS, still need out-of-process hosting |
 | Error reporting | Done: the app log shows in a **Console** bottom-panel tab; a crash writes a local report (stack, log, Windows minidump) that the next launch points to |
-| High-DPI / Retina | Typography tokens shipped (~40%); fixed-pixel layout audit not started |
+| High-DPI / Retina | Next up: an in-app UI size setting for large monitors, then the fixed-pixel layout audit; typography tokens shipped (~40%) |
+| Track heights | Fixed at 80 px; resizing by dragging a track's bottom edge is planned after UI scaling |
 | Tests | Smoke tests for `ProjectData`, `AerionKeymap`, `AudioEngineManager`, graphics engine choice, plugin fault handling and dialogs; `AerionBench --verify` pixel checks run in CI |
 | Packaging | Windows NSIS + optional self-signed signing; macOS DMG without notarization |
 | Accessibility | Not started |
