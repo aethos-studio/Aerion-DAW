@@ -30,7 +30,7 @@ class Mixer : public juce::Component,
     };
 
 public:
-    static constexpr int kStripW        = 110;
+    static constexpr int kStripW        = 118;
     static constexpr int kInsertColW    = 24;
     static constexpr int kFolderSubmixExtraW = 8;
     static constexpr int kHeaderH       = 28;
@@ -38,9 +38,9 @@ public:
     static constexpr int kNameH         = 20;
     static constexpr int kPanAreaH      = 36;   // rotary knob row
     static constexpr int kPanKnobSize   = 28;   // knob diameter
-    static constexpr int kSideBtnColW   = 26;   // right button column width
-    static constexpr int kSideBtnH      = 18;   // height per side button
-    static constexpr int kSideBtnGap    = 2;    // gap between buttons
+    static constexpr int kSideBtnColW   = 34;   // right button column width
+    static constexpr int kSideBtnH      = 20;   // height per side button
+    static constexpr int kSideBtnGap    = 4;    // gap between buttons
     static constexpr int kBottomH       = 16;   // peak-hold label
     static constexpr int kStripGap      = 6;
     static constexpr int kMasterGap     = 18;
@@ -660,6 +660,15 @@ public:
                 { ::setFaderFromY(audioEngine, activeFaderTrack, hit.faderArea, e.y); break; }
             repaint();
         }
+    }
+
+    /** Where `track`'s fader took mouse input at the last paint (for tests). */
+    juce::Rectangle<int> getFaderArea (const tracktion::Track* track) const
+    {
+        for (auto& hit : stripHits)
+            if (hit.track == track)
+                return hit.faderArea;
+        return {};
     }
 
     void mouseUp(const juce::MouseEvent& e) override

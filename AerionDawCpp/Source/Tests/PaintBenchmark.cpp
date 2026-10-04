@@ -193,6 +193,25 @@ namespace
         return compareImages (full, partial, region);
     }
 
+    /** Sends a left-button press at `from`, a drag to `to` and a release, as
+        the mouse would, straight to `c`'s handlers. */
+    void dragMouse (juce::Component& c, juce::Point<float> from, juce::Point<float> to)
+    {
+        auto source = juce::Desktop::getInstance().getMainMouseSource();
+        const auto now = juce::Time::getCurrentTime();
+        auto event = [&] (juce::Point<float> pos, juce::ModifierKeys mods, bool dragged)
+        {
+            return juce::MouseEvent (source, pos, mods, juce::MouseInputSource::defaultPressure,
+                                     juce::MouseInputSource::defaultOrientation, juce::MouseInputSource::defaultRotation,
+                                     juce::MouseInputSource::defaultTiltX, juce::MouseInputSource::defaultTiltY,
+                                     &c, &c, now, from, now, 1, dragged);
+        };
+        const juce::ModifierKeys left (juce::ModifierKeys::leftButtonModifier);
+        c.mouseDown (event (from, left, false));
+        c.mouseDrag (event (to, left, true));
+        c.mouseUp   (event (to, {}, true));
+    }
+
     /** Scrolls the Timeline the way the app does, reusing its cached pixels
         (Timeline::scrollTo), and compares the result with a full repaint at
         the new position. Paints `layers`, the Timeline's parent, because only
@@ -667,6 +686,54 @@ int main (int argc, char* argv[])
     }
     // Same region Mixer::repaintStripMetersArea() invalidates on each playback tick.
     const auto mixerMeters = mixer.getPlaybackRepaintRegion();
+
+    if (args.contains ("--verify"))
+    {
+        std::cout << "[verify mixer faders follow the mouse]" << std::endl;
+        juce::Array<tracktion::Track*> faderTracks;
+        if (auto tracks = audioEngine.getAudioTracks(); ! tracks.isEmpty())
+            faderTracks.add (tracks.getFirst());
+        faderTracks.add (audioEngine.getMasterTrack());
+
+        // A press jumps the fader to the pointer, so drag to the middle first,
+        // then 40 px up, which must be louder. Each value is read after the
+        // message loop has run for a while, so anything that writes the volume
+        // back has had its chance.
+        auto runLoopFor = [] (int ms)
+        {
+            juce::Timer::callAfterDelay (ms, [] { juce::MessageManager::getInstance()->stopDispatchLoop(); });
+            juce::MessageManager::getInstance()->runDispatchLoop();
+        };
+
+        for (bool playing : { false, true })
+        {
+            if (playing) { audioEngine.play(); runLoopFor (300); }
+
+            for (auto* t : faderTracks)
+            {
+                const auto area = mixer.getFaderArea (t);
+                const float originalDb = audioEngine.getTrackVolumeDb (t);
+                const auto mid = area.getCentre().toFloat();
+
+                dragMouse (mixer, mid, mid);
+                runLoopFor (500);
+                const float midDb = audioEngine.getTrackVolumeDb (t);
+                dragMouse (mixer, mid, mid.translated (0.0f, -40.0f));
+                runLoopFor (500);
+                const float upDb = audioEngine.getTrackVolumeDb (t);
+
+                const bool ok = ! area.isEmpty() && upDb > midDb + 1.0f;
+                const juce::String name = juce::String (t->isMasterTrack() ? "master fader" : "track fader")
+                                        + (playing ? ", playing" : ", stopped");
+                std::cout << "  " << name.paddedRight (' ', 28) << (ok ? "ok" : "FAILED")
+                          << " (" << midDb << " dB -> " << upDb << " dB)" << std::endl;
+                startupFailures += ok ? 0 : 1;
+                audioEngine.setTrackVolumeDb (t, originalDb);
+            }
+
+            if (playing) audioEngine.stop();
+        }
+    }
 
     // A clip in the middle of the arrangement, so a drag touches a typical row.
     tracktion::Clip* dragClip = nullptr;
