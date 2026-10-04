@@ -117,17 +117,19 @@ public:
         needing a repaint. Call repaintKeepingContents() afterwards so the
         window shows the result.
 
+        Parts of `area` still waiting to be repainted move along with the
+        pixels, so several scrolls between two paints all reuse pixels.
+
         Returns false and changes nothing when the pixels cannot be reused:
-        part of `area` is not cached yet, the image is not a software image
-        (moving a Direct2D image's pixels means a GPU readback), or the display
-        is scaled. Repaint the whole component then. */
+        nothing is cached yet, the image is not a software image (moving a
+        Direct2D image's pixels means a GPU readback), or the display is
+        scaled. Repaint the whole component then. */
     bool scroll (juce::Rectangle<int> area, int dx, int dy)
     {
         area = area.getIntersection (owner.getLocalBounds());
 
         if (area.isEmpty() || image.isNull() || ! imageIsSoftware
-             || image.getBounds() != owner.getLocalBounds()
-             || ! validArea.containsRectangle (area))
+             || image.getBounds() != owner.getLocalBounds())
             return false;
 
         const auto moved = area.getIntersection (area.translated (dx, dy));
@@ -136,8 +138,15 @@ public:
             image.moveImageSection (moved.getX(), moved.getY(), moved.getX() - dx, moved.getY() - dy,
                                     moved.getWidth(), moved.getHeight());
 
+        // Valid pixels inside the area moved with the content; whatever the
+        // move uncovered is not valid.
+        auto validInside = validArea;
+        validInside.clipTo (area);
+        validInside.offsetAll (dx, dy);
+        validInside.clipTo (moved);
+
         validArea.subtract (area);
-        validArea.add (moved);
+        validArea.add (validInside);
         return true;
     }
 

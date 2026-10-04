@@ -203,8 +203,10 @@ namespace
         Comparison comparison;
     };
 
+    /** stepsBeforePaint > 1 splits the scroll into that many scrollTo calls
+        with no paint in between, as fast wheel events between two frames are. */
     ScrollCheck checkScrollByCopy (juce::Component& layers, Timeline& timeline,
-                                   double newScrollPx, int newScrollY)
+                                   double dxPx, int dy, int stepsBeforePaint)
     {
         const int w = layers.getWidth(), h = layers.getHeight();
         const juce::SoftwareImageType software;
@@ -216,7 +218,10 @@ namespace
         }
 
         ScrollCheck result;
-        result.copied = timeline.scrollTo (newScrollPx, newScrollY);
+        result.copied = true;
+        for (int i = 0; i < stepsBeforePaint; ++i)
+            result.copied = timeline.scrollTo (timeline.getScrollPx() + dxPx / stepsBeforePaint,
+                                               timeline.getScrollY() + dy / stepsBeforePaint) && result.copied;
         {
             juce::Graphics g (viaCopy);
             layers.paintEntireComponent (g, false);
@@ -770,20 +775,21 @@ int main (int argc, char* argv[])
                 timeline.showAutomationLane (*tracks[2]);
             }
 
-            struct Step { const char* name; double dxPx; int dy; };
-            const Step steps[] = { { "scroll right 37 px",  37.0,  0 },
-                                   { "scroll left 113 px", -113.0, 0 },
-                                   { "scroll right 1 px",   1.0,   0 },
-                                   { "scroll down 60 px",   0.0,   60 },
-                                   { "scroll up 23 px",     0.0,  -23 },
-                                   { "scroll past a screen", 3000.0, 0 } };
+            struct Step { const char* name; double dxPx; int dy; int stepsBeforePaint; };
+            const Step steps[] = { { "scroll right 37 px",   37.0,  0,   1 },
+                                   { "scroll left 113 px",  -113.0, 0,   1 },
+                                   { "scroll right 1 px",    1.0,   0,   1 },
+                                   { "scroll down 60 px",    0.0,   60,  1 },
+                                   { "scroll up 23 px",      0.0,  -23,  1 },
+                                   { "3 x 20 px, one paint", 60.0,  0,   3 },
+                                   { "3 x 30 px down, 1 paint", 0.0, 90, 3 },
+                                   { "scroll past a screen", 3000.0, 0,  1 } };
 
             timeline.scrollTo (200.0, 0);   // away from the left limit, so scrolling left works
 
             for (auto& step : steps)
             {
-                const auto r = checkScrollByCopy (layers, timeline, timeline.getScrollPx() + step.dxPx,
-                                                  timeline.getScrollY() + step.dy);
+                const auto r = checkScrollByCopy (layers, timeline, step.dxPx, step.dy, step.stepsBeforePaint);
                 const bool ok = r.copied && r.comparison.visible == 0;
                 std::cout << "  " << juce::String (step.name).paddedRight (' ', 28)
                           << (r.copied ? r.comparison.describe() : juce::String ("NOT COPIED, repainted"))
