@@ -121,44 +121,18 @@ public:
         drawIconBtn (g, clickBtn,   iconMetronome.get(), metronomeEnabled);
         drawIconBtn (g, countInBtn, iconCountIn.get(),   countInBars > 0, Theme::active, true);
 
-        // Tiny CountIn state label below the icon
-        {
-            const char* countLabels[] = { "OFF", "1", "2" };
-            g.setColour (countInBars > 0 ? Theme::active : Theme::textMuted.withAlpha (0.6f));
-            g.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
-            g.drawText (countLabels[countInBars], countInBtn.getX(), countInBtn.getBottom() - 9,
-                        countInBtn.getWidth(), 9, juce::Justification::centred);
-        }
+        const char* countLabels[] = { "OFF", "1", "2" };
+        drawIconLabel (g, countInBtn, countLabels[countInBars], countInBars > 0);
 
         drawDivider (g, W - 132, btnY, h - btnY);
 
-        // Group 4: Snap (compact 24px square with icon + tiny sub-label)
-        snapBounds = { W - 162, btnY + 2, 24, 24 };
-        {
-            bool hov = snapBounds.contains (hoverPos);
-            auto bf = snapBounds.toFloat();
-            g.setColour (snapEnabled ? Theme::active.withAlpha (0.2f)
-                                     : hov ? Theme::surface.brighter (0.08f) : Theme::surface);
-            g.fillRoundedRectangle (bf, 3.0f);
-            g.setColour (snapEnabled ? Theme::active
-                                     : hov ? Theme::border.brighter (0.3f) : Theme::border);
-            g.drawRoundedRectangle (bf, 3.0f, 1.0f);
+        // Group 4: Snap (magnet with the interval below it)
+        snapBounds = { W - 164, btnY, btnS, btnS };
+        drawIconBtn (g, snapBounds, iconMagnet.get(), snapEnabled, Theme::active, true);
+        drawIconLabel (g, snapBounds, getSnapIntervalText (snapInterval), snapEnabled);
 
-            // Magnet icon
-            if (iconMagnet != nullptr)
-                Icons::draw (g, *iconMagnet, bf.reduced (2.0f).withTrimmedBottom (kIconLabelH - 3.0f),
-                             Icons::inkFor (snapEnabled, false, Theme::active));
-
-            // Tiny interval sub-label
-            g.setColour (snapEnabled ? Theme::active : Theme::textMuted);
-            g.setFont (Theme::uiSize (8.5f).withStyle (juce::Font::bold));
-            g.drawText (getSnapIntervalText (snapInterval),
-                        snapBounds.getX(), snapBounds.getBottom() - 8,
-                        snapBounds.getWidth(), 8, juce::Justification::centred);
-        }
-
-        // Group 4b: Auto-crossfade (tiny pill left of Snap)
-        xfadeBounds = { W - 194, btnY + 2, 28, 24 };
+        // Group 4b: Auto-crossfade (left of Snap)
+        xfadeBounds = { W - 196, btnY, btnS, btnS };
         drawIconBtn (g, xfadeBounds, iconXfade.get(), autoCrossfadeEnabled, Theme::active);
     }
 
@@ -321,8 +295,8 @@ private:
         if (juce::Rectangle<int> (W - 36,  btnY, btnS, btnS).contains (p)) return 7;
         if (juce::Rectangle<int> (W - 86,  btnY, btnS, btnS).contains (p)) return 8;
         if (juce::Rectangle<int> (W - 118, btnY, btnS, btnS).contains (p)) return 9;
-        if (juce::Rectangle<int> (W - 162, btnY + 2, 24, 24).contains (p)) return 10;
-        if (juce::Rectangle<int> (W - 194, btnY + 2, 28, 24).contains (p)) return 11;
+        if (juce::Rectangle<int> (W - 164, btnY, btnS, btnS).contains (p)) return 10;
+        if (juce::Rectangle<int> (W - 196, btnY, btnS, btnS).contains (p)) return 11;
         return 0;
     }
 
@@ -354,6 +328,17 @@ private:
 
     // Height of the state label under a toolbar icon (count-in, snap interval).
     static constexpr float kIconLabelH = 9.0f;
+
+    /** The state label inside the bottom of a button drawn with `labelBelow`,
+        kept clear of the border. */
+    static void drawIconLabel (juce::Graphics& g, juce::Rectangle<int> b,
+                               const juce::String& text, bool active)
+    {
+        g.setColour (active ? Theme::active : Theme::textMuted.withAlpha (0.6f));
+        g.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
+        g.drawText (text, b.getX() + 1, b.getBottom() - (int) kIconLabelH - 2,
+                    b.getWidth() - 2, (int) kIconLabelH, juce::Justification::centred);
+    }
 
     static void drawDivider (juce::Graphics& g, int x, int y, int h)
     {
