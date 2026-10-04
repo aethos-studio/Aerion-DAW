@@ -41,6 +41,7 @@ public:
     static constexpr int kSideBtnColW   = 34;   // right button column width
     static constexpr int kSideBtnH      = 20;   // height per side button
     static constexpr int kSideBtnGap    = 4;    // gap between buttons
+    static constexpr float kSideBtnTopFraction = 0.2f; // buttons start this far down the strip body
     static constexpr int kBottomH       = 16;   // peak-hold label
     static constexpr int kStripGap      = 6;
     static constexpr int kMasterGap     = 18;
@@ -263,6 +264,7 @@ public:
 
         auto stripBody = inner;
         auto rightCol = stripBody.removeFromRight (kSideBtnColW);
+        rightCol.removeFromTop (juce::roundToInt (rightCol.getHeight() * kSideBtnTopFraction));
         stripBody.removeFromRight (2);
 
         juce::Rectangle<int> insertCol;

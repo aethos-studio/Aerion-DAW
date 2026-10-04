@@ -27,9 +27,9 @@ public:
             case 9:  return countInBars > 0
                          ? juce::String::formatted ("Count-in: %d bar%s", countInBars, countInBars == 1 ? "" : "s")
                          : juce::String ("Count-in: off");
-            case 10: return snapEnabled
-                         ? juce::String ("Snap: ") + getSnapIntervalText (snapInterval)
-                         : juce::String ("Snap: off (right-click to choose interval)");
+            case 10: return (snapEnabled ? juce::String ("Snap: ") + getSnapIntervalText (snapInterval)
+                                         : juce::String ("Snap: off"))
+                          + " - Click to toggle, right-click for interval";
             case 11: return autoCrossfadeEnabled ? "Auto-crossfade (on)" : "Auto-crossfade (off)";
             default: return {};
         }
@@ -233,7 +233,7 @@ public:
             return;
         }
         if (snapBounds.contains (e.getPosition())) {
-            if (e.mods.isRightButtonDown() || e.x > snapBounds.getX() + 14)
+            if (e.mods.isPopupMenu())
             {
                 juce::PopupMenu m;
                 m.addItem (1, "Bar",  true, juce::approximatelyEqual (snapInterval, 4.0));
