@@ -1850,7 +1850,14 @@ void MainComponent::valueTreePropertyChanged (juce::ValueTree& v, const juce::Id
                 trackTree.setProperty (IDs::mute, v.getProperty(i), nullptr);
             else if (i == tracktion::IDs::solo)
                 trackTree.setProperty (IDs::solo, v.getProperty(i), nullptr);
+            else if (i == tracktion::IDs::name)
+                trackTree.setProperty (IDs::name, v.getProperty(i), nullptr);
         }
+
+        // The Mixer draws names straight from the engine; repaint it even for
+        // tracks ProjectData does not mirror.
+        if (i == tracktion::IDs::name)
+            mixer.repaint();
     }
     else if (v.hasType (tracktion::IDs::PLUGIN))
     {
