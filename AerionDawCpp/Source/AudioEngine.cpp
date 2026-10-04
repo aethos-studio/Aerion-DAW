@@ -1615,9 +1615,10 @@ tracktion::AudioTrack* AudioEngineManager::importAudioFileAtPosition (
     return track;
 }
 
-void AudioEngineManager::saveProject (const juce::File& file, class ProjectData* projectData)
+bool AudioEngineManager::saveProject (const juce::File& file, class ProjectData* projectData)
 {
-    if (edit == nullptr) return;
+    if (edit == nullptr)
+        return false;
 
     auto root = std::make_unique<juce::XmlElement> ("AerionProject");
     root->setAttribute ("version", 1);
@@ -1688,7 +1689,9 @@ void AudioEngineManager::saveProject (const juce::File& file, class ProjectData*
     if (auto editXml = edit->state.createXml())
         root->addChildElement (editXml.release());
 
-    root->writeTo (file);
+    // False on a failed write (full disk, read-only file). Callers must not
+    // mark the project clean or close it: the edits are only in memory.
+    return root->writeTo (file);
 }
 
 void AudioEngineManager::loadProject (const juce::File& file, class ProjectData* projectData)
@@ -2273,15 +2276,17 @@ void AudioEngineManager::setAutoSaveIntervalMins (int mins)
     }
 }
 
-juce::StringArray AudioEngineManager::collectAndSave (const juce::File& projectFile, class ProjectData* projectData)
+bool AudioEngineManager::collectAndSave (const juce::File& projectFile, juce::StringArray& skipped,
+                                         class ProjectData* projectData)
 {
-    juce::StringArray skipped;
-    if (edit == nullptr || !projectFile.hasFileExtension ("aerion")) return skipped;
+    skipped.clear();
+    if (edit == nullptr || ! projectFile.hasFileExtension ("aerion"))
+        return false;
 
     // Create "<ProjectName> Files/" folder beside the .aerion file
     auto mediaFolder = projectFile.getSiblingFile (projectFile.getFileNameWithoutExtension() + " Files");
-    if (!mediaFolder.createDirectory().wasOk())
-        return skipped;
+    if (! mediaFolder.createDirectory().wasOk())
+        return false;
 
     // Walk all audio clips and copy files
     std::map<juce::String, int> fileCountMap;  // for collision detection
@@ -2327,12 +2332,14 @@ juce::StringArray AudioEngineManager::collectAndSave (const juce::File& projectF
         }
     }
 
-    // Save the project with updated paths
-    saveProject (projectFile, projectData);
+    // Save the project with updated paths. A failed write must not look like
+    // success: the caller would mark the session clean and drop the edits.
+    if (! saveProject (projectFile, projectData))
+        return false;
+
     thumbnails.clear();
     broadcastStatusChange();
-
-    return skipped;
+    return true;
 }
 
 void AudioEngineManager::clearRecentProjects()

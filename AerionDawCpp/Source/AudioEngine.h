@@ -143,11 +143,15 @@ public:
     bool isTrackFreezing (tracktion::Track* track) const;
 
     // Persistence
-    void saveProject (const juce::File& file, class ProjectData* projectData = nullptr);
+    /** Writes the project file. False if it could not be written; the Edit is unchanged. */
+    bool saveProject (const juce::File& file, class ProjectData* projectData = nullptr);
     void loadProject (const juce::File& file, class ProjectData* projectData = nullptr);
     void createNewProject();
 
-    juce::StringArray collectAndSave (const juce::File& projectFile, class ProjectData* projectData = nullptr);
+    /** Copies audio next to the project and writes it. False if the project file
+        was not written. skipped receives source files that could not be copied. */
+    bool collectAndSave (const juce::File& projectFile, juce::StringArray& skipped,
+                         class ProjectData* projectData = nullptr);
     juce::RecentlyOpenedFilesList& getRecentProjects() { return recentProjects; }
     void clearRecentProjects();
 

@@ -219,8 +219,18 @@ private:
     bool projectHasUnsavedChanges() const;
     void markProjectClean();
     void refreshFromEngine();
+
+    /** Saves file. On failure, tells the user and leaves the session open. */
+    bool trySaveProjectFile (const juce::File& file);
+    void reportSaveFailed (const juce::File& file);
+
+    // Set when Save is chosen for an untitled project and the real work
+    // (new project, or quit) has to wait for the save dialog. Cleared when
+    // that dialog is cancelled or the write fails, so a later save does not
+    // quit or replace the session.
     bool pendingNewProjectAfterSave = false;
     bool pendingQuitAfterSave = false;
+    void abandonPendingSaveActions();
 
     int autoSaveElapsedMs = 0;
     int autoSaveIntervalMs = 5 * 60 * 1000;  // 5 min default

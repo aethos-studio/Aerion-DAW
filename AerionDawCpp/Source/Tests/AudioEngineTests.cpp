@@ -388,6 +388,39 @@ public:
             expect (engine.getEdit().getMasterTrack() != nullptr);
         }
 
+        beginTest ("saveProject reports a failed write and does not invent a file");
+        {
+            auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                           .getChildFile ("aerion-save-project-test");
+            dir.deleteRecursively();
+            expect (dir.createDirectory().wasOk());
+
+            auto* track = engine.addAudioTrack();
+            expect (track != nullptr);
+            track->setName ("SaveProbe");
+
+            auto project = dir.getChildFile ("Song.aerion");
+            expect (engine.saveProject (project, nullptr));
+            expect (project.existsAsFile());
+            expect (project.loadFileAsString().contains ("SaveProbe"));
+
+            // The parent path is a file, so the destination cannot be created.
+            auto blocked = project.getChildFile ("nested.aerion");
+            expect (! engine.saveProject (blocked, nullptr));
+            expect (! blocked.existsAsFile());
+            expect (project.loadFileAsString().contains ("SaveProbe"));
+
+            juce::StringArray skipped;
+            auto collected = dir.getChildFile ("Collected.aerion");
+            expect (engine.collectAndSave (collected, skipped, nullptr));
+            expect (collected.existsAsFile());
+            expect (! engine.collectAndSave (blocked, skipped, nullptr));
+            expect (! blocked.existsAsFile());
+
+            engine.deleteTrack (track);
+            dir.deleteRecursively();
+        }
+
         // Unsaved-changes tracking (hasUnsavedEdits / markEditSaved) is checked by
         // `AerionBench --verify` instead: Tracktion attaches its change listener
         // on the message loop after an Edit is created, and running the loop here

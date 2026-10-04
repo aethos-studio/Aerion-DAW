@@ -180,7 +180,9 @@ MainComponent::MainComponent()
                         return;
                     }
 
-                    audioEngine.saveProject (currentProjectFile, &projectData);
+                    if (! trySaveProjectFile (currentProjectFile))
+                        return;
+
                     markProjectClean();
                     updateTitleBar();
                 }
@@ -890,7 +892,9 @@ void MainComponent::createNewProject()
 
             if (currentProjectFile.existsAsFile())
             {
-                audioEngine.saveProject (currentProjectFile, &projectData);
+                if (! trySaveProjectFile (currentProjectFile))
+                    return;
+
                 markProjectClean();
                 updateTitleBar();
                 doCreateNewProject();
@@ -1051,7 +1055,9 @@ void MainComponent::openProject()
 
             if (currentProjectFile.existsAsFile())
             {
-                audioEngine.saveProject(currentProjectFile, &projectData);
+                if (! trySaveProjectFile (currentProjectFile))
+                    return;
+
                 markProjectClean();
                 updateTitleBar();
                 doOpenProjectChooser();
@@ -1074,7 +1080,9 @@ void MainComponent::requestQuit()
             {
                 if (currentProjectFile.existsAsFile())
                 {
-                    audioEngine.saveProject(currentProjectFile, &projectData);
+                    if (! trySaveProjectFile (currentProjectFile))
+                        return;
+
                     markProjectClean();
                 }
                 else
@@ -1094,7 +1102,9 @@ void MainComponent::saveProject()
 {
     if (currentProjectFile.existsAsFile())
     {
-        audioEngine.saveProject (currentProjectFile, &projectData);
+        if (! trySaveProjectFile (currentProjectFile))
+            return;
+
         markProjectClean();
         updateTitleBar();
     }
@@ -1111,28 +1121,37 @@ void MainComponent::saveProjectAs()
                           [this] (const juce::FileChooser& fc)
                           {
                               auto file = fc.getResult();
-                              if (file != juce::File())
+                              if (file == juce::File())
                               {
-                                  if (file.getFileExtension() != ".aerion")
-                                      file = file.withFileExtension (".aerion");
-                                  audioEngine.saveProject (file, &projectData);
-                                  currentProjectFile = file;
-                                  markProjectClean();
-                                  audioEngine.getRecentProjects().addFile (file);
-                                  updateTitleBar();
-
-                                  if (pendingNewProjectAfterSave)
-                                  {
-                                      pendingNewProjectAfterSave = false;
-                                      doCreateNewProject();
-                                  }
-
-                                  if (pendingQuitAfterSave)
-                                  {
-                                      pendingQuitAfterSave = false;
-                                      juce::JUCEApplication::getInstance()->quit();
-                                  }
+                                  // Cancelled. A later Save As must not quit or
+                                  // replace the project because of this dialog.
+                                  abandonPendingSaveActions();
+                                  return;
                               }
+
+                              if (file.getFileExtension() != ".aerion")
+                                  file = file.withFileExtension (".aerion");
+
+                              if (! trySaveProjectFile (file))
+                              {
+                                  abandonPendingSaveActions();
+                                  return;
+                              }
+
+                              currentProjectFile = file;
+                              markProjectClean();
+                              audioEngine.getRecentProjects().addFile (file);
+                              updateTitleBar();
+
+                              const bool startNewProject = pendingNewProjectAfterSave;
+                              const bool quitAfterSave = pendingQuitAfterSave;
+                              abandonPendingSaveActions();
+
+                              if (startNewProject)
+                                  doCreateNewProject();
+
+                              if (quitAfterSave)
+                                  juce::JUCEApplication::getInstance()->quit();
                           });
 }
 
@@ -1147,7 +1166,12 @@ void MainComponent::collectAndSaveAs()
                               {
                                   if (file.getFileExtension() != ".aerion")
                                       file = file.withFileExtension (".aerion");
-                                  auto skipped = audioEngine.collectAndSave (file, &projectData);
+                                  juce::StringArray skipped;
+                                  if (! audioEngine.collectAndSave (file, skipped, &projectData))
+                                  {
+                                      reportSaveFailed (file);
+                                      return;
+                                  }
                                   currentProjectFile = file;
                                   markProjectClean();
                                   audioEngine.getRecentProjects().addFile (file);
@@ -1772,6 +1796,29 @@ void MainComponent::markProjectClean()
 {
     hasUnsavedChanges = false;
     audioEngine.markEditSaved();
+}
+
+void MainComponent::reportSaveFailed (const juce::File& file)
+{
+    juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
+        "Save Failed",
+        "Could not save the project to:\n" + file.getFullPathName()
+            + "\n\nThe project is still open with your changes.");
+}
+
+bool MainComponent::trySaveProjectFile (const juce::File& file)
+{
+    if (audioEngine.saveProject (file, &projectData))
+        return true;
+
+    reportSaveFailed (file);
+    return false;
+}
+
+void MainComponent::abandonPendingSaveActions()
+{
+    pendingNewProjectAfterSave = false;
+    pendingQuitAfterSave = false;
 }
 
 void MainComponent::editStateChanged()
