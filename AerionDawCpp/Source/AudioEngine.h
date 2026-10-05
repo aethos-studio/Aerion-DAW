@@ -43,6 +43,8 @@ public:
 
     AerionKeymap& getKeymap()                   { return keymap; }
     juce::PropertiesFile* getUserSettings()     { return appProperties.getUserSettings(); }
+    /** Where the user settings file lives; for reading a setting before the engine exists. */
+    static juce::PropertiesFile::Options userSettingsOptions();
 
     void play()  { edit->getTransport().play(false); }
     void stop()  { edit->getTransport().stop(false, false); }

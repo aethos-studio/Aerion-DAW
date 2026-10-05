@@ -3,6 +3,7 @@
 #include "SplashWindow.h"
 #include "UIComponents.h"
 #include "CrashReporter.h"
+#include "UI/UiScale.h"
 
 class AerionDawApplication  : public juce::JUCEApplication
 {
@@ -32,6 +33,16 @@ public:
             // log, which the next launch would otherwise delete.
             CrashReporter::install (CrashReporter::getDefaultReportsFolder(), logFile);
             startupStartedMs = juce::Time::getMillisecondCounterHiRes();
+        }
+
+        // View -> UI Size, before the first window opens so every window,
+        // the splash included, comes up at that size.
+        {
+            juce::PropertiesFile settings (AudioEngineManager::userSettingsOptions());
+            const int choice = settings.getIntValue (UiScale::settingsKey, 0);
+            UiScale::apply (UiScale::percentFor (choice));
+            juce::Logger::writeToLog ("UI size: " + (choice <= 0 ? juce::String ("Auto") : juce::String (choice) + " %")
+                                      + " -> " + juce::String (UiScale::currentPercent()) + " %");
         }
 
         // Show splash immediately. Its onFinished callback reveals the main window
@@ -180,6 +191,12 @@ public:
             setFullScreen (true);
            #else
             setResizable (true, true);
+
+            // A large UI size can make the default layout bigger than the screen.
+            if (auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+                setSize (juce::jmin (getWidth(),  display->userArea.getWidth()),
+                         juce::jmin (getHeight(), display->userArea.getHeight()));
+
             centreWithSize (getWidth(), getHeight());
            #endif
 

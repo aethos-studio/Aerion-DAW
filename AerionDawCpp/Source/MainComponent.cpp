@@ -379,6 +379,12 @@ MainComponent::MainComponent()
             s->setValue (kLightweightUiKey, choice);
         applyLightweightUi (choice);
     };
+    menuBar.onUiSizeChanged = [this] (int choice)
+    {
+        if (auto* s = audioEngine.getUserSettings())
+            s->setValue (UiScale::settingsKey, choice);
+        applyUiSize (choice);
+    };
     menuBar.onGraphicsEngineChanged = [this] (int choice)
     {
         graphicsEngine.setChoice (GraphicsEngine::choiceFromInt (choice));
@@ -686,6 +692,7 @@ MainComponent::MainComponent()
     {
         graphicsEngine.setChoice (GraphicsEngine::choiceFromInt (s->getIntValue (GraphicsEngine::settingsKey, 0)));
         applyLightweightUi (s->getIntValue (kLightweightUiKey, 0));
+        uiSizeChoice = s->getIntValue (UiScale::settingsKey, 0);
     }
 
     // Restore the last-used workspace layout (built-in or custom) from settings.
@@ -988,6 +995,8 @@ void MainComponent::syncMenuBarState()
     menuBar.activeWorkspaceName = activeLayoutName;
     menuBar.lightweightUiChoice  = lightweightUiChoice;
     menuBar.lightweightUiActive  = Theme::lightweightUi();
+    menuBar.uiSizeChoice         = uiSizeChoice;
+    menuBar.uiSizePercent        = UiScale::currentPercent();
     menuBar.graphicsEngineChoice = (int) graphicsEngine.getChoice();
     menuBar.graphicsEngineInUse  = GraphicsEngine::resolvedEngineName (graphicsEngine.getChoice());
 
@@ -1344,6 +1353,37 @@ void MainComponent::applyLightweightUi (int choice)
         repaint();
     }
 
+    syncMenuBarState();
+}
+
+void MainComponent::applyUiSize (int choice)
+{
+    uiSizeChoice = choice <= 0 ? 0 : juce::jlimit (UiScale::kMinPercent, UiScale::kMaxPercent, choice);
+    const int percent = UiScale::percentFor (uiSizeChoice);
+
+    if (percent != UiScale::currentPercent())
+    {
+        // Windows keep their size on screen when the scale changes, so the
+        // main window would show less of the layout at a larger size. Keep its
+        // layout size instead, as far as the display allows.
+        auto* window = dynamic_cast<juce::ResizableWindow*> (getTopLevelComponent());
+        const auto layoutSize = window != nullptr ? window->getBounds() : juce::Rectangle<int>();
+
+        UiScale::apply (percent);
+
+        if (window != nullptr && ! window->isFullScreen() && ! window->isMinimised())
+            if (auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (window->getScreenBounds()))
+            {
+                const auto area = display->userArea;
+                window->setBounds (layoutSize.withPosition (window->getPosition())
+                                             .withSize (juce::jmin (layoutSize.getWidth(),  area.getWidth()),
+                                                        juce::jmin (layoutSize.getHeight(), area.getHeight()))
+                                             .constrainedWithin (area));
+            }
+    }
+
+    juce::Logger::writeToLog ("UI size: " + (uiSizeChoice == 0 ? juce::String ("Auto") : juce::String (uiSizeChoice) + " %")
+                              + " -> " + juce::String (UiScale::currentPercent()) + " %");
     syncMenuBarState();
 }
 

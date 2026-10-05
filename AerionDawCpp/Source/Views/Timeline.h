@@ -55,7 +55,9 @@ public:
         // invalidates. The playhead lives on TimelinePlayheadOverlay above it, so
         // moving it redraws from the cache. paint() fills every pixel, hence opaque.
         setOpaque (true);
-        setCachedComponentImage (new CachedLayer (*this));
+        auto* layer = new CachedLayer (*this);
+        layer->setUnderlay (Theme::backgroundMid());
+        setCachedComponentImage (layer);
 
         projectData.getProjectTree().addListener (this);
         audioEngine.addListener (this);
@@ -953,6 +955,16 @@ public:
         otherwise repaints everything. Returns true when pixels were moved. */
     bool scrollTo (double newScrollPx, int newScrollY)
     {
+        // On a scaled display only steps of whole physical pixels can reuse
+        // pixels, so positions stay on that grid (4 px at 125 %). The bottom
+        // of the content stays reachable.
+        if (const int step = scrollStep(); step > 1)
+        {
+            newScrollPx = std::round (newScrollPx / step) * step;
+            if (newScrollY < clampScrollY (std::numeric_limits<int>::max()))
+                newScrollY = juce::jmax (0, newScrollY / step * step);
+        }
+
         const double dx = scrollPx - newScrollPx;
         const int    dy = scrollY - newScrollY;
 
@@ -971,6 +983,15 @@ public:
 
     double getScrollPx() const   { return scrollPx; }
     int    getScrollY() const    { return scrollY; }
+
+    /** Scroll positions are multiples of this many logical pixels: 1 at
+        100 %, more on a scaled display (CachedLayer::getWholePixelStep). */
+    int scrollStep() const
+    {
+        if (auto* layer = dynamic_cast<CachedLayer*> (getCachedComponentImage()))
+            return layer->getWholePixelStep();
+        return 1;
+    }
 
     /** Shows a track's automation lane, as its A button does. */
     void showAutomationLane (tracktion::Track& track)
@@ -1918,7 +1939,9 @@ public:
 
                             auto& entry = waveformCache[wave->itemID.getRawID()];
                             const bool softwareCtx = isSoftwareContext (g);
+                            const float scale = physicalScaleOf (g);
                             if (entry.width != fullW || entry.height != h || entry.software != softwareCtx
+                                || ! juce::approximatelyEqual (entry.scale, scale)
                                 || ! juce::approximatelyEqual (entry.pxPerSec, pxPerSec)
                                 || ! juce::approximatelyEqual (entry.offset, offset)
                                 || ! juce::approximatelyEqual (entry.clipLen, clipLen)
@@ -1931,6 +1954,7 @@ public:
                                 entry.width         = fullW;
                                 entry.height        = h;
                                 entry.software      = softwareCtx;
+                                entry.scale         = scale;
                                 entry.samplesLoaded = samplesNow;
                             }
 
@@ -1947,29 +1971,38 @@ public:
                                 if (! g.clipRegionIntersects (onScreen))
                                     continue;
 
+                                // The tile in physical pixels (the same as logical
+                                // at 100 %), cut at whole physical pixels from the
+                                // waveform's left edge so neighbouring tiles meet.
+                                const int physX0 = juce::roundToInt ((float) tileX * scale);
+                                const int physX1 = juce::roundToInt ((float) (tileX + tileW) * scale);
+                                const int physW  = juce::jmax (1, physX1 - physX0);
+                                const int physH  = juce::jmax (1, juce::roundToInt ((float) h * scale));
+
                                 auto& image = entry.tiles[tile];
                                 if (image.isNull())
                                 {
-                                    const double audioStart    = offset + (double) tileX * clipLen / (double) fullW;
-                                    const double audioDuration = (double) tileW * clipLen / (double) fullW;
+                                    const double audioStart    = offset + (double) physX0 / scale * clipLen / (double) fullW;
+                                    const double audioDuration = (double) physW / scale * clipLen / (double) fullW;
 
                                     // Opaque and matched to the renderer, so drawing it is a plain copy.
-                                    image = makeImageFor (softwareCtx, juce::Image::RGB, tileW, h, false);
+                                    image = makeImageFor (softwareCtx, juce::Image::RGB, physW, physH, false);
                                     juce::Graphics ig (image);
                                     auto drawWave = [&] ()
                                     {
                                         if (recThumb != nullptr)
                                         {
-                                            recThumb->thumb->drawChannels (ig, { 0, 0, tileW, h }, audioStart, audioStart + audioDuration, 1.0f);
+                                            recThumb->thumb->drawChannels (ig, { 0, 0, physW, physH }, audioStart, audioStart + audioDuration, 1.0f);
                                         }
                                         else
                                         {
                                             auto& thumb = audioEngine.getThumbnailForClip (*wave, *this);
                                             tracktion::TimeRange vRange (tracktion::TimePosition::fromSeconds (audioStart),
                                                                          tracktion::TimeDuration::fromSeconds (audioDuration));
-                                            thumb.drawChannel (ig, { 0, 0, tileW, h }, vRange, 0, 1.0f);
+                                            thumb.drawChannel (ig, { 0, 0, physW, physH }, vRange, 0, 1.0f);
                                         }
                                     };
+                                    const float thicken = (float) juce::jmax (1, juce::roundToInt (scale));
 
                                     // Dark background so the waveform is always readable
                                     // regardless of clip colour, then white waveform on top.
@@ -1980,20 +2013,17 @@ public:
                                     drawWave();
                                     {
                                         juce::Graphics::ScopedSaveState ss (ig);
-                                        ig.addTransform (juce::AffineTransform::translation (0.0f, -1.0f));
+                                        ig.addTransform (juce::AffineTransform::translation (0.0f, -thicken));
                                         drawWave();
                                     }
                                     {
                                         juce::Graphics::ScopedSaveState ss (ig);
-                                        ig.addTransform (juce::AffineTransform::translation (0.0f,  1.0f));
+                                        ig.addTransform (juce::AffineTransform::translation (0.0f,  thicken));
                                         drawWave();
                                     }
                                 }
 
-                                // drawImage uses the current colour's opacity, which
-                                // depends on what was drawn before in this paint.
-                                g.setOpacity (1.0f);
-                                g.drawImageAt (image, onScreen.getX(), onScreen.getY());
+                                drawPhysicalImage (g, image, scale, { waveX, waveY }, { physX0, 0 });
                             }
 
                             // Keep the tiles near the view; a long clip at high zoom
@@ -3878,6 +3908,7 @@ private:
         int           height        = 0;
         juce::int64   samplesLoaded = -1;
         bool          software      = false;   // image type matches the renderer
+        float         scale         = 1.0f;    // tiles are in physical pixels at this scale
     };
     std::map<uint64_t, WaveformCacheEntry> waveformCache;
     ClipFrameCache clipFrames;   // nine-slice clip bodies, see UI/ClipFrame.h

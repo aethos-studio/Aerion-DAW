@@ -3,6 +3,7 @@
 #include "../ProjectData.h"
 #include "../Keymap.h"
 #include "../UI/GraphicsEngine.h"
+#include "../UI/UiScale.h"
 #include "../UI/Dialogs.h"
 #include "../CrashReporter.h"
 
@@ -248,7 +249,38 @@ public:
     }
 };
 
+class UiScaleTests final : public juce::UnitTest
+{
+public:
+    UiScaleTests() : juce::UnitTest ("UiScale", "Aerion") {}
+
+    void runTest() override
+    {
+        using namespace UiScale;
+
+        beginTest ("Auto grows the UI on tall displays");
+        expectEquals (autoPercentFor ({ 1920, 1080 }), 100);
+        expectEquals (autoPercentFor ({ 2560, 1440 }), 125);
+        expectEquals (autoPercentFor ({ 3440, 1440 }), 125);
+        expectEquals (autoPercentFor ({ 3840, 2160 }), 150);
+        // 4K at 150 % Windows scaling is already 2560 x 1440 in OS-scaled pixels.
+        expectEquals (autoPercentFor ({ 2560, 1440 }), 125);
+        expectEquals (autoPercentFor ({ 1366, 768 }),  100);
+
+        beginTest ("Auto keeps room for the layout on narrow displays");
+        // Tall but narrow (a portrait 1440p display): 1440 / 1.25 < 1280.
+        expectEquals (autoPercentFor ({ 1440, 2560 }), 100);
+        expectEquals (autoPercentFor ({ 1700, 2160 }), 125);
+
+        beginTest ("explicit sizes are clamped to the supported range");
+        expectEquals (percentFor (150), 150);
+        expectEquals (percentFor (50),  kMinPercent);
+        expectEquals (percentFor (400), kMaxPercent);
+    }
+};
+
 static DialogTests dialogTests;
+static UiScaleTests uiScaleTests;
 static ProjectDataTests projectDataTests;
 static KeymapTests keymapTests;
 static GraphicsEngineTests graphicsEngineTests;

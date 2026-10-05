@@ -295,6 +295,16 @@ bool AudioEngineManager::hasPluginFaulted (te::Plugin* plugin) const
     return external != nullptr && pluginFaults->hasFaulted (external);
 }
 
+juce::PropertiesFile::Options AudioEngineManager::userSettingsOptions()
+{
+    juce::PropertiesFile::Options options;
+    options.applicationName     = "Aerion DAW";
+    options.filenameSuffix      = ".settings";
+    options.osxLibrarySubFolder = "Application Support";
+    options.folderName          = "AerionDAW";
+    return options;
+}
+
 AudioEngineManager::AudioEngineManager()
 {
     const auto ctorStartMs = juce::Time::getMillisecondCounterHiRes();
@@ -305,12 +315,7 @@ AudioEngineManager::AudioEngineManager()
         return handlePluginFault (key, reason);
     };
 
-    juce::PropertiesFile::Options options;
-    options.applicationName     = "Aerion DAW";
-    options.filenameSuffix      = ".settings";
-    options.osxLibrarySubFolder = "Application Support";
-    options.folderName          = "AerionDAW";
-    appProperties.setStorageParameters (options);
+    appProperties.setStorageParameters (userSettingsOptions());
 
     // Crash detection: check if previous session terminated cleanly
     auto* s = appProperties.getUserSettings();

@@ -31,6 +31,9 @@
 //               [--verify]      exit code 2 if a partial repaint differs from a full one
 //               [--lightweight] measure with View -> Lightweight UI on
 //               [--full-only]   only the full Timeline repaint (for the profile breakdown)
+//               [--scale=1.25]  paint as a window at that display scale does (View -> UI
+//                               Size times Windows scaling): physical-size images, clip
+//                               regions rounded out to physical pixels
 //   AerionBench --tracks=4 --clips=3 --snapshots=<dir>
 //               renders an icon sheet and the toolbar, transport, menu bar, Timeline
 //               and Mixer at 100 % and 150 % scale to PNGs, then exits
@@ -38,6 +41,43 @@
 
 namespace
 {
+    // Display scale every scenario paints at (--scale). Images are physical
+    // size; components keep their logical size.
+    float gScale = 1.0f;
+
+    int physical (int logical)   { return (int) std::ceil ((float) logical * gScale - 0.001f); }
+
+    /** A logical region in physical pixels, rounded out the way a window
+        turns Component::repaint() areas into areas of the screen to redraw. */
+    juce::RectangleList<int> physicalRegion (const juce::RectangleList<int>& logical)
+    {
+        juce::RectangleList<int> out;
+        for (auto& r : logical)
+            out.add ((r.toFloat() * gScale).getSmallestIntegerContainer());
+        return out;
+    }
+
+    juce::Image makeImage (int logicalW, int logicalH, const juce::ImageType& type)
+    {
+        return juce::Image (juce::Image::ARGB, physical (logicalW), physical (logicalH), true, type);
+    }
+
+    /** Paints `c` into `image` like a window does: clipped to `logicalRegion`
+        rounded out to physical pixels, drawn through the display scale. */
+    void paintInto (juce::Image& image, juce::Component& c, const juce::RectangleList<int>& logicalRegion)
+    {
+        juce::Graphics g (image);
+        g.reduceClipRegion (physicalRegion (logicalRegion));
+        if (! juce::approximatelyEqual (gScale, 1.0f))
+            g.addTransform (juce::AffineTransform::scale (gScale));
+        c.paintEntireComponent (g, false);
+    }
+
+    void paintInto (juce::Image& image, juce::Component& c)
+    {
+        paintInto (image, c, c.getLocalBounds());
+    }
+
     int intArg (const juce::StringArray& args, juce::StringRef name, int fallback)
     {
         for (auto& a : args)
@@ -122,20 +162,27 @@ namespace
         positions can come out a level or two apart in their anti-aliased edge
         pixels, depending on where a repaint's clip edge cuts them or where on
         screen a curve was drawn; that is invisible. A real mistake (something
-        missing, misplaced or drawn twice) differs by far more. */
+        missing, misplaced or drawn twice) differs by far more.
+
+        On a scaled display, curves (rounded button corners) flatten slightly
+        differently at different absolute positions, so a corner moved by a
+        scroll and the same corner drawn in place can differ by about 15 levels
+        in their anti-aliased pixels; tolerance() allows for that there. */
     struct Comparison
     {
-        static constexpr int kTolerance = 4;   // levels out of 255, per channel
+        // Levels out of 255, per channel.
+        static int tolerance()   { return juce::approximatelyEqual (gScale, 1.0f) ? 4 : 24; }
 
         int differing = 0;   // pixels that differ at all
-        int visible = 0;     // pixels that differ by more than kTolerance
+        int visible = 0;     // pixels that differ by more than tolerance()
+        juce::Rectangle<int> visibleBounds;   // where they are
 
         juce::String describe() const
         {
             if (visible > 0)
-                return juce::String (visible) + " pixels differ";
+                return juce::String (visible) + " pixels differ in " + visibleBounds.toString();
             if (differing > 0)
-                return "ok (" + juce::String (differing) + " px within " + juce::String (kTolerance) + " levels)";
+                return "ok (" + juce::String (differing) + " px within " + juce::String (tolerance()) + " levels)";
             return "ok";
         }
     };
@@ -159,8 +206,12 @@ namespace
                                                              std::abs (pa.getGreen() - pb.getGreen())),
                                                  juce::jmax (std::abs (pa.getBlue()  - pb.getBlue()),
                                                              std::abs (pa.getAlpha() - pb.getAlpha())));
-                    if (diff > Comparison::kTolerance)
+                    if (diff > Comparison::tolerance())
+                    {
                         ++result.visible;
+                        result.visibleBounds = result.visibleBounds.isEmpty() ? juce::Rectangle<int> (x, y, 1, 1)
+                                                                              : result.visibleBounds.getUnion ({ x, y, 1, 1 });
+                    }
                 }
         }
 
@@ -175,22 +226,16 @@ namespace
                                     const juce::RectangleList<int>& region)
     {
         const juce::SoftwareImageType software;
-        juce::Image full (juce::Image::ARGB, width, height, true, software);
-        {
-            juce::Graphics g (full);
-            c.paintEntireComponent (g, false);
-        }
+        auto full = makeImage (width, height, software);
+        paintInto (full, c, juce::Rectangle<int> (width, height));
 
+        const auto physicalArea = physicalRegion (region);
         auto partial = full.createCopy();
-        for (auto& r : region)
+        for (auto& r : physicalArea)
             partial.clear (r);
-        {
-            juce::Graphics g (partial);
-            g.reduceClipRegion (region);
-            c.paintEntireComponent (g, false);
-        }
+        paintInto (partial, c, region);
 
-        return compareImages (full, partial, region);
+        return compareImages (full, partial, physicalArea);
     }
 
     /** Sends a left-button press at `from`, a drag to `to` and a release, as
@@ -212,6 +257,15 @@ namespace
         c.mouseUp   (event (to, {}, true));
     }
 
+    bool writePng (const juce::Image& image, const juce::File& dest)
+    {
+        dest.deleteFile();
+        juce::PNGImageFormat png;
+        if (auto out = std::unique_ptr<juce::FileOutputStream> (dest.createOutputStream()))
+            return png.writeImageToStream (image, *out);
+        return false;
+    }
+
     /** Scrolls the Timeline the way the app does, reusing its cached pixels
         (Timeline::scrollTo), and compares the result with a full repaint at
         the new position. Paints `layers`, the Timeline's parent, because only
@@ -230,41 +284,36 @@ namespace
         const int w = layers.getWidth(), h = layers.getHeight();
         const juce::SoftwareImageType software;
 
-        juce::Image viaCopy (juce::Image::ARGB, w, h, true, software);
-        {
-            juce::Graphics g (viaCopy);
-            layers.paintEntireComponent (g, false);   // fills the cache at the old position
-        }
+        auto viaCopy = makeImage (w, h, software);
+        paintInto (viaCopy, layers);   // fills the cache at the old position
 
         ScrollCheck result;
         result.copied = true;
         for (int i = 0; i < stepsBeforePaint; ++i)
             result.copied = timeline.scrollTo (timeline.getScrollPx() + dxPx / stepsBeforePaint,
                                                timeline.getScrollY() + dy / stepsBeforePaint) && result.copied;
-        {
-            juce::Graphics g (viaCopy);
-            layers.paintEntireComponent (g, false);
-        }
+        paintInto (viaCopy, layers);
 
         timeline.repaint();   // drop the cache
-        juce::Image fresh (juce::Image::ARGB, w, h, true, software);
-        {
-            juce::Graphics g (fresh);
-            layers.paintEntireComponent (g, false);
-        }
+        auto fresh = makeImage (w, h, software);
+        paintInto (fresh, layers);
 
-        result.comparison = compareImages (viaCopy, fresh, juce::Rectangle<int> (w, h));
+        result.comparison = compareImages (viaCopy, fresh, viaCopy.getBounds());
+
+        // AERION_BENCH_DUMP=<dir>: keep both images of a failed check for inspection.
+        if (result.comparison.visible > 0)
+            if (auto dumpDir = juce::SystemStats::getEnvironmentVariable ("AERION_BENCH_DUMP", {}); dumpDir.isNotEmpty())
+            {
+                static int dumpIndex = 0;
+                const juce::File dir (dumpDir);
+                dir.createDirectory();
+                ++dumpIndex;
+                writePng (viaCopy, dir.getChildFile ("scroll" + juce::String (dumpIndex) + "_copied.png"));
+                writePng (fresh,   dir.getChildFile ("scroll" + juce::String (dumpIndex) + "_fresh.png"));
+            }
         return result;
     }
 
-    bool writePng (const juce::Image& image, const juce::File& dest)
-    {
-        dest.deleteFile();
-        juce::PNGImageFormat png;
-        if (auto out = std::unique_ptr<juce::FileOutputStream> (dest.createOutputStream()))
-            return png.writeImageToStream (image, *out);
-        return false;
-    }
 
     /** Renders a component at a display scale factor (1.5 = 150 % Windows
         scaling), so layout and icon problems can be inspected without a window. */
@@ -381,15 +430,11 @@ namespace
     Result timePaint (juce::Component& c, int width, int height, int frames,
                       const juce::RectangleList<int>& clipRegion, const juce::ImageType& imageType)
     {
-        juce::Image image (juce::Image::ARGB, width, height, true, imageType);
+        auto image = makeImage (width, height, imageType);
 
         // One untimed pass so lazily-built caches (thumbnails, fonts) are warm
         // and the measured frames reflect steady state rather than first paint.
-        {
-            juce::Graphics g (image);
-            g.reduceClipRegion (clipRegion);
-            c.paintEntireComponent (g, false);
-        }
+        paintInto (image, c, clipRegion);
 
         Result r;
         r.minMs = std::numeric_limits<double>::max();
@@ -398,11 +443,7 @@ namespace
         for (int i = 0; i < frames; ++i)
         {
             const auto start = juce::Time::getHighResolutionTicks();
-            {
-                juce::Graphics g (image);
-                g.reduceClipRegion (clipRegion);
-                c.paintEntireComponent (g, false);
-            }
+            paintInto (image, c, clipRegion);
             accumulate (r, total, elapsedMsSince (start));
         }
 
@@ -418,11 +459,8 @@ namespace
     Result timeScroll (juce::Component& layers, Timeline& timeline, int frames,
                        double dxPx, int dy, const juce::ImageType& imageType)
     {
-        juce::Image image (juce::Image::ARGB, layers.getWidth(), layers.getHeight(), true, imageType);
-        {
-            juce::Graphics g (image);
-            layers.paintEntireComponent (g, false);
-        }
+        auto image = makeImage (layers.getWidth(), layers.getHeight(), imageType);
+        paintInto (image, layers);
 
         Result r;
         r.minMs = std::numeric_limits<double>::max();
@@ -433,10 +471,7 @@ namespace
             const int sign = (i % 2 == 0) ? 1 : -1;
             const auto start = juce::Time::getHighResolutionTicks();
             timeline.scrollTo (timeline.getScrollPx() + sign * dxPx, timeline.getScrollY() + sign * dy);
-            {
-                juce::Graphics g (image);
-                layers.paintEntireComponent (g, false);
-            }
+            paintInto (image, layers);
             accumulate (r, total, elapsedMsSince (start));
         }
 
@@ -456,7 +491,7 @@ namespace
     DragResult timeClipDrag (Timeline& timeline, tracktion::Clip& clip,
                              int width, int height, int frames, const juce::ImageType& imageType)
     {
-        juce::Image image (juce::Image::ARGB, width, height, true, imageType);
+        auto image = makeImage (width, height, imageType);
         const double originalStart = clip.getPosition().getStart().inSeconds();
 
         DragResult r;
@@ -477,11 +512,7 @@ namespace
             const double modelMs = elapsedMsSince (start);
 
             const auto paintStart = juce::Time::getHighResolutionTicks();
-            {
-                juce::Graphics g (image);
-                g.reduceClipRegion (oldArea.getUnion (timeline.getClipPaintBounds (clip)));
-                timeline.paintEntireComponent (g, false);
-            }
+            paintInto (image, timeline, oldArea.getUnion (timeline.getClipPaintBounds (clip)));
             const double paintMs = elapsedMsSince (paintStart);
 
             accumulate (r.modelUpdate, modelTotal, modelMs);
@@ -556,6 +587,9 @@ int main (int argc, char* argv[])
     // Flat fills instead of decorative gradients, as View -> Lightweight UI does.
     Theme::lightweightUi() = args.contains ("--lightweight");
 
+    if (auto scaleArg = stringArg (args, "--scale"); scaleArg.isNotEmpty())
+        gScale = juce::jlimit (0.5f, 4.0f, scaleArg.getFloatValue());
+
     const int numTracks    = intArg (args, "--tracks", 32);
     const int clipsPerTrack = intArg (args, "--clips",  20);
     const int frames       = intArg (args, "--frames", 200);
@@ -566,7 +600,8 @@ int main (int argc, char* argv[])
               << "  tracks=" << numTracks
               << " clips/track=" << clipsPerTrack
               << " frames=" << frames
-              << " size=" << width << "x" << height << std::endl;
+              << " size=" << width << "x" << height
+              << " scale=" << gScale << std::endl;
 
     AudioEngineManager audioEngine;
     ProjectData projectData;
@@ -854,9 +889,17 @@ int main (int argc, char* argv[])
 
             timeline.scrollTo (200.0, 0);   // away from the left limit, so scrolling left works
 
+            // Scaled, scrolls move in steps of whole physical pixels (4 px at
+            // 125 %); the Timeline learns the scale from its first paint.
+            {
+                auto image = makeImage (width, height, juce::SoftwareImageType());
+                paintInto (image, layers);
+            }
+            const int unit = timeline.scrollStep();
+
             for (auto& step : steps)
             {
-                const auto r = checkScrollByCopy (layers, timeline, step.dxPx, step.dy, step.stepsBeforePaint);
+                const auto r = checkScrollByCopy (layers, timeline, step.dxPx * unit, step.dy * unit, step.stepsBeforePaint);
                 const bool ok = r.copied && r.comparison.visible == 0;
                 std::cout << "  " << juce::String (step.name).paddedRight (' ', 28)
                           << (r.copied ? r.comparison.describe() : juce::String ("NOT COPIED, repainted"))

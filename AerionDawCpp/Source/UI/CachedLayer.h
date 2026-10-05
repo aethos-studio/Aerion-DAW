@@ -15,8 +15,10 @@
 //    uses a native (Direct2D) image, so with the software renderer every blit
 //    would read the image back from the GPU, and every cache refresh would
 //    render through Direct2D whatever engine the user picked.
-//  - At 100 % scale the image is copied at whole pixels, which the software
-//    renderer does as a plain memory copy.
+//  - The image is copied at whole physical pixels, which the software
+//    renderer does as a plain memory copy. On a scaled display (UI Size or
+//    Windows scaling) the window can place the component at a fraction of a
+//    pixel; snapping it there is invisible, resampling it is slow and blurry.
 //
 // Install with: component.setCachedComponentImage (new CachedLayer (component));
 //==============================================================================
@@ -25,6 +27,35 @@
 inline bool isSoftwareContext (juce::Graphics& g)
 {
     return dynamic_cast<juce::LowLevelGraphicsSoftwareRenderer*> (&g.getInternalContext()) != nullptr;
+}
+
+/** The display scale `g` draws at: 1.25 at 125 % UI Size, 1.5 at 150 %
+    Windows scaling, both multiplied together when both apply. */
+inline float physicalScaleOf (juce::Graphics& g)
+{
+    return g.getInternalContext().getPhysicalPixelScaleFactor();
+}
+
+/** Draws `image`, whose pixels are physical pixels at `scale`, with its
+    top-left `physicalOffset` physical pixels from the logical point `anchor`.
+    The position is snapped to whole physical pixels, so the image is copied
+    rather than resampled, and pieces drawn against the same anchor line up
+    without gaps or overlaps. Assumes `g`'s origin is on a whole physical
+    pixel, which holds inside a CachedLayer. */
+inline void drawPhysicalImage (juce::Graphics& g, const juce::Image& image, float scale,
+                               juce::Point<int> anchor, juce::Point<int> physicalOffset = {})
+{
+    // floor (v + 0.5), not roundToInt, which rounds halves to even: at 125 %
+    // a 4 px scroll moves an anchor at x.5 by 5 px and would flip its rounding.
+    const juce::Point<float> device (std::floor ((float) anchor.x * scale + 0.5f) + (float) physicalOffset.x,
+                                     std::floor ((float) anchor.y * scale + 0.5f) + (float) physicalOffset.y);
+
+    juce::Graphics::ScopedSaveState state (g);
+    g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
+    // drawImage uses the current colour's opacity, which otherwise depends on
+    // whatever was drawn before (and so on how much is being repainted).
+    g.setOpacity (1.0f);
+    g.drawImageTransformed (image, juce::AffineTransform::translation (device).scaled (1.0f / scale));
 }
 
 /** An image that draws fast into contexts like `g`: a software image for the
@@ -41,10 +72,18 @@ class CachedLayer final : public juce::CachedComponentImage
 public:
     explicit CachedLayer (juce::Component& c) noexcept : owner (c) {}
 
+    /** What an opaque owner's pixels are reset to before they are drawn again
+        on a scaled display. There, shapes meet inside physical pixels, and an
+        edge pixel keeps a share of whatever it held before; starting from a
+        fixed colour makes a redraw look the same as a fresh render. Pick the
+        owner's main background so the share is invisible. */
+    void setUnderlay (juce::Colour c) noexcept   { underlay = c; }
+
     void paint (juce::Graphics& g) override
     {
-        const float scale = g.getInternalContext().getPhysicalPixelScaleFactor();
+        const float scale = physicalScaleOf (g);
         const bool software = isSoftwareContext (g);
+        lastScale = scale;
 
         const auto compBounds  = owner.getLocalBounds();
         const auto imageBounds = compBounds * scale;
@@ -76,9 +115,9 @@ public:
             for (auto& r : validArea)
                 lg.excludeClipRectangle (r);
 
-            if (! owner.isOpaque())
+            if (! owner.isOpaque() || ! juce::approximatelyEqual (scale, 1.0f))
             {
-                lg.setFill (juce::Colours::transparentBlack);
+                lg.setFill (owner.isOpaque() ? underlay : juce::Colours::transparentBlack);
                 lg.fillRect (compBounds, true);
                 lg.setFill (juce::Colours::black);
             }
@@ -90,10 +129,27 @@ public:
         g.setColour (juce::Colours::black.withAlpha (owner.getAlpha()));
 
         if (juce::approximatelyEqual (scale, 1.0f))
+        {
             g.drawImageAt (image, 0, 0);
+        }
         else
-            g.drawImageTransformed (image, juce::AffineTransform::scale ((float) compBounds.getWidth()  / (float) imageBounds.getWidth(),
-                                                                          (float) compBounds.getHeight() / (float) imageBounds.getHeight()));
+        {
+            juce::Graphics::ScopedSaveState state (g);
+            g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
+            g.drawImageTransformed (image, juce::AffineTransform::scale (1.0f / scale));
+        }
+    }
+
+    /** The smallest step, in logical pixels, that is a whole number of
+        physical pixels at the current scale: 4 at 125 %, 2 at 150 %. Scrolling
+        in multiples of it lets scroll() reuse pixels on a scaled display.
+        1 when no small step fits (an unusual scale such as 110 %). */
+    int getWholePixelStep() const noexcept
+    {
+        for (int n = 1; n <= 8; ++n)
+            if (isWholePhysical (n))
+                return n;
+        return 1;
     }
 
     bool invalidateAll() override
@@ -122,21 +178,29 @@ public:
 
         Returns false and changes nothing when the pixels cannot be reused:
         nothing is cached yet, the image is not a software image (moving a
-        Direct2D image's pixels means a GPU readback), or the display is
-        scaled. Repaint the whole component then. */
+        Direct2D image's pixels means a GPU readback), the cache is for another
+        size or scale, or on a scaled display dx or dy is not a whole number of
+        physical pixels (see getWholePixelStep). Repaint the whole component then. */
     bool scroll (juce::Rectangle<int> area, int dx, int dy)
     {
         area = area.getIntersection (owner.getLocalBounds());
 
         if (area.isEmpty() || image.isNull() || ! imageIsSoftware
-             || image.getBounds() != owner.getLocalBounds())
+             || image.getBounds() != owner.getLocalBounds() * lastScale
+             || ! isWholePhysical (dx) || ! isWholePhysical (dy))
             return false;
 
         const auto moved = area.getIntersection (area.translated (dx, dy));
 
         if (! moved.isEmpty())
-            image.moveImageSection (moved.getX(), moved.getY(), moved.getX() - dx, moved.getY() - dy,
-                                    moved.getWidth(), moved.getHeight());
+        {
+            // Physical pixels lying wholly inside the moved area.
+            const auto src = (moved.translated (-dx, -dy).toFloat() * lastScale).getLargestIntegerWithin();
+            const int pdx = juce::roundToInt ((float) dx * lastScale);
+            const int pdy = juce::roundToInt ((float) dy * lastScale);
+            image.moveImageSection (src.getX() + pdx, src.getY() + pdy, src.getX(), src.getY(),
+                                    src.getWidth(), src.getHeight());
+        }
 
         // Valid pixels inside the area moved with the content; whatever the
         // move uncovered is not valid.
@@ -147,6 +211,18 @@ public:
 
         validArea.subtract (area);
         validArea.add (validInside);
+
+        // Scaled, the area's edges can cut through physical pixels that also
+        // show what lies next to the area; those were not moved. Redraw a
+        // logical pixel along each edge.
+        if (! juce::approximatelyEqual (lastScale, 1.0f))
+        {
+            validArea.subtract (area.withHeight (1));
+            validArea.subtract (area.withTrimmedTop (area.getHeight() - 1));
+            validArea.subtract (area.withWidth (1));
+            validArea.subtract (area.withTrimmedLeft (area.getWidth() - 1));
+        }
+
         return true;
     }
 
@@ -163,9 +239,17 @@ public:
     }
 
 private:
+    bool isWholePhysical (int logical) const noexcept
+    {
+        const float physical = (float) logical * lastScale;
+        return std::abs (physical - std::round (physical)) < 0.01f;
+    }
+
     juce::Component& owner;
     juce::Image image;
     juce::RectangleList<int> validArea;
+    float lastScale = 1.0f;
+    juce::Colour underlay { juce::Colours::black };
     bool imageIsSoftware = false;
     bool keepContents = false;
 

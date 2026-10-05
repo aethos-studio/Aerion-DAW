@@ -9,6 +9,7 @@
 #include "Views/ConsolePanel.h"
 #include "Export/MixdownExportDialog.h"
 #include "UI/GraphicsEngine.h"
+#include "UI/UiScale.h"
 
 class MainComponent  : public juce::Component,
                        public juce::DragAndDropContainer,
@@ -199,6 +200,11 @@ private:
     static constexpr const char* kLightweightUiKey = "lightweightUi";
     int lightweightUiChoice = 0;
     void applyLightweightUi (int choice);
+
+    // View -> UI Size: 0 = Auto, else percent (see UI/UiScale.h). Main.cpp
+    // applies the saved size at startup, before any window opens.
+    int uiSizeChoice = 0;
+    void applyUiSize (int choice);
     double meterTailUntilSec = 0.0;
     juce::uint32 lastChoreMs = 0;
 

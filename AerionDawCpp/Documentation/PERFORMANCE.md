@@ -28,6 +28,8 @@ cmake --build build-profiling --config Release --target AerionBench AerionDaw --
 .\build-profiling\AerionBench_artefacts\Release\AerionBench.exe --tracks=32 --clips=20 --frames=200
 ```
 
+Add `--scale=1.25` (with `--width` / `--height` set to the logical window size) to measure a scaled display, and `--verify` to check partial repaints and scrolling against full repaints.
+
 **In the app:** the profiling build writes a report every 5 s to `%APPDATA%\AerionDAW\aerion.log`. Each report has per-zone paint times and a `message thread:` line from the watchdog. The watchdog pings the message queue every 100 ms and records how long each ping waits, which is the delay a click or key press would see.
 
 ## Baseline: 2026-09-27
@@ -158,7 +160,7 @@ A scroll now moves the Timeline's cached lane pixels (`CachedLayer::scroll`) and
 - The automation curve runs through the points just beyond the view instead of being anchored at its edges.
 - Clip frames, waveform tiles and icons set their opacity before drawing images. They used whatever colour was set before them, so a partial repaint could draw a clip body or waveform transparent.
 
-Screen-fixed overlays (drag previews, the razor line, value tooltips, editors) and recording fall back to a full repaint, as do Direct2D (moving its pixels would mean a GPU readback) and scaled displays.
+Screen-fixed overlays (drag previews, the razor line, value tooltips, editors) and recording fall back to a full repaint, as does Direct2D (moving its pixels would mean a GPU readback). Scaled displays fell back too until October 5 (see UI scaling below).
 
 `AerionBench --verify` scrolls 1 to 3000 px in both directions and compares with a full repaint. A few dozen anti-aliased pixels on curves come out up to 4 levels (of 255) apart, because the same curve drawn at a different place on screen rounds slightly differently; the checks allow that and nothing more. Software renderer, Release, 1080p, 32 tracks:
 
@@ -168,6 +170,32 @@ Screen-fixed overlays (drag previews, the razor line, value tooltips, editors) a
 | Scroll 60 px down | 13.5 ms | **4.0 ms** |
 
 Most of the remaining time is copying the window-sized layer and walking every row and clip to find what touches the new strip.
+
+### UI scaling: View → UI Size and scaled displays (2026-10-05)
+
+**View → UI Size** (Auto / 100–200 %) scales the whole interface through JUCE's global scale factor, on top of Windows scaling. Auto picks 125 % on a 1440p display at 100 % Windows scaling and 150 % on 4K at 100 % (`UI/UiScale.h`). `AerionBench --scale=<factor>` paints every scenario and `--verify` check the way a scaled window does: physical-size images, repaint areas rounded out to physical pixels.
+
+Measured first, scaling cost far more than its extra pixels: at 125 % a full Timeline repaint took 59 ms instead of 13 ms, and scrolling fell back to that full repaint. Clip frames and waveform tiles were cached at 100 % and resampled on every paint (0.05 → 0.32 ms and 0.02 → 0.18 ms per clip). What changed:
+
+- Clip frames, waveform tiles and icon rasters are rendered at physical resolution and drawn at whole physical pixels (`drawPhysicalImage`), so they stay plain copies and sharp. The clip-frame nine-slice is cut into sub-images at whole physical pixels, so slices meet without the overlap that clipping would leave.
+- The cached Timeline layer is copied to the window at the nearest physical pixel instead of being resampled when the window puts it at a fractional position.
+- Scroll by copying works scaled: scroll positions snap to the smallest step that is a whole number of physical pixels (4 px at 125 %, 2 px at 150 %), `CachedLayer::scroll` moves physical pixels, and a logical pixel along each edge of the moved area is redrawn because those physical pixels also show what lies next to it.
+- Positions are rounded with `floor (x + 0.5)`; `roundToInt` rounds halves to even, and a 4 px scroll at 125 % moves a x.5 position by 5 px, flipping its rounding.
+- Areas the layer redraws start from the lane background when scaled. Fills meeting inside a physical pixel each cover part of it, and the pixel kept a share of whatever it held before, so a redraw differed from a fresh render.
+
+`--verify` passes at 100, 125, 150, 175 and 200 %. Scaled, it allows 24 levels instead of 4 per channel: rounded button corners flatten slightly differently at different absolute positions and differ by up to about 15 levels in their anti-aliased pixels after a scroll; missing or misplaced content differs by far more.
+
+Software renderer, Release, 32 tracks × 20 clips, the window filling the display (the logical size shrinks as the scale grows):
+
+| Display, UI Size | Logical size | Full repaint | Scroll 40 px sideways | Scroll 60 px down | Playhead | Clip drag |
+|---|---|---:|---:|---:|---:|---:|
+| 1080p, 100 % | 1920 × 1080 | 14.8 ms | 5.1 ms | 4.0 ms | 0.10 ms | 0.09 ms |
+| 1440p, 125 % | 2048 × 1152 | 26.1 ms | 12.7 ms | 10.0 ms | 0.15 ms | 0.09 ms |
+| 1440p, 150 % | 1706 × 960 | 23.5 ms | 10.6 ms | 9.8 ms | 0.16 ms | 0.08 ms |
+| 1440p, 200 % | 1280 × 720 | 21.2 ms | 10.0 ms | 9.5 ms | 0.18 ms | 0.08 ms |
+| 4K, 150 % | 2560 × 1440 | 57.6 ms | 24.1 ms | 20.1 ms | 0.23 ms | 0.10 ms |
+
+Before these changes, 1440p at 125 % measured 59 ms for a full repaint and the same for every scroll step. Costs now follow the pixel count (1440p has 1.78× the pixels of 1080p). Scrolling on 4K exceeds a frame with the software renderer, but Auto uses Direct2D on displays above 2560 × 1600: 16.2 ms full repaint and 16.9 ms per scroll step there (CPU submission time).
 
 ### Fixed along the way: crash when releasing the Edit
 

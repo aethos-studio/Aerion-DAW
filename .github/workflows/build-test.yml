@@ -75,6 +75,10 @@ jobs:
         shell: pwsh
         run: .\build\AerionBench_artefacts\Debug\AerionBench.exe --verify
 
+      - name: Run AerionBench verification at 125 % UI size
+        shell: pwsh
+        run: .\build\AerionBench_artefacts\Debug\AerionBench.exe --verify --scale=1.25 --tracks=8 --clips=6 --frames=1
+
       - name: Upload Windows app artefact
         uses: actions/upload-artifact@v4
         with:
@@ -135,6 +139,9 @@ jobs:
 
       - name: Run AerionBench verification
         run: ./build/AerionBench_artefacts/Debug/AerionBench --verify
+
+      - name: Run AerionBench verification at 125 % UI size
+        run: ./build/AerionBench_artefacts/Debug/AerionBench --verify --scale=1.25 --tracks=8 --clips=6 --frames=1
 
       - name: Upload test logs
         if: always()

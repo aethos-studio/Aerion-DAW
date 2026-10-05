@@ -4,6 +4,7 @@
 
 #include "ViewShared.h"
 #include "AboutDialog.h"
+#include "../UI/UiScale.h"
 
 //==============================================================================
 class DAWMenuBar : public juce::Component,
@@ -30,6 +31,8 @@ public:
     juce::String graphicsEngineInUse;        // e.g. "Software Renderer"
     int          lightweightUiChoice  = 0;   // 0 = Auto, 1 = On, 2 = Off
     bool         lightweightUiActive  = false;
+    int          uiSizeChoice         = 0;   // 0 = Auto, else percent
+    int          uiSizePercent        = 100; // what is in use
     bool   hasSelectedTrack = false;
     bool   hasSelectedClip  = false;
     bool   trackArmed       = false;
@@ -62,6 +65,7 @@ public:
     std::function<void(juce::String)> onDeleteWorkspace;
     std::function<void(int)>          onGraphicsEngineChanged;
     std::function<void(int)>          onLightweightUiChanged;
+    std::function<void(int)>          onUiSizeChanged;   // 0 = Auto, else percent
     std::function<void(juce::File)>   onOpenRecent;
     std::function<void()>             onClearRecent;
     std::function<void()>             onCollectSaveAs;
@@ -485,7 +489,17 @@ private:
         lightSub.addItem (602, "Off", true, lightweightUiChoice == 2);
         m.addSubMenu ("Lightweight UI", lightSub);
 
+        // Scales the whole interface (UI/UiScale.h); ids 700 + percent / 25.
+        juce::PopupMenu sizeSub;
+        sizeSub.addItem (700, "Auto (" + juce::String (uiSizePercent) + " %)", true, uiSizeChoice == 0);
+        sizeSub.addSeparator();
+        for (int percent : UiScale::kSizes)
+            sizeSub.addItem (700 + percent / 25, juce::String (percent) + " %", true, uiSizeChoice == percent);
+        m.addSubMenu ("UI Size", sizeSub);
+
         showMenu (m, [this] (int r) {
+            if (r >= 700 && r <= 708 && onUiSizeChanged)
+                onUiSizeChanged (r == 700 ? 0 : (r - 700) * 25);
             if (r >= 500 && r <= 502 && onGraphicsEngineChanged)
                 onGraphicsEngineChanged (r - 500);
             if (r >= 600 && r <= 602 && onLightweightUiChanged)
