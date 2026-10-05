@@ -88,7 +88,7 @@ Milestone 5 work on `main`:
 | Plugin crash protection | Crashes during audio processing are caught on Windows; crashes in plugin editors or state save/load, and all plugin crashes on macOS, still need out-of-process hosting |
 | Error reporting | Done: the app log shows in a **Console** bottom-panel tab; a crash writes a local report (stack, log, Windows minidump) that the next launch points to |
 | High-DPI / UI scaling | Done: **View → UI Size** (Auto / 100–200 %) scales the whole interface; the Timeline stays fast and sharp on scaled displays |
-| Track heights | Next up: fixed at 80 px today; resizing by dragging a track's bottom edge |
+| Track heights | Done: drag a track's bottom edge (or use Track Height in its context menu); saved per track |
 | Tests | Smoke tests for `ProjectData`, `AerionKeymap`, `AudioEngineManager`, graphics engine choice, plugin fault handling and dialogs; `AerionBench --verify` pixel checks run in CI |
 | Packaging | Windows NSIS + optional self-signed signing; macOS DMG without notarization |
 | Accessibility | Not started |

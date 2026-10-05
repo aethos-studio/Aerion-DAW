@@ -45,6 +45,7 @@ namespace IDs
     DECLARE_ID (trackInputDeviceIdx);
     DECLARE_ID (midiInputDevice);
     DECLARE_ID (monitorMode);
+    DECLARE_ID (laneHeight);          // int: Timeline lane height in px, on the Tracktion track state
 
     DECLARE_ID (isMidiTrack);
 

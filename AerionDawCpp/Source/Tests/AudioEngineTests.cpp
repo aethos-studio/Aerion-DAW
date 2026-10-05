@@ -388,6 +388,27 @@ public:
             expect (engine.getEdit().getMasterTrack() != nullptr);
         }
 
+        beginTest ("a track's lane height is saved with the project");
+        {
+            auto* track = engine.addAudioTrack();
+            expect (track != nullptr);
+            track->state.setProperty (IDs::laneHeight, 140, nullptr);
+
+            auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                            .getChildFile ("aerion_lane_height_test.aerion");
+            engine.saveProject (file);
+            engine.createNewProject();
+            engine.loadProject (file);
+
+            auto tracks = engine.getAudioTracks();
+            expectEquals (tracks.size(), 1);
+            if (! tracks.isEmpty())
+                expectEquals ((int) tracks.getFirst()->state.getProperty (IDs::laneHeight, 0), 140);
+
+            engine.createNewProject();
+            file.deleteFile();
+        }
+
         // Unsaved-changes tracking (hasUnsavedEdits / markEditSaved) is checked by
         // `AerionBench --verify` instead: Tracktion attaches its change listener
         // on the message loop after an Edit is created, and running the loop here

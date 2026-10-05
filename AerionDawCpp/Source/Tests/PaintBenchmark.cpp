@@ -768,6 +768,37 @@ int main (int argc, char* argv[])
 
             if (playing) audioEngine.stop();
         }
+
+        // Dragging a lane's bottom edge in the header column resizes the
+        // track, within its limits, and counts as a change to the project.
+        std::cout << "[verify track resize]" << std::endl;
+        if (auto rows = timeline.getVisibleRows(); ! rows.isEmpty())
+        {
+            auto* track = rows.getFirst().track;
+            auto edgeY = [&] { return (float) (Timeline::kRulerH + rows.getFirst().y + Timeline::getLaneHeight (track)
+                                               - timeline.getScrollY()); };
+            audioEngine.markEditSaved();
+
+            const juce::Point<float> start (100.0f, edgeY());
+            dragMouse (timeline, start, start.translated (0.0f, 40.0f));
+            const int grown = Timeline::getLaneHeight (track);
+            const bool marked = audioEngine.hasUnsavedEdits();
+
+            const juce::Point<float> again (100.0f, edgeY());
+            dragMouse (timeline, again, again.translated (0.0f, -500.0f));
+            const int shrunk = Timeline::getLaneHeight (track);
+
+            auto check = [&] (const juce::String& name, bool ok, const juce::String& detail)
+            {
+                std::cout << "  " << name.paddedRight (' ', 32) << (ok ? "ok" : "FAILED") << " (" << detail << ")" << std::endl;
+                startupFailures += ok ? 0 : 1;
+            };
+            check ("drag edge down 40 px", grown == Timeline::kTrackH + 40, juce::String (grown) + " px");
+            check ("drag far up stops at minimum", shrunk == Timeline::kMinTrackH, juce::String (shrunk) + " px");
+            check ("resize marks project unsaved", marked, marked ? "yes" : "no");
+
+            timeline.setLaneHeights ({ track }, Timeline::kTrackH);
+        }
     }
 
     // A clip in the middle of the arrangement, so a drag touches a typical row.
@@ -792,6 +823,12 @@ int main (int argc, char* argv[])
         auto tracks = audioEngine.getAudioTracks();
         if (tracks.size() > 1) audioEngine.toggleTrackMute (tracks[0]);
         if (tracks.size() > 2) audioEngine.toggleTrackSolo (tracks[1]);
+        // A Small and a Large track, to see the header layouts.
+        if (tracks.size() > 3)
+        {
+            timeline.setLaneHeights ({ tracks[2] }, Timeline::kMinTrackH);
+            timeline.setLaneHeights ({ tracks[3] }, 140);
+        }
 
         DAWMenuBar menuBar;
         DAWToolbar toolbar;
@@ -875,6 +912,10 @@ int main (int argc, char* argv[])
                                                     0.2f + 0.6f * (float) ((i * 5) % 7) / 6.0f, 0.0f);
 
                 timeline.showAutomationLane (*tracks[2]);
+
+                // Rows of different heights, as resized tracks give.
+                timeline.setLaneHeights ({ tracks[2] }, 140);
+                timeline.setLaneHeights ({ tracks[3] }, Timeline::kMinTrackH);
             }
 
             struct Step { const char* name; double dxPx; int dy; int stepsBeforePaint; };

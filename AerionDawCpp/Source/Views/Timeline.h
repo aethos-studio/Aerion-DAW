@@ -30,7 +30,16 @@ public:
     static constexpr int kRulerH           = kRulerTopH + kRulerBotH;
     static constexpr int kRulerContentX    = kHeaderWidth + kRulerLaneLabelW;
     static constexpr int kHeaderBarH  = 32;
-    static constexpr int kTrackH      = 80;
+    static constexpr int kTrackH      = 80;    // default lane height; the full header fits
+    static constexpr int kMinTrackH   = 56;    // name and M / S / R / A still fit, FX is hidden
+    static constexpr int kMaxTrackH   = 400;
+    static constexpr int kAutoLaneH   = 80;    // automation lane below a track
+    static constexpr int kResizeGrabH = 4;     // grab zone around a lane's bottom edge, each side
+
+    struct TrackHeightPreset { const char* name; int height; };
+    static constexpr TrackHeightPreset kTrackHeightPresets[] = {
+        { "Small", kMinTrackH }, { "Normal", kTrackH }, { "Large", 140 }, { "Huge", 240 } };
+    static constexpr int kNumTrackHeightPresets = (int) std::size (kTrackHeightPresets);
     static constexpr int kFooterH     = 28;
     static constexpr int kVScrollW    = 12;
 
@@ -157,6 +166,8 @@ public:
     {
         if (hoveredTempoNodeIndex >= 0)
             return juce::MouseCursor::UpDownLeftRightResizeCursor;
+        if (resizeTrack != nullptr || hoverResizeTrack != nullptr)
+            return juce::MouseCursor::UpDownResizeCursor;
         if (activeTool == EditTool::razor)
             return juce::MouseCursor::CrosshairCursor;
         if (hoverDragMode == DragMode::trimLeft || hoverDragMode == DragMode::trimRight)
@@ -180,6 +191,13 @@ public:
                 setMouseCursor (getMouseCursor());
                 repaint (tempoLaneArea());
             }
+        }
+
+        // A lane's bottom edge in the header column resizes the track.
+        if (auto* edgeTrack = getLaneEdgeTrackAt (e.getPosition()); edgeTrack != hoverResizeTrack)
+        {
+            hoverResizeTrack = edgeTrack;
+            setMouseCursor (getMouseCursor());
         }
 
         if (activeTool == EditTool::razor)
@@ -300,6 +318,13 @@ public:
     enum class DragMode : int { none, move, trimLeft, trimRight, fadeLeft, fadeRight, loopStart, loopEnd, marker, tempoNode, timeSigNode };
     DragMode dragMode = DragMode::none;
     DragMode hoverDragMode = DragMode::none;
+
+    // Track resize by dragging a lane's bottom edge in the header column.
+    // hoverResizeTrack is only compared, never dereferenced.
+    tracktion::Track* hoverResizeTrack = nullptr;
+    tracktion::Track* resizeTrack = nullptr;
+    juce::Array<tracktion::Track*> resizeGroup;
+    int resizeStartY = 0, resizeStartH = kTrackH;
     tracktion::MarkerClip* draggingMarker = nullptr;
     double dragOffset = 0;
     double dragStartVal = 0;
@@ -1640,7 +1665,7 @@ public:
             const juce::Rectangle<float> body (timeToX (pos.getStart().inSeconds()),
                                                (float) (laneTop() + row.y - scrollY),
                                                (float) (pos.getLength().inSeconds() * pxPerSec),
-                                               (float) kTrackH);
+                                               (float) getLaneHeight (track));
 
             return body.expanded (kClipPaintMargin).getSmallestIntegerContainer()
                        .getIntersection ({ kHeaderWidth, laneTop(),
@@ -1656,11 +1681,82 @@ public:
             || m == DragMode::fadeLeft || m == DragMode::fadeRight;
     }
 
+    /** A track's lane height: what its bottom edge was dragged to, saved with
+        the project on the track's state (IDs::laneHeight), kTrackH by default. */
+    static int getLaneHeight (const tracktion::Track* t)
+    {
+        return juce::jlimit (kMinTrackH, kMaxTrackH, (int) t->state.getProperty (IDs::laneHeight, kTrackH));
+    }
+
+    /** The whole row: the lane plus its automation lane when shown. */
     int getTrackHeight (tracktion::Track* t) const
     {
+        const int lane = getLaneHeight (t);
         if (automationVisibleTracks.contains (t->itemID.toString()))
-            return kTrackH * 2;
-        return kTrackH;
+            return lane + kAutoLaneH;
+        return lane;
+    }
+
+    /** The track whose lane's bottom edge is under `pos` in the header
+        column, or nullptr. Dragging that edge resizes the track. */
+    tracktion::Track* getLaneEdgeTrackAt (juce::Point<int> pos)
+    {
+        if (pos.x < 0 || pos.x >= kHeaderWidth || pos.y < laneTop() || pos.y >= laneBottom())
+            return nullptr;
+
+        const int targetY = pos.y - kRulerH + scrollY;
+        for (auto& row : getVisibleRows())
+        {
+            const int edge = row.y + getLaneHeight (row.track);
+            if (std::abs (targetY - edge) <= kResizeGrabH)
+                return row.track;
+            if (row.y > targetY + kResizeGrabH)
+                break;
+        }
+        return nullptr;
+    }
+
+    /** Sets lane heights and lays the Timeline out again. The Edit is marked
+        changed (heights are saved with the project) but not through the undo
+        manager: resizing a track is not an edit to undo. */
+    bool setLaneHeights (const juce::Array<tracktion::Track*>& tracks, int height)
+    {
+        height = juce::jlimit (kMinTrackH, kMaxTrackH, height);
+        bool changed = false;
+        for (auto* t : tracks)
+        {
+            if (getLaneHeight (t) == height)
+                continue;
+            if (height == kTrackH)
+                t->state.removeProperty (IDs::laneHeight, nullptr);
+            else
+                t->state.setProperty (IDs::laneHeight, height, nullptr);
+            changed = true;
+        }
+
+        if (changed)
+        {
+            updateScrollBar();
+            repaint();
+        }
+        return changed;
+    }
+
+    /** setLaneHeights for a finished gesture: marks the project changed. */
+    void commitLaneHeights (const juce::Array<tracktion::Track*>& tracks, int height)
+    {
+        if (setLaneHeights (tracks, height))
+            audioEngine.getEdit().markAsChanged();
+    }
+
+    /** The tracks a resize of `t` applies to: all selected tracks when `t` is
+        one of them, otherwise just `t`. */
+    juce::Array<tracktion::Track*> getResizeGroup (tracktion::Track* t)
+    {
+        auto selected = getSelectedTracks();
+        if (selected.contains (t))
+            return selected;
+        return { t };
     }
 
     int drawTrackRow(juce::Graphics& g, tracktion::Track* track, int topIndex, int indent, int y)
@@ -1668,6 +1764,7 @@ public:
         auto* folder = dynamic_cast<tracktion::FolderTrack*>(track);
         auto* audio  = dynamic_cast<tracktion::AudioTrack*>(track);
         int   rowH   = getTrackHeight(track);
+        const int laneH = getLaneHeight (track);
 
         AERION_PROFILE_COUNT ("Timeline.rowsVisited", 1);
 
@@ -1789,10 +1886,15 @@ public:
             paintLetterButton (g, rB, "R", isArm,  Theme::recordRed);
             paintLetterButton (g, aB, "A", isAuto, Theme::active);
 
-            int fxY = btnY + 24;
-            auto fxB = juce::Rectangle<int>(textX, fxY, 76, 20);
-            int  numFx = track->pluginList.size();
-            drawFxBadge (g, fxB, numFx);
+            // Below kTrackH the FX badge does not fit; the inserts stay in
+            // the Inspector and the Mixer.
+            if (laneH >= kTrackH)
+            {
+                int fxY = btnY + 24;
+                auto fxB = juce::Rectangle<int>(textX, fxY, 76, 20);
+                int  numFx = track->pluginList.size();
+                drawFxBadge (g, fxB, numFx);
+            }
 
             if (audio != nullptr)
             {
@@ -1800,7 +1902,7 @@ public:
                 const bool freezing = audioEngine.isTrackFreezing (audio);
                 if (frozen || freezing)
                 {
-                    auto badge = juce::Rectangle<int> (kHeaderWidth - 88, y + rowH - 24, 76, 18);
+                    auto badge = juce::Rectangle<int> (kHeaderWidth - 88, y + laneH - 24, 76, 18);
                     const auto badgeColour = freezing ? Theme::meterYellow : juce::Colours::skyblue;
                     g.setColour (badgeColour.withAlpha (0.20f));
                     g.fillRoundedRectangle (badge.toFloat(), 4.0f);
@@ -1814,7 +1916,7 @@ public:
 
         // Automation lane (volume / pan curve, editable).
         if (isAuto)
-            drawAutomationLane (g, track, topIndex, y + kTrackH);
+            drawAutomationLane (g, track, topIndex, y + laneH);
 
         // Clips (audio tracks only)
         if (audio != nullptr)
@@ -1841,8 +1943,8 @@ public:
                     else
                         laneEndTimes.set (laneIdx, endT);
 
-                    float laneH = (float) (kTrackH - 10) / (float) juce::jmax (1, laneEndTimes.size());
-                    float clipY = (float) y + 5.0f + (float) laneIdx * laneH;
+                    float subLaneH = (float) (laneH - 10) / (float) juce::jmax (1, laneEndTimes.size());
+                    float clipY = (float) y + 5.0f + (float) laneIdx * subLaneH;
                     
                     juce::Rectangle<float> cb (timeToX (startT), clipY, (float) (endT - startT) * pxPerSec, laneH - 2.0f);
                     if (cb.getRight() < kHeaderWidth || cb.getX() > getWidth()) continue;
@@ -1893,7 +1995,7 @@ public:
                     }
 
                     juce::Rectangle<float> cb(timeToX(start),
-                                              (float)y + 2.0f, len * pxPerSec, (float)kTrackH - 4.0f);
+                                              (float)y + 2.0f, len * pxPerSec, (float)laneH - 4.0f);
 
                     // Whole-pixel clip edges, so the frame and waveform are copied
                     // from cached images rather than resampled at fractional offsets.
@@ -2186,7 +2288,7 @@ public:
                 const float endX   = timeToX ((float) nowSec);
                 if (endX <= startX) continue;
 
-                juce::Rectangle<float> cb (startX, (float) y + 2.0f, endX - startX, (float) kTrackH - 4.0f);
+                juce::Rectangle<float> cb (startX, (float) y + 2.0f, endX - startX, (float) laneH - 4.0f);
                 if (cb.getRight() < kHeaderWidth || cb.getX() > getWidth()) continue;
 
                 {
@@ -2282,7 +2384,7 @@ public:
                         const float startX = timeToX ((float) recStartSec);
                         const float endX   = timeToX ((float) nowSec);
                         juce::Rectangle<float> cb (startX, (float)y + 2.0f,
-                                                   endX - startX, (float)kTrackH - 4.0f);
+                                                   endX - startX, (float)laneH - 4.0f);
 
                         if (cb.getRight() >= kHeaderWidth && cb.getX() <= (float)getWidth())
                         {
@@ -2382,13 +2484,13 @@ public:
     juce::Rectangle<int> getAutomationCurveArea (int laneTopY) const
     {
         return { kHeaderWidth, laneTopY,
-                 juce::jmax (0, getWidth() - kHeaderWidth - kVScrollW), kTrackH };
+                 juce::jmax (0, getWidth() - kHeaderWidth - kVScrollW), kAutoLaneH };
     }
 
     juce::Rectangle<int> getAutomationToggleArea (int laneTopY) const
     {
         // Pill in the lane header column
-        return { 14, laneTopY + kTrackH / 2 - 11, 70, 22 };
+        return { 14, laneTopY + kAutoLaneH / 2 - 11, 70, 22 };
     }
 
     float valueToY (tracktion::AutomatableParameter* param,
@@ -2429,12 +2531,12 @@ public:
 
         // Background bands (header + curve area).
         g.setColour (Theme::bgPanel.withAlpha (0.55f));
-        g.fillRect (juce::Rectangle<int> (0, laneTopY, kHeaderWidth, kTrackH));
+        g.fillRect (juce::Rectangle<int> (0, laneTopY, kHeaderWidth, kAutoLaneH));
         g.setColour (juce::Colours::black.withAlpha (0.22f));
         g.fillRect (curveArea);
         g.setColour (Theme::border);
         g.drawLine (0.0f, (float) laneTopY, (float) getWidth(), (float) laneTopY);
-        g.fillRect (kHeaderWidth - 1, laneTopY, 1, kTrackH);
+        g.fillRect (kHeaderWidth - 1, laneTopY, 1, kAutoLaneH);
 
         // Header: param selector + label.
         auto kind = paramKindFor (track);
@@ -2604,11 +2706,12 @@ public:
             auto& row = rows.getReference (rIdx);
             if (! automationVisibleTracks.contains (row.track->itemID.toString()))
                 continue;
-            // Lane occupies the bottom half of an expanded row.
-            if (targetY < row.y + kTrackH || targetY >= row.y + row.height)
+            // The automation lane is below the track's own lane.
+            const int trackLaneH = getLaneHeight (row.track);
+            if (targetY < row.y + trackLaneH || targetY >= row.y + row.height)
                 continue;
 
-            const int laneTopScreenY = kRulerH + row.y + kTrackH - scrollY;
+            const int laneTopScreenY = kRulerH + row.y + trackLaneH - scrollY;
 
             // Vol/Pan toggle in lane header column.
             if (e.x < kHeaderWidth)
@@ -2678,6 +2781,18 @@ public:
         // Footer / vertical scrollbar  -  don't interfere.
         if (e.y >= laneBottom() || e.x >= getWidth() - kVScrollW) return;
 
+        // A lane's bottom edge in the header column: resize the track (and
+        // the other selected tracks when it is selected).
+        if (! e.mods.isPopupMenu())
+            if (auto* edgeTrack = getLaneEdgeTrackAt (e.getPosition()))
+            {
+                resizeTrack  = edgeTrack;
+                resizeGroup  = getResizeGroup (edgeTrack);
+                resizeStartY = e.y;
+                resizeStartH = getLaneHeight (edgeTrack);
+                return;
+            }
+
         if (activeTool == EditTool::comp)
         {
             auto rows = getVisibleRows();
@@ -2698,7 +2813,7 @@ public:
                             if (laneIdx == laneEndTimes.size()) laneEndTimes.add (endT);
                             else laneEndTimes.set (laneIdx, endT);
 
-                            float laneH = (float) (kTrackH - 10) / (float) juce::jmax (1, laneEndTimes.size());
+                            float laneH = (float) (getLaneHeight (row.track) - 10) / (float) juce::jmax (1, laneEndTimes.size());
                             float clipY = (float) row.y + 5.0f + (float) laneIdx * laneH;
                             float screenY = (float) kRulerH + clipY - (float) scrollY;
                             juce::Rectangle<float> cb (timeToX (startT), screenY, (float) (endT - startT) * pxPerSec, laneH - 2.0f);
@@ -2928,7 +3043,8 @@ public:
                     }
 
                     // FX hit.
-                    if (juce::Rectangle<int>(textX, fxY, 76, 20).contains (e.getPosition()))
+                    if (getLaneHeight (clickedTrack) >= kTrackH
+                        && juce::Rectangle<int>(textX, fxY, 76, 20).contains (e.getPosition()))
                     {
                         auto* w = new PluginManagerWindow (clickedTrack, audioEngine);
                         w->toFront(true);
@@ -3067,10 +3183,26 @@ public:
             m.addSeparator();
         }
 
+        // Also reachable by dragging the lane's bottom edge in the header.
+        {
+            const int current = getLaneHeight (track);
+            juce::PopupMenu heightSub;
+            for (int i = 0; i < kNumTrackHeightPresets; ++i)
+                heightSub.addItem (30 + i, kTrackHeightPresets[i].name, true, current == kTrackHeightPresets[i].height);
+            m.addSubMenu ("Track Height", heightSub);
+            m.addSeparator();
+        }
+
         m.addItem (2, "Delete Track");
 
         m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ screenPos.x, screenPos.y, 1, 1 }),
             [this, track, parentFolder, folders] (int chosen) {
+                if (chosen >= 30 && chosen < 30 + kNumTrackHeightPresets)
+                {
+                    commitLaneHeights (getResizeGroup (track), kTrackHeightPresets[chosen - 30].height);
+                    return;
+                }
+
                 if (chosen == 1)
                 {
                     auto here = juce::Rectangle<int> (juce::Desktop::getMousePosition(), juce::Desktop::getMousePosition()).expanded (8);
@@ -3133,6 +3265,12 @@ public:
 
     void mouseDrag(const juce::MouseEvent& e) override
     {
+        if (resizeTrack != nullptr)
+        {
+            setLaneHeights (resizeGroup, resizeStartH + (e.y - resizeStartY));
+            return;
+        }
+
         lastMouseX = e.x;
         snapEnabled  = (bool)   projectData.getProjectTree().getProperty (IDs::snapEnabled,  true);
         snapInterval = (double) projectData.getProjectTree().getProperty (IDs::snapInterval, 1.0);
@@ -3450,6 +3588,21 @@ public:
 
     void mouseUp(const juce::MouseEvent& e) override
     {
+        if (resizeTrack != nullptr)
+        {
+            for (auto* t : resizeGroup)
+                if (getLaneHeight (t) != resizeStartH)
+                {
+                    audioEngine.getEdit().markAsChanged();
+                    break;
+                }
+            resizeTrack = nullptr;
+            resizeGroup.clear();
+            hoverResizeTrack = getLaneEdgeTrackAt (e.getPosition());
+            setMouseCursor (getMouseCursor());
+            return;
+        }
+
         if (automationGestureActive)
         {
             if (draggingParam != nullptr)
@@ -3568,6 +3721,13 @@ public:
 
     void mouseDoubleClick(const juce::MouseEvent& e) override
     {
+        // Double-click a lane's bottom edge: back to the default height.
+        if (auto* edgeTrack = getLaneEdgeTrackAt (e.getPosition()))
+        {
+            commitLaneHeights (getResizeGroup (edgeTrack), kTrackH);
+            return;
+        }
+
         if (e.y < kRulerH)
         {
             if (tempoLaneArea().contains (e.getPosition()))
@@ -3644,7 +3804,7 @@ public:
 
             // Don't add MIDI clips when double-clicking inside an automation lane.
             if (automationVisibleTracks.contains (row.track->itemID.toString())
-                && targetY >= row.y + kTrackH)
+                && targetY >= row.y + getLaneHeight (row.track))
                 return;
 
             if (auto* a = dynamic_cast<tracktion::AudioTrack*>(row.track))
@@ -3820,7 +3980,7 @@ private:
             if (targetY < row.y || targetY >= row.y + row.height) continue;
             // Ignore clicks inside the track's automation lane area.
             if (automationVisibleTracks.contains (row.track->itemID.toString())
-                && targetY >= row.y + kTrackH)
+                && targetY >= row.y + getLaneHeight (row.track))
                 return nullptr;
             if (auto* a = dynamic_cast<tracktion::AudioTrack*> (row.track)) {
                 double time = xToTime ((float) p.x);
