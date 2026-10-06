@@ -429,7 +429,7 @@ private:
                 plugin->measurer.removeClient (client);
         }
     };
-    std::map<juce::String, std::unique_ptr<TrackMeter>> trackMeters;
+    std::map<tracktion::EditItemID, std::unique_ptr<TrackMeter>> trackMeters; // keyed by track
     juce::HashMap<juce::String, bool> freezingTracks;
     std::map<juce::String, std::shared_ptr<MixdownExportJob>> activeFreezeJobs;
     std::map<juce::String, MixdownExportJob::Listener*> activeFreezeListeners;

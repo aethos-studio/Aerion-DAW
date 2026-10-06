@@ -156,6 +156,16 @@ namespace
         // A plugin that crashes while being scanned takes down a child process
         // (started in Main.cpp), not the app, and is listed as failed.
         bool canScanPluginsOutOfProcess() override { return true; }
+
+        // Tracktion asks for high priority while an Edit plays (2, realtime,
+        // only when its useRealtime setting is on), so other programs cannot
+        // starve the audio, and for normal priority again when playback stops.
+        void setProcessPriority (int level) override
+        {
+            juce::Process::setPriority (level >= 2 ? juce::Process::RealtimePriority
+                                      : level == 1 ? juce::Process::HighPriority
+                                                   : juce::Process::NormalPriority);
+        }
     };
 
     PluginFaultMonitor& faultMonitorFor (te::Engine& e)
@@ -876,7 +886,7 @@ float AudioEngineManager::getTrackPeak (te::Track* track)
 
     if (meterPlugin == nullptr) return -100.0f;
 
-    auto key = track->itemID.toString();
+    const auto key = track->itemID;
     auto it = trackMeters.find (key);
     if (it == trackMeters.end())
         it = trackMeters.emplace (key, std::make_unique<TrackMeter>()).first;
@@ -982,14 +992,15 @@ void AudioEngineManager::deleteTrack (te::Track* t)
     if (t == nullptr)
         return;
 
-    const auto id = t->itemID.toString();
+    const auto itemID = t->itemID;
+    const auto id = itemID.toString();
     edit->deleteTrack (t);
     armedTracks.remove (id);
     inputDeviceMap.remove (id);
     midiInputDeviceMap.remove (id);
     monitorModeMap.remove (id);
     freezingTracks.remove (id);
-    trackMeters.erase (id);
+    trackMeters.erase (itemID);
     broadcastChange();
 }
 
@@ -1145,7 +1156,7 @@ bool AudioEngineManager::isTrackArmed (te::Track* t) const
 float AudioEngineManager::getTrackMaxPeak (te::Track* track)
 {
     if (track == nullptr) return -100.0f;
-    auto it = trackMeters.find (track->itemID.toString());
+    auto it = trackMeters.find (track->itemID);
     if (it != trackMeters.end())
         return it->second->maxPeakDb;
     return -100.0f;
@@ -1154,7 +1165,7 @@ float AudioEngineManager::getTrackMaxPeak (te::Track* track)
 void AudioEngineManager::clearTrackMaxPeak (te::Track* track)
 {
     if (track == nullptr) return;
-    auto it = trackMeters.find (track->itemID.toString());
+    auto it = trackMeters.find (track->itemID);
     if (it != trackMeters.end())
         it->second->maxPeakDb = -100.0f;
 }

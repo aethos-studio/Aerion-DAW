@@ -1,6 +1,6 @@
-# UI Performance Baseline
+# Performance Baseline
 
-Milestone 5, Phase 0. These are the numbers the UI performance work is measured against. Re-run the same commands after each change and compare.
+Milestone 5. These are the numbers the UI and audio performance work is measured against. Re-run the same commands after each change and compare. The audio side has its own section at the end: [Audio](#audio).
 
 ## Targets
 
@@ -204,5 +204,43 @@ Before these changes, 1440p at 125 % measured 59 ms for a full repaint and the s
 ## Caveats
 
 - Offscreen Direct2D numbers are CPU submission time. GPU work that finishes after the Graphics context ends is not included, and a real window's swap chain may clip differently. Confirm finding 2 in the app before acting on it.
-- The benchmark has no audio device, so the playback graph rebuild that the app runs after an edit is not measured.
+- The paint benchmark has no audio device, so the playback graph rebuild that the app runs after an edit is not part of its numbers. `AerionBench --audio` measures it on its own (see [Audio](#audio)).
 - The 10.9 s cold-start stall has not been attributed yet. Candidates are first-run plugin scanning, font caching and antivirus scanning of the new executable.
+
+## Audio
+
+### Targets
+
+| Measure | Target |
+|---|---|
+| Time to process one block, 99th percentile | Under 50 % of the block's duration for the reference project at 128 samples |
+| Heap allocations on the audio thread | None in steady-state playback |
+| Playback graph rebuild after an edit | Under 50 ms |
+
+### How to measure
+
+```powershell
+.\build-profiling\AerionBench_artefacts\Release\AerionBench.exe --audio [--audio-tracks=32] [--audio-blocks=3000]
+```
+
+`AerionBench --audio` builds a reference project and plays it through Tracktion's playback graph block by block, the way an audio device would, using Tracktion's hosted audio interface instead of a sound card (so it runs on machines and CI runners without audio hardware). The project has 32 audio tracks, each with a clip, an EQ, a compressor, a send to one of two reverb buses and a volume automation curve. For each block size (128 and 256 samples at 48 kHz) it reports the time per block as a share of the block's duration, with one audio thread and with all CPUs, with and without Tracktion's pooled memory options. A replaced global allocator counts heap allocations made on the calling (device) thread during each block; worker threads of the multi-threaded graph are not counted. It fails (exit code 2) if the output is silent or the allocation counter does not work.
+
+### Results: 2026-10-06 (16 CPUs, Release)
+
+| Configuration | 128 samples (2.67 ms): mean / p99 / max | 256 samples (5.33 ms): mean / p99 / max | Allocations on the audio thread |
+|---|---|---|---|
+| 1 thread | 8.4 / 11.2 / 13.3 % | 7.3 / 9.0 / 11.8 % | 0 |
+| **All CPUs (Aerion's setting)** | **3.5 / 4.6 / 7.7 %** | **2.4 / 3.0 / 3.6 %** | **0** |
+| 1 thread, pooled memory | 9.4 / 14.5 / 16.2 % | 7.7 / 9.7 / 13.7 % | 0 |
+| All CPUs, pooled memory | 5.2 / 6.5 / 8.1 % | 3.3 / 3.9 / 4.3 % | in 5 and 2 of 3000 blocks |
+
+Graph rebuild: median 1.4 ms, max 1.8 ms.
+
+All targets are met. Findings:
+
+1. Tracktion's defaults already run the graph on every CPU, which is 2.4 to 3× faster per block than one thread. Aerion keeps them.
+2. Tracktion's pooled memory and node memory sharing are slower here and occasionally allocate on the audio thread, so they stay off.
+3. Aerion's own code on the audio thread is the plugin crash guard (`PluginFaultMonitor::process`), which does not allocate or lock.
+4. Tracktion asks for a higher process priority while an Edit plays. Aerion used to ignore that request (an empty `EngineBehaviour::setProcessPriority`); it now raises the process to high priority during playback and back to normal afterwards, so other programs cannot starve the audio. This is not visible in the benchmark, which runs on an idle machine.
+5. Third-party plugins are outside these numbers: what they cost, and whether they allocate, depends on the plugin.
+

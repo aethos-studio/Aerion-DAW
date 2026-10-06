@@ -378,6 +378,7 @@ if (AERION_BUILD_TESTS)
 
     target_sources(AerionBench PRIVATE
         Source/Tests/PaintBenchmark.cpp
+        Source/Tests/AudioBenchmark.cpp
         Source/ProjectData.cpp
         Source/AudioEngine.cpp
         Source/PluginFaultGuard.cpp
