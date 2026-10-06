@@ -48,6 +48,7 @@ namespace IDs
     DECLARE_ID (laneHeight);          // int: Timeline lane height in px, on the Tracktion track state
 
     DECLARE_ID (isMidiTrack);
+    DECLARE_ID (aerionUserDevice);
 
     DECLARE_ID (frozen);              // bool: whether track is frozen
     DECLARE_ID (preFreeze);           // ValueTree child: serialized pre-freeze clip state

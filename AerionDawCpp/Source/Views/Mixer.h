@@ -454,10 +454,7 @@ public:
         }
         else if (! isMaster && insertCol.getWidth() > 0)
         {
-            juce::Array<tracktion::ExternalPlugin*> externals;
-            for (auto* pl : track->pluginList)
-                if (auto* ep = dynamic_cast<tracktion::ExternalPlugin*> (pl))
-                    externals.add (ep);
+            auto externals = AudioEngineManager::getInsertDevices (track);
 
             int slotY = insertCol.getY();
             const int slotH = 16;

@@ -1,6 +1,7 @@
 #include "AudioEngine.h"
 #include "ProjectData.h"
 #include "Export/MixdownExportJob.h"
+#include "UI/DeviceEditor.h"
 
 namespace te = tracktion;
 
@@ -245,6 +246,8 @@ namespace
             setEditor (nullptr);
             if (auto e = plugin.createEditor())
                 setEditor (std::move (e));
+            else if (dynamic_cast<te::ExternalPlugin*> (&plugin) == nullptr)
+                setEditor (std::make_unique<DeviceEditor> (plugin));
         }
 
         void setEditor (std::unique_ptr<te::Plugin::EditorComponent> newEd)
@@ -273,6 +276,26 @@ namespace
     class AerionUIBehaviour : public te::UIBehaviour
     {
     public:
+        explicit AerionUIBehaviour (AudioEngineManager& m) : manager (m) {}
+
+        // Aerion has one Edit open at a time. Tracktion needs it to route MIDI
+        // controller input to learnt mappings and to drive control surfaces.
+        te::Edit* getCurrentlyFocusedEdit() override            { return manager.getEditIfAny(); }
+        te::Edit* getLastFocusedEdit() override                 { return manager.getEditIfAny(); }
+
+        juce::Array<te::Edit*> getAllOpenEdits() override
+        {
+            if (auto* e = manager.getEditIfAny())
+                return { e };
+
+            return {};
+        }
+
+        te::SelectionManager* getCurrentlyFocusedSelectionManager() override
+        {
+            return manager.getEditIfAny() != nullptr ? &manager.getSelectionManager() : nullptr;
+        }
+
         std::unique_ptr<juce::Component> createPluginWindow (te::PluginWindowState& pws) override
         {
             if (auto* ws = dynamic_cast<te::Plugin::WindowState*> (&pws))
@@ -293,13 +316,30 @@ namespace
             }
             return {};
         }
+
+    private:
+        AudioEngineManager& manager;
     };
 
 }
 
-std::unique_ptr<te::UIBehaviour> AudioEngineManager::makeUIBehaviour()
+std::unique_ptr<te::UIBehaviour> AudioEngineManager::makeUIBehaviour (AudioEngineManager& manager)
 {
-    return std::make_unique<AerionUIBehaviour>();
+    return std::make_unique<AerionUIBehaviour> (manager);
+}
+
+void AudioEngineManager::setSelectedTracks (const juce::Array<te::Track*>& tracks)
+{
+    te::SelectableList list;
+
+    for (auto* t : tracks)
+        if (t != nullptr)
+            list.add (t);
+
+    if (list.isEmpty())
+        selectionManager.deselectAll();
+    else
+        selectionManager.select (list);
 }
 
 std::unique_ptr<te::EngineBehaviour> AudioEngineManager::makeEngineBehaviour()
@@ -480,6 +520,7 @@ void AudioEngineManager::releaseEditResources()
     // these must go while the Edit is still alive, never after it is replaced.
     trackMeters.clear();
     thumbnails.clear();
+    selectionManager.deselectAll();
 
     // Faults are keyed by plugin address, which a new Edit may reuse.
     pluginFaults->clear();
@@ -490,18 +531,23 @@ static te::EqualiserPlugin* getOrCreateUtilityEQ (te::Track* track, te::Edit& ed
 {
     if (track == nullptr) return nullptr;
     
-    // Look for existing EQ
+    // An EQ the user added as a device is theirs, not this one.
     for (auto* p : track->pluginList)
         if (auto* eq = dynamic_cast<te::EqualiserPlugin*> (p))
-            return eq;
-            
-    // Add one at the front of the list
+            if (! AudioEngineManager::isInsertDevice (eq))
+                return eq;
+
+    // Front of the list, after an instrument (it would otherwise filter silence).
     if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track))
     {
         auto p = edit.getPluginCache().createNewPlugin (te::EqualiserPlugin::xmlTypeName, {});
         if (p != nullptr)
         {
-            track->pluginList.insertPlugin (p, 0, nullptr);
+            int index = 0;
+            while (index < track->pluginList.size() && track->pluginList[index]->isSynth())
+                ++index;
+
+            track->pluginList.insertPlugin (p, index, nullptr);
             return dynamic_cast<te::EqualiserPlugin*> (p.get());
         }
     }
@@ -954,7 +1000,15 @@ te::AudioTrack* AudioEngineManager::addMidiTrack()
     {
         // Mark as MIDI track for recording purposes
         at->state.setProperty(IDs::isMidiTrack, true, nullptr);
-        // Don't add a level meter for MIDI tracks - they only carry MIDI data
+
+        if (getAddInstrumentToNewMidiTracks())
+        {
+            addStockDevice (at, te::FourOscPlugin::xmlTypeName);
+
+            if (at->getLevelMeterPlugin() == nullptr)
+                at->pluginList.insertPlugin (edit->getPluginCache().createNewPlugin (te::LevelMeterPlugin::xmlTypeName, {}),
+                                             at->pluginList.size(), nullptr);
+        }
     }
     broadcastChange();
     return t.get();
@@ -1245,7 +1299,7 @@ void AudioEngineManager::setPluginBypassed (te::Plugin* plugin, bool bypassed)
     broadcastChange();
 }
 
-void AudioEngineManager::moveExternalPlugin (te::Track* track, te::ExternalPlugin* plugin, int newExternalIndex)
+void AudioEngineManager::moveInsertDevice (te::Track* track, te::Plugin* plugin, int newExternalIndex)
 {
     if (track == nullptr || plugin == nullptr)
         return;
@@ -1256,10 +1310,7 @@ void AudioEngineManager::moveExternalPlugin (te::Track* track, te::ExternalPlugi
             return;
     }
 
-    juce::Array<te::ExternalPlugin*> externals;
-    for (int i = 0; i < track->pluginList.size(); ++i)
-        if (auto* e = dynamic_cast<te::ExternalPlugin*> (track->pluginList[i]))
-            externals.add (e);
+    auto externals = getInsertDevices (track);
 
     const int currentExternalIndex = externals.indexOf (plugin);
     if (currentExternalIndex < 0)
@@ -2845,6 +2896,85 @@ tracktion::Plugin::Ptr AudioEngineManager::addPluginToTrack (te::Track* track, c
         return p;
     }
     return {};
+}
+
+const juce::Array<AudioEngineManager::StockDevice>& AudioEngineManager::getStockDevices()
+{
+    static const juce::Array<StockDevice> devices = []
+    {
+        juce::Array<StockDevice> d;
+        d.add ({ te::FourOscPlugin::xmlTypeName, "4OSC Synth", true });
+        d.add ({ te::SamplerPlugin::xmlTypeName, "Sampler", true });
+        d.add ({ te::EqualiserPlugin::xmlTypeName, "EQ", false });
+        d.add ({ te::CompressorPlugin::xmlTypeName, "Compressor", false });
+        d.add ({ te::ReverbPlugin::xmlTypeName, "Reverb", false });
+        d.add ({ te::DelayPlugin::xmlTypeName, "Delay", false });
+        d.add ({ te::ChorusPlugin::xmlTypeName, "Chorus", false });
+        d.add ({ te::PhaserPlugin::xmlTypeName, "Phaser", false });
+        d.add ({ te::PitchShiftPlugin::xmlTypeName, "Pitch Shift", false });
+        d.add ({ te::LowPassPlugin::xmlTypeName, "Low / High Pass", false });
+        return d;
+    }();
+
+    return devices;
+}
+
+te::Plugin::Ptr AudioEngineManager::addStockDevice (te::Track* track, const juce::String& xmlType)
+{
+    if (track == nullptr || edit == nullptr)
+        return {};
+
+    if (auto* at = dynamic_cast<te::AudioTrack*> (track))
+        if (isTrackFrozen (at) || isTrackFreezing (at))
+            return {};
+
+    auto p = edit->getPluginCache().createNewPlugin (xmlType, {});
+    if (p == nullptr)
+        return {};
+
+    p->state.setProperty (IDs::aerionUserDevice, true, nullptr);
+
+    // An instrument has to come before anything that processes its output.
+    const int index = p->isSynth() ? 0 : track->pluginList.size();
+    track->pluginList.insertPlugin (p, index, nullptr);
+    p->setEnabled (true);
+    p->setProcessingEnabled (true);
+    broadcastChange();
+    return p;
+}
+
+bool AudioEngineManager::isInsertDevice (te::Plugin* plugin)
+{
+    return plugin != nullptr
+        && (dynamic_cast<te::ExternalPlugin*> (plugin) != nullptr
+            || (bool) plugin->state.getProperty (IDs::aerionUserDevice, false));
+}
+
+juce::Array<te::Plugin*> AudioEngineManager::getInsertDevices (te::Track* track)
+{
+    juce::Array<te::Plugin*> devices;
+
+    if (track != nullptr)
+        for (auto* p : track->pluginList)
+            if (isInsertDevice (p))
+                devices.add (p);
+
+    return devices;
+}
+
+bool AudioEngineManager::getAddInstrumentToNewMidiTracks()
+{
+    auto* s = appProperties.getUserSettings();
+    return s == nullptr || s->getBoolValue ("addInstrumentToNewMidiTracks", true);
+}
+
+void AudioEngineManager::setAddInstrumentToNewMidiTracks (bool add)
+{
+    if (auto* s = appProperties.getUserSettings())
+    {
+        s->setValue ("addInstrumentToNewMidiTracks", add);
+        s->saveIfNeeded();
+    }
 }
 
 //==============================================================================

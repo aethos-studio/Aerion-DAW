@@ -61,20 +61,17 @@ private:
             insertRowHits.clearQuick();
             int y = header.getBottom() + 10;
 
-            for (auto* p : track->pluginList)
+            for (auto* plug : AudioEngineManager::getInsertDevices (track))
             {
-                if (auto* plug = dynamic_cast<tracktion::ExternalPlugin*> (p))
-                {
-                    juce::Rectangle<int> row (10, y, getWidth() - 20, 34);
-                    insertRowHits.add (paintInsertRow (g, row, *plug, audioEngine));
-                    y += 38;
-                }
+                juce::Rectangle<int> row (10, y, getWidth() - 20, 34);
+                insertRowHits.add (paintInsertRow (g, row, *plug, audioEngine));
+                y += 38;
             }
 
             if (insertRowHits.isEmpty())
             {
                 g.setColour (Theme::textMuted);
-                g.drawText ("No third-party plugins added.", getLocalBounds().withTrimmedTop (40), juce::Justification::centred);
+                g.drawText ("No devices added.", getLocalBounds().withTrimmedTop (40), juce::Justification::centred);
             }
             else if (insertDragState.dropPreviewY >= 0)
             {

@@ -204,17 +204,13 @@ public:
             b.removeFromTop (10);
         }
 
-        // Collect real plugins from the selected track.
-        juce::Array<tracktion::ExternalPlugin*> externals;
+        // The track's devices (third-party and stock) and sends.
+        auto externals = AudioEngineManager::getInsertDevices (selectedTrack);
         juce::Array<tracktion::AuxSendPlugin*>  sends;
         if (selectedTrack != nullptr)
-        {
             for (auto* p : selectedTrack->pluginList)
-            {
-                if (auto* e = dynamic_cast<tracktion::ExternalPlugin*> (p))      externals.add (e);
-                else if (auto* a = dynamic_cast<tracktion::AuxSendPlugin*> (p))  sends.add (a);
-            }
-        }
+                if (auto* a = dynamic_cast<tracktion::AuxSendPlugin*> (p))
+                    sends.add (a);
 
         // Inserts
         const int insertsH = juce::jmax (60, 40 + externals.size() * 38);
@@ -620,7 +616,7 @@ private:
     }
 
     void drawInsertSection (juce::Graphics& g, juce::Rectangle<int> b,
-                            const juce::Array<tracktion::ExternalPlugin*>& plugins)
+                            const juce::Array<tracktion::Plugin*>& plugins)
     {
         drawSectionHeader (g, b.withHeight (18), "INSERTS", insertAddBtn);
 

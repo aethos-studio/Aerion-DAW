@@ -40,6 +40,12 @@ public:
 
     tracktion::Engine& getEngine() { return engine; }
     tracktion::Edit& getEdit()     { return *edit; }
+    tracktion::Edit* getEditIfAny() noexcept { return edit.get(); }
+
+    /** Tracktion's selection, kept in step with the Timeline's selected tracks.
+        Control surfaces and Tracktion's clipboard helpers read it. */
+    tracktion::SelectionManager& getSelectionManager()  { return selectionManager; }
+    void setSelectedTracks (const juce::Array<tracktion::Track*>&);
 
     AerionKeymap& getKeymap()                   { return keymap; }
     juce::PropertiesFile* getUserSettings()     { return appProperties.getUserSettings(); }
@@ -178,13 +184,36 @@ public:
     void notifyScanFinished (bool finishedNormally);
 
     tracktion::Plugin::Ptr addPluginToTrack (tracktion::Track* track, const juce::PluginDescription& desc);
+
+    /** Tracktion's built-in effects and instruments that Aerion offers as devices. */
+    struct StockDevice
+    {
+        juce::String xmlType, name;
+        bool instrument = false;
+    };
+    static const juce::Array<StockDevice>& getStockDevices();
+
+    /** Adds a stock device: an instrument goes first in the chain, an effect
+        after the existing inserts. Nothing on a frozen track. */
+    tracktion::Plugin::Ptr addStockDevice (tracktion::Track* track, const juce::String& xmlType);
+
+    /** A device the user added and sees in the insert list: a third-party
+        plugin or a stock device. Not Aerion's own plugins (fader, meter,
+        sends, the EQ behind the track's quick filters). */
+    static bool isInsertDevice (tracktion::Plugin* plugin);
+    static juce::Array<tracktion::Plugin*> getInsertDevices (tracktion::Track* track);
+
+    /** Whether new MIDI tracks get the 4OSC synth, so they make sound straight away. */
+    bool getAddInstrumentToNewMidiTracks();
+    void setAddInstrumentToNewMidiTracks (bool);
+
     void removePlugin (tracktion::Plugin* plugin);
     bool isExternalPluginBypassed (tracktion::Plugin* plugin) const;
     /** True while a plugin that crashed is being kept out of processing. */
     bool hasPluginFaulted (tracktion::Plugin* plugin) const;
     PluginFaultMonitor& getPluginFaultMonitor() { return *pluginFaults; }
     void setPluginBypassed (tracktion::Plugin* plugin, bool bypassed);
-    void moveExternalPlugin (tracktion::Track* track, tracktion::ExternalPlugin* plugin, int newExternalIndex);
+    void moveInsertDevice (tracktion::Track* track, tracktion::Plugin* plugin, int newInsertIndex);
     tracktion::Plugin* getPluginFor (juce::ValueTree& v);
     
     // Plugin Presets (Phase 6)
@@ -362,10 +391,11 @@ public:
 private:
     friend struct FreezeListener;
 
-    static std::unique_ptr<tracktion::UIBehaviour> makeUIBehaviour();
+    static std::unique_ptr<tracktion::UIBehaviour> makeUIBehaviour (AudioEngineManager&);
     static std::unique_ptr<tracktion::EngineBehaviour> makeEngineBehaviour();
 
-    tracktion::Engine engine { ProjectInfo::projectName, makeUIBehaviour(), makeEngineBehaviour() };
+    tracktion::Engine engine { ProjectInfo::projectName, makeUIBehaviour (*this), makeEngineBehaviour() };
+    tracktion::SelectionManager selectionManager { engine };
     PluginFaultMonitor* pluginFaults = nullptr; // owned by the engine's behaviour
     bool handlePluginFault (const void* key, PluginFaultMonitor::Stage, const juce::String& reason);
     std::unique_ptr<tracktion::Edit> edit;

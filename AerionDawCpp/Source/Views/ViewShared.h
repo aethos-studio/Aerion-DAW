@@ -91,7 +91,7 @@ inline void drawPill (juce::Graphics& g, juce::Rectangle<int> r, const juce::Str
 struct InsertRowHitAreas
 {
     juce::Rectangle<int> row, dragHandle, bypassBtn, labelArea;
-    tracktion::ExternalPlugin* plugin = nullptr;
+    tracktion::Plugin* plugin = nullptr;
 };
 
 struct InsertRowDragState
@@ -127,7 +127,7 @@ inline void showFrozenTrackInsertAlert()
 }
 
 inline InsertRowHitAreas paintInsertRow (juce::Graphics& g, juce::Rectangle<int> row,
-                                         tracktion::ExternalPlugin& plug, AudioEngineManager& audioEngine,
+                                         tracktion::Plugin& plug, AudioEngineManager& audioEngine,
                                          float alpha = 1.0f)
 {
     InsertRowHitAreas hit;
@@ -158,7 +158,7 @@ inline InsertRowHitAreas paintInsertRow (juce::Graphics& g, juce::Rectangle<int>
 }
 
 inline InsertRowHitAreas paintCompactInsertSlot (juce::Graphics& g, juce::Rectangle<int> row,
-                                                 tracktion::ExternalPlugin& plug,
+                                                 tracktion::Plugin& plug,
                                                  AudioEngineManager& audioEngine)
 {
     InsertRowHitAreas hit;
@@ -220,7 +220,7 @@ inline int insertDropPreviewYFromIndex (const juce::Array<InsertRowHitAreas>& hi
 }
 
 inline void showInsertContextMenu (AudioEngineManager& audioEngine, tracktion::Track* track,
-                                   tracktion::ExternalPlugin* plugin, juce::Point<int> screenPos,
+                                   tracktion::Plugin* plugin, juce::Point<int> screenPos,
                                    std::function<void()> onChanged)
 {
     if (plugin == nullptr || track == nullptr)
@@ -247,10 +247,7 @@ inline void showInsertContextMenu (AudioEngineManager& audioEngine, tracktion::T
                              return;
                          }
 
-                         juce::Array<tracktion::ExternalPlugin*> externals;
-                         for (auto* p : track->pluginList)
-                             if (auto* e = dynamic_cast<tracktion::ExternalPlugin*> (p))
-                                 externals.add (e);
+                         auto externals = AudioEngineManager::getInsertDevices (track);
 
                          const int idx = externals.indexOf (plugin);
 
@@ -261,9 +258,9 @@ inline void showInsertContextMenu (AudioEngineManager& audioEngine, tracktion::T
                          else if (chosen == 3)
                              audioEngine.removePlugin (plugin);
                          else if (chosen == 4 && idx > 0)
-                             audioEngine.moveExternalPlugin (track, plugin, idx - 1);
+                             audioEngine.moveInsertDevice (track, plugin, idx - 1);
                          else if (chosen == 5 && idx >= 0 && idx < externals.size() - 1)
-                             audioEngine.moveExternalPlugin (track, plugin, idx + 1);
+                             audioEngine.moveInsertDevice (track, plugin, idx + 1);
 
                          if (onChanged)
                              onChanged();
@@ -373,7 +370,7 @@ inline bool handleInsertRowMouseUp (AudioEngineManager& audioEngine,
     dragState.dropPreviewY = -1;
 
     if (to != from && to >= 0 && to < hits.size() && hits[from].plugin != nullptr)
-        audioEngine.moveExternalPlugin (track, hits[from].plugin, to);
+        audioEngine.moveInsertDevice (track, hits[from].plugin, to);
 
     if (onChanged)
         onChanged();

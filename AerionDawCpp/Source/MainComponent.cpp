@@ -542,6 +542,11 @@ MainComponent::MainComponent()
         syncInspectorToTrack (track);
     };
 
+    timeline.onSelectionChanged = [this] (juce::Array<tracktion::Track*> tracks)
+    {
+        audioEngine.setSelectedTracks (tracks);
+    };
+
     // Initialize auto-save interval from settings
     autoSaveIntervalMs = audioEngine.getAutoSaveIntervalMins() * 60 * 1000;
 
