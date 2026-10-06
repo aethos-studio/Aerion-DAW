@@ -147,7 +147,9 @@ the Mixer, toolbar and transport, each against a 60 Hz frame (16.7 ms). Timings 
 the Release profiling build (`build-profiling`); see [`PERFORMANCE.md`](./PERFORMANCE.md).
 
 - `--verify` checks that partial repaints and scrolling give the same pixels as a full
-  repaint, plus unsaved-changes tracking, fader drags and track resizing; exit code 2 on a
+  repaint, plus unsaved-changes tracking, fader drags (including a track whose automation
+  drives its volume), track resizing, and accessibility (every painted control has a
+  labelled stand-in; Up and Space work a fader and a mute button); exit code 2 on a
   failure. CI runs it at 100 % and at `--scale=1.25`.
 - `--scale=<factor>` paints as a window at that display scale does (UI Size times Windows
   scaling); set `--width` / `--height` to the logical window size.
@@ -160,6 +162,18 @@ to a visual regression test available without a display.
 Caveat: `SmartThumbnail` loads waveforms asynchronously and the benchmark does not pump the
 message loop, so clips render without waveforms and these numbers **exclude** waveform
 rasterisation. Treat them as a floor on real paint cost.
+
+### Headless audio benchmark
+
+`AerionBench --audio [--audio-tracks=32] [--audio-blocks=3000]` plays a generated reference
+project (tracks with a clip, EQ, compressor, send and volume automation, plus two reverb
+buses) through Tracktion's playback graph, pulling blocks through Tracktion's hosted audio
+interface instead of a sound card, so it runs on machines without audio hardware. It reports
+the time per block as a share of the block's duration (128 and 256 samples at 48 kHz, one
+thread and all CPUs, with and without pooled memory), heap allocations on the audio thread,
+and how long a graph rebuild takes. Exit code 2 if the output is silent or the allocation
+counter does not work. Run it from the Release build; targets and results are in the Audio
+section of [`PERFORMANCE.md`](./PERFORMANCE.md#audio).
 
 ### Manual configure (without presets)
 

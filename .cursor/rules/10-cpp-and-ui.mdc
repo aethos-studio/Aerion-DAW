@@ -27,11 +27,15 @@ alwaysApply: false
 - Yes/no and save/discard/cancel questions go through `UI/Dialogs.h`. JUCE numbers dialog buttons 1, 2, 0 (Escape = 0), so never compare raw results.
 - The UI can be scaled (View → UI Size, Windows scaling). Cached images drawn in paint must be rendered at `physicalScaleOf (g)` and drawn with `drawPhysicalImage` (`UI/CachedLayer.h`), not resampled; check changes with `AerionBench --verify --scale=1.25`.
 - Timeline rows have per-track heights: use `Timeline::getLaneHeight (track)` / `getTrackHeight`, never `kTrackH` (the default) for a track's layout.
+- Accessibility: a control a view paints itself (hit-tested in `mouseDown`) needs an `Accessibility::Control` in that view's `ProxyPool` (`UI/Accessibility.h`) with a title, a role and, for sliders, a value. Update the proxies from `resized()` or, when the layout is computed in `paint`, after the paint (an `AsyncUpdater` triggered when the layout changes), never by setting child bounds inside `paint`. Real JUCE children (`Label`, `ComboBox`...) only need `setTitle`. `AerionBench --verify` checks that each proxy has a title and a role.
 
 ## Plugins & formats
 
 - VST3 hosting is enabled (`JUCE_PLUGINHOST_VST3=1`). AU is macOS-only.
 - Hosted plugins process through `PluginFaultMonitor` (`PluginFaultGuard.h`), via a Tracktion hook added in `Patches/tracktion/`. Keep the Windows `__try` code free of objects with destructors, and keep `/EHa` in MSVC builds.
+- Other calls into a plugin (creating it, saving or restoring its state, creating its editor) go through `PluginFaultMonitor::call` (Tracktion's `EngineBehaviour::callExternalPlugin`, patch `0002`). A crash there leaves the plugin broken for the session; never call into a broken plugin.
+- Saving must flush the Edit first (`edit->flushState()`), or plugin settings changed in the plugin's own window are lost.
+- Plugin scanning runs out of process: `Main.cpp` hands the scan child process to Tracktion before anything else starts (no logger, no crash reporter there).
 - **Windows:** plugin scan uses sanitised paths in `AudioEngine.cpp`; VST3 lives under `Program Files\Common Files\VST3`.
 - **Linux (future):** JUCE defaults (`~/.vst3`, `/usr/lib/vst3`); preferred device order JACK then ALSA. Do not paste Windows path logic into Linux builds without guards.
 - **Windows audio backends:** ASIO (bundled SDK), WASAPI, DirectSound, WinRT MIDI — enabled in `CMakeLists.txt` on `WIN32`.

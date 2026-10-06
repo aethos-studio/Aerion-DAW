@@ -38,7 +38,7 @@ What already exists versus what remains, verified against the source tree:
 | Workspace Layouts | **Done** | **View → Workspace** submenu: built-in Editing / Mixing / Recording presets + save/delete custom layouts. Captures inspector/browser collapse, mixer dock/detach, bottom panel, and console height; custom layouts + last-active layout persist via `appProperties` and restore on launch. |
 | Accessibility | **Done** | `UI/Accessibility.h` proxies give the painted controls of the Mixer, Transport, Toolbar, Inspector and Timeline track headers a title, role and value; Tab, Space / Return, arrows, Page Up / Down and Home work them. Mixer: Left / Right between strips, Ctrl + Left / Right pan, M / S / R on the focused strip. F6 cycles panes. Checked by `AerionBench --verify`. Timeline clips and Piano Roll notes not yet covered. |
 | Error Reporting / Console panel | **Done** | The app log (`Logger::writeToLog`) shows in the **Console** bottom-panel tab and still goes to `aerion.log`; `DBG` output is not captured. `CrashReporter` writes a report folder per crash under `AerionDAW/Crashes` (reason, thread, stack, the session's log, a minidump on Windows); the next launch points to it before Crash Recovery. Reports stay local; `std::terminate` / `abort` on Windows are not caught. |
-| App version / title bar | **Done** | CMake `project` version **0.3.0**; menu bar + window title use `Theme::windowTitle()` (`<ProjectName> — Aerion DAW`); About dialog reads `ProjectInfo::versionString`. |
+| App version / title bar | **Done** | CMake `project` version **0.4.0** (installers take the release tag's version, `AERION_PACKAGE_VERSION`); menu bar + window title use `Theme::windowTitle()` (`<ProjectName> — Aerion DAW`); About dialog reads `ProjectInfo::versionString`. |
 
 ---
 
@@ -110,8 +110,9 @@ What already exists versus what remains, verified against the source tree:
 - **Presets**: `win-msvc-debug`, `win-msvc-release`, `win-msvc-debug-tests`, `win-msvc-profiling` (see root `CMakePresets.json` + `AerionDawCpp/Documentation/CURSOR_DEVELOPMENT.md`)
 - **Engine**: Tracktion Engine v3.2 / JUCE 8, with small Aerion patches from `AerionDawCpp/Patches/` applied at configure time (also to a local `FETCHCONTENT_SOURCE_DIR_TRACKTION_ENGINE` checkout)
 - **Build**: build the app and tests as targets, `cmake --build build --config Debug --target AerionDaw AerionTests --parallel`; a full solution build still fails in an unrelated Tracktion example target. After the embedded resource list changes, a parallel build can produce a damaged `AerionDawResources` object (`LNK1236`); rebuild that target on its own to fix it.
-- **Performance builds**: a separate Release build with `AERION_ENABLE_PROFILING=ON` (`build-profiling`) holds `AerionBench` and the profiling app; timings from Debug builds are not meaningful.
-- **CI**: both workflows are manual (`workflow_dispatch`) only. `build-test.yml` runs the Debug build, `AerionSmokeTests` and `AerionBench --verify` (at 100 % and at 125 % UI size) on Windows (MSVC/Ninja) and macOS (Clang/Ninja) — run it before merging a PR. `package-release.yml` (`release-package`) builds the Windows NSIS installer and macOS DMG, with optional self-signed Windows code signing, then publishes a GitHub Release with both attached.
+- **Moved clone**: a build folder records the clone's path. After moving the clone, configure a fresh build folder; the old one fails with "CMakeCache.txt directory is different".
+- **Performance builds**: a separate Release build with `AERION_ENABLE_PROFILING=ON` (`build-profiling`) holds `AerionBench` and the profiling app; timings from Debug builds are not meaningful. `AerionBench` measures paint by default and the audio side with `--audio`.
+- **CI**: both workflows are manual (`workflow_dispatch`) only. `build-test.yml` runs the Debug build, `AerionSmokeTests` and `AerionBench --verify` (at 100 % and at 125 % UI size) on Windows (MSVC/Ninja) and macOS (Clang/Ninja) — run it before merging a PR. `package-release.yml` (`release-package`) builds the Windows NSIS installer and macOS DMG, with optional self-signed Windows code signing, then publishes a GitHub Release with both attached. Installers are named after the tag; macOS Developer ID signing and notarization, and a `RELEASE_TOKEN` override for the release step, run when their secrets exist (see the release section of [`CURSOR_DEVELOPMENT.md`](./CURSOR_DEVELOPMENT.md)).
 
 ## Next Steps (priority order)
 
@@ -128,7 +129,7 @@ Mirrors [`ROADMAP.md`](./ROADMAP.md) so the two documents agree.
 
 - **Track faders reported not moving** (October 4, 2026). Not reproduced. One cause that fits is now fixed: on a track whose volume automation drives the fader, a move was undone by the curve; it now overrides the automation. Whether the report's tracks had automation is unknown; if it happens again, note whether the track has a volume or pan curve.
 - **`release-package` could not create the GitHub Release** (HTTP 403 on v0.3.6, although the job's token had `contents: write`, the repository has no rulesets and earlier runs worked). Cause not found. If it recurs, add a `RELEASE_TOKEN` secret; the step uses it instead of `GITHUB_TOKEN`. The installers are attached to the run as artifacts either way.
-- **CI not yet run on these changes:** both workflows are manual. Run `build-test` before tagging v0.4.0; the new tests and checks are verified locally on Windows only.
+- **v0.4.0 not yet tagged:** `build-test` passed on Windows and macOS for the M5 close-out (run 37452642483, October 6, 2026). Run `release-package` with tag `v0.4.0` to publish the installers.
 
 ## Trademarks
 

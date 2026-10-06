@@ -98,7 +98,7 @@ Earlier Milestone 5 work:
 | Error reporting | Done: the app log shows in a **Console** bottom-panel tab; a crash writes a local report (stack, log, Windows minidump) that the next launch points to |
 | High-DPI / UI scaling | Done: **View → UI Size** (Auto / 100–200 %) scales the whole interface; the Timeline stays fast and sharp on scaled displays |
 | Track heights | Done: drag a track's bottom edge (or use Track Height in its context menu); saved per track |
-| Tests | Smoke tests for `ProjectData`, `AerionKeymap`, `AudioEngineManager` (incl. track heights through save and load), graphics engine choice, UI size, plugin fault handling and dialogs; `AerionBench --verify` pixel checks run in CI at 100 % and 125 % UI size |
+| Tests | Smoke tests for `ProjectData`, `AerionKeymap`, `AudioEngineManager` (incl. plugin settings and track heights through save and load, automation override), graphics engine choice, UI size, plugin fault handling (processing and saving) and dialogs; `AerionBench --verify` (pixel checks, fader drags, accessibility) runs in CI at 100 % and 125 % UI size and passed on Windows and macOS for v0.4.0; `AerionBench --audio` measures the audio side |
 | Packaging | Windows NSIS and macOS DMG; production signing and notarization wait on paid certificates (the workflow runs them once the secrets are added) |
 | Accessibility | Mixer, Transport, Toolbar, Inspector and track headers; Timeline clips and Piano Roll notes not yet |
 | AI / Cloud | `AIManager` is a mock; Google Drive client has placeholder OAuth credentials |
