@@ -3,6 +3,14 @@ name: release-package
 # Manual release packaging. Builds and (optionally) signs the Windows NSIS
 # installer and the macOS DMG. Smoke tests live in their own workflow
 # (build-test.yml); run those first if you want a pre-release check.
+#
+# Installers are named after the tag (v0.4.0-beta1 -> AerionDAW-0.4.0-beta1-*).
+# Optional secrets:
+#   WINDOWS_CERT_PFX_BASE64, WINDOWS_CERT_PASSWORD   sign the Windows app and installer
+#   APPLE_DEVELOPER_ID_P12_BASE64, APPLE_DEVELOPER_ID_P12_PASSWORD
+#                                                    sign the macOS app and DMG (Developer ID)
+#   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD      also notarize and staple the DMG
+#   RELEASE_TOKEN                                    used instead of GITHUB_TOKEN to create the release
 
 on:
   workflow_dispatch:
@@ -74,9 +82,12 @@ jobs:
 
       - name: Configure (Release)
         shell: pwsh
+        env:
+          TAG_NAME: ${{ inputs.tag_name }}
         run: >
           cmake -S AerionDawCpp -B build -G Ninja
           -DCMAKE_BUILD_TYPE=Release
+          -DAERION_PACKAGE_VERSION="$($env:TAG_NAME -replace '^[vV]', '')"
           -DFETCHCONTENT_SOURCE_DIR_TRACKTION_ENGINE="${{ github.workspace }}\tracktion_engine-src"
 
       - name: Build (Release)
@@ -136,6 +147,16 @@ jobs:
     if: ${{ inputs.platforms != 'windows' }}
     runs-on: macos-latest
 
+    # Developer ID signing and notarization are optional, like Windows
+    # signing: without the secrets the DMG is built with ad-hoc signatures,
+    # which Gatekeeper only opens after right-click > Open.
+    env:
+      MACOS_CERT_B64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+      MACOS_CERT_PW: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -150,9 +171,12 @@ jobs:
           git submodule update --init --recursive --depth 1
 
       - name: Configure (Release, universal)
+        env:
+          TAG_NAME: ${{ inputs.tag_name }}
         run: >
           cmake -S AerionDawCpp -B build -G Ninja
           -DCMAKE_BUILD_TYPE=Release
+          -DAERION_PACKAGE_VERSION="${TAG_NAME#[vV]}"
           -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
           -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
           -DAERION_ENABLE_ASIO=NEVER
@@ -160,6 +184,41 @@ jobs:
 
       - name: Build (Release)
         run: cmake --build build --target AerionDaw --parallel
+
+      - name: Import Developer ID certificate
+        if: ${{ env.MACOS_CERT_B64 != '' }}
+        run: |
+          keychain="$RUNNER_TEMP/aerion-signing.keychain-db"
+          keychain_pw="$(uuidgen)"
+          echo "$MACOS_CERT_B64" | base64 --decode > "$RUNNER_TEMP/aerion-devid.p12"
+          security create-keychain -p "$keychain_pw" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_pw" "$keychain"
+          security import "$RUNNER_TEMP/aerion-devid.p12" -k "$keychain" -P "$MACOS_CERT_PW" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_pw" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          identity=$(security find-identity -v -p codesigning "$keychain" | grep "Developer ID Application" | head -n 1 | sed -E 's/.*"(.*)"/\1/')
+          if [ -z "$identity" ]; then
+            echo "No 'Developer ID Application' identity in the certificate" >&2
+            exit 1
+          fi
+          echo "SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "SIGN_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+
+      # Replaces the build's ad-hoc signature, so the bundle CPack copies into
+      # the DMG is signed with the hardened runtime notarization requires.
+      - name: Sign application (Developer ID)
+        if: ${{ env.SIGN_IDENTITY != '' }}
+        run: |
+          app=$(find build -maxdepth 4 -name "Aerion DAW.app" -type d | head -n 1)
+          if [ -z "$app" ]; then
+            echo "Built 'Aerion DAW.app' not found" >&2
+            exit 1
+          fi
+          codesign --force --deep --options runtime --timestamp \
+            --entitlements AerionDawCpp/Packaging/macOS/AerionDaw.entitlements \
+            --sign "$SIGN_IDENTITY" "$app"
+          codesign --verify --strict --verbose=2 "$app"
 
       - name: Package (DMG)
         run: cpack --config build/CPackConfig.cmake -G DragNDrop -C Release -B dist
@@ -174,6 +233,31 @@ jobs:
           fi
           echo "DMG: $dmg"
           echo "path=$dmg" >> "$GITHUB_OUTPUT"
+
+      - name: Sign DMG
+        env:
+          DMG: ${{ steps.find_dmg.outputs.path }}
+        run: |
+          if [ -n "$SIGN_IDENTITY" ]; then
+            codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG"
+          else
+            codesign --force --sign - "$DMG"
+          fi
+          codesign --verify --verbose=2 "$DMG"
+
+      - name: Notarize and staple DMG
+        if: ${{ env.SIGN_IDENTITY != '' && env.APPLE_ID != '' && env.APPLE_TEAM_ID != '' && env.APPLE_APP_PASSWORD != '' }}
+        env:
+          DMG: ${{ steps.find_dmg.outputs.path }}
+        run: |
+          xcrun notarytool submit "$DMG" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" --wait --timeout 30m
+          xcrun stapler staple "$DMG"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG"
+
+      - name: Remove signing keychain
+        if: ${{ always() && env.SIGN_KEYCHAIN != '' }}
+        run: security delete-keychain "$SIGN_KEYCHAIN" || true
 
       - name: Upload DMG
         uses: actions/upload-artifact@v4
@@ -211,7 +295,7 @@ jobs:
 
       - name: Create or update GitHub Release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ inputs.tag_name }}
           RELEASE_NAME: ${{ inputs.release_name }}
           NOTES: ${{ inputs.notes }}
@@ -220,11 +304,22 @@ jobs:
         run: |
           shopt -s nullglob
           files=(dist/windows/* dist/macos/*)
+          repo="${{ github.repository }}"
 
-          # A release for this tag already exists (e.g. the other platform was
-          # built in an earlier run): add or replace the installers there.
-          if gh release view "$TAG_NAME" --repo "${{ github.repository }}" > /dev/null 2>&1; then
-            gh release upload "$TAG_NAME" "${files[@]}" --clobber --repo "${{ github.repository }}"
+          explain_failure() {
+            echo "::error::Could not $1 the release for $TAG_NAME. If the error above is" \
+                 "'HTTP 403: Resource not accessible by integration', GitHub refused GITHUB_TOKEN" \
+                 "although this job asks for contents: write. Add a RELEASE_TOKEN secret (a" \
+                 "fine-grained token with Contents: read and write on this repository); this step" \
+                 "then uses it instead. The installers are attached to this run as artifacts."
+            exit 1
+          }
+
+          # A release for this tag already exists, drafts included (e.g. the
+          # other platform was built in an earlier run): add or replace the
+          # installers there.
+          if gh release view "$TAG_NAME" --repo "$repo" > /dev/null 2>&1; then
+            gh release upload "$TAG_NAME" "${files[@]}" --clobber --repo "$repo" || explain_failure update
             exit 0
           fi
 
@@ -241,4 +336,4 @@ jobs:
           else
             args+=(--generate-notes)
           fi
-          gh release create "$TAG_NAME" "${files[@]}" "${args[@]}" --repo "${{ github.repository }}"
+          gh release create "$TAG_NAME" "${files[@]}" "${args[@]}" --repo "$repo" || explain_failure create

@@ -46,6 +46,8 @@ juce_add_gui_app(AerionDaw
     VERSION ${PROJECT_VERSION}
     COMPANY_NAME "Aethos Studio Ltd."
     BUNDLE_ID "com.aethos.aeriondaw"
+    MICROPHONE_PERMISSION_ENABLED TRUE
+    MICROPHONE_PERMISSION_TEXT "Aerion DAW records audio from your audio interface and microphone."
     ICON_BIG "Resources/aerion_logo.svg"
     ICON_SMALL "Resources/aerion_logo.svg"
 )
@@ -418,17 +420,24 @@ endif()
 
 # --- Packaging ----------------------------------------------------------------
 # Shared CPack metadata for both NSIS (Windows) and DragNDrop (macOS). The
-# version number is sourced from the `project(... VERSION)` declaration above so
-# you only have to bump it in one place.
+# version comes from `project(... VERSION)` above. A release build passes the
+# release tag's version (e.g. 0.4.0-beta1) as AERION_PACKAGE_VERSION so the
+# installers carry it.
+set(AERION_PACKAGE_VERSION "" CACHE STRING
+    "Version shown in installer names and titles (the release tag without its leading v); empty uses the project version")
+if (NOT AERION_PACKAGE_VERSION)
+    set(AERION_PACKAGE_VERSION "${PROJECT_VERSION}")
+endif()
+
 set(CPACK_PACKAGE_NAME             "Aerion DAW")
 set(CPACK_PACKAGE_VENDOR           "Aethos Studio Ltd.")
-set(CPACK_PACKAGE_VERSION          "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_VERSION          "${AERION_PACKAGE_VERSION}")
 set(CPACK_PACKAGE_VERSION_MAJOR    "${PROJECT_VERSION_MAJOR}")
 set(CPACK_PACKAGE_VERSION_MINOR    "${PROJECT_VERSION_MINOR}")
 set(CPACK_PACKAGE_VERSION_PATCH    "${PROJECT_VERSION_PATCH}")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Aerion DAW - Pre-Alpha (v${PROJECT_VERSION})")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Aerion DAW - Pre-Alpha (v${AERION_PACKAGE_VERSION})")
 set(CPACK_PACKAGE_INSTALL_DIRECTORY   "Aerion DAW")
-set(CPACK_PACKAGE_FILE_NAME           "AerionDAW-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}")
+set(CPACK_PACKAGE_FILE_NAME           "AerionDAW-${AERION_PACKAGE_VERSION}-${CMAKE_SYSTEM_NAME}")
 set(CPACK_PACKAGE_HOMEPAGE_URL        "https://aethos.studio")
 
 # Whitelist only the AerionDaw sub-project for the installer payload. By
@@ -490,7 +499,7 @@ if (APPLE)
     install(TARGETS AerionDaw BUNDLE DESTINATION .)
 
     set(CPACK_GENERATOR "DragNDrop")
-    set(CPACK_DMG_VOLUME_NAME "Aerion DAW ${PROJECT_VERSION}")
+    set(CPACK_DMG_VOLUME_NAME "Aerion DAW ${AERION_PACKAGE_VERSION}")
 
     include(CPack)
 endif()

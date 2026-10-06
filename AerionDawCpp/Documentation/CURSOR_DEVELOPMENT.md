@@ -273,6 +273,19 @@ ctest --test-dir build -C Release --output-on-failure
 
 Local Debug presets are fine for day-to-day work; run Release + tests before opening a PR.
 
+## Release packaging and signing
+
+`release-package` (`.github/workflows/package-release.yml`, run from the Actions tab) builds the Windows NSIS installer and the macOS DMG and attaches them to a GitHub Release for the `tag_name` input. Installers are named after the tag without its `v` (`v0.4.0-beta1` → `AerionDAW-0.4.0-beta1-Windows.exe`), passed to CMake as `AERION_PACKAGE_VERSION`; local builds use the `project()` version.
+
+Signing is optional; each part runs only when its repository secrets exist:
+
+| Secrets | What they enable |
+|---|---|
+| `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` | Signs the app and installer. A self-signed certificate from `Tools/New-AerionSelfSignedCert.ps1` works but still shows SmartScreen's "unknown publisher"; a paid OV/EV certificate clears it. |
+| `APPLE_DEVELOPER_ID_P12_BASE64`, `APPLE_DEVELOPER_ID_P12_PASSWORD` | Signs the app (hardened runtime, `Packaging/macOS/AerionDaw.entitlements`) and the DMG with a Developer ID Application certificate. Needs a paid Apple Developer account. Without it the DMG is ad-hoc signed. |
+| `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD` | With the Developer ID secrets: notarizes the DMG with `notarytool` and staples the ticket, so Gatekeeper opens it without warnings. `APPLE_APP_PASSWORD` is an app-specific password for the Apple ID. |
+| `RELEASE_TOKEN` | Used instead of `GITHUB_TOKEN` to create or update the release: a fine-grained token with Contents read and write on this repository. Only needed if `GITHUB_TOKEN` is refused (`HTTP 403: Resource not accessible by integration`). |
+
 ---
 
 ## See also
