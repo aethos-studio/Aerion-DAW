@@ -48,6 +48,9 @@ public:
     void valueTreeParentChanged (juce::ValueTree&) override;
 
 private:
+    /** F6: moves keyboard focus to the next of toolbar, Timeline, Mixer and transport. */
+    void focusNextPane();
+
     void doCreateNewProject();
     void createNewProject();
     void doOpenProjectChooser();

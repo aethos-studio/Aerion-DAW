@@ -8,7 +8,8 @@
 //==============================================================================
 class Inspector : public DAWPanel,
                   public juce::ValueTree::Listener,
-                  public AudioEngineManager::Listener
+                  public AudioEngineManager::Listener,
+                  private juce::AsyncUpdater
 {
 public:
     Inspector (AudioEngineManager& ae, ProjectData& pd)
@@ -19,10 +20,14 @@ public:
 
         if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::aerion_fader_svg, BinaryData::aerion_fader_svgSize)))
             faderKnobDrawable = juce::Drawable::createFromSVG (*svgXml);
+
+        setTitle ("Inspector");
+        setFocusContainerType (juce::Component::FocusContainerType::focusContainer);
     }
 
     ~Inspector() override
     {
+        cancelPendingUpdate();
         projectData.getProjectTree().removeListener (this);
         audioEngine.removeListener (this);
     }
@@ -235,7 +240,20 @@ public:
         Theme::drawRoundedPanel (g, b.removeFromTop (36).toFloat(), Theme::surface.withAlpha (0.3f));
         g.setColour (Theme::textMain.withAlpha (0.3f));
         g.drawText ("Audio to MIDI", b.getX(), b.getY() - 36, b.getWidth(), 36, juce::Justification::centred);
+
+        if (layoutSignature() != syncedLayout)
+            triggerAsyncUpdate();
     }
+
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        proxies.paintFocusRing (g);
+    }
+
+    const Accessibility::ProxyPool& getAccessibleControls() const noexcept { return proxies; }
+
+    /** Brings the accessible controls up to date with the last paint now (for tests). */
+    void syncAccessibleControlsNow() { cancelPendingUpdate(); handleAsyncUpdate(); }
 
     void mouseDown (const juce::MouseEvent& e) override
     {
@@ -469,6 +487,91 @@ private:
     juce::Rectangle<int> armBounds, muteBounds, soloBounds, inputRoutingBounds;
     juce::Rectangle<int> monBounds, freezeBounds;
     bool filtersExpanded = true;
+
+    // Screen-reader / keyboard controls over the painted ones, rebuilt after a
+    // paint that changed the layout or the selected track.
+    Accessibility::ProxyPool proxies { *this };
+    juce::int64 syncedLayout = 0;
+
+    juce::int64 layoutSignature() const
+    {
+        juce::int64 h = (juce::int64) (juce::pointer_sized_int) selectedTrack;
+        h = h * 1000003 + trackName.hashCode();
+
+        for (auto r : { faderArea, muteBounds, soloBounds, armBounds, phaseBounds, monoBounds,
+                        monBounds, freezeBounds, inputRoutingBounds, hpfBounds, lpfBounds })
+            h = ((((h * 1000003 + r.getX()) * 1000003 + r.getY()) * 1000003 + r.getWidth()) * 1000003) + r.getHeight();
+
+        return h;
+    }
+
+    void handleAsyncUpdate() override
+    {
+        syncedLayout = layoutSignature();
+        std::vector<Accessibility::Control> controls;
+        auto* t = selectedTrack;
+
+        if (t != nullptr)
+        {
+            auto button = [&] (const juce::String& id, const juce::String& title, juce::Rectangle<int> r,
+                               std::function<bool()> isOn = nullptr)
+            {
+                Accessibility::Control c;
+                c.id = id;
+                c.title = title;
+                c.role = isOn != nullptr ? Accessibility::Role::toggle : Accessibility::Role::button;
+                c.bounds = r;
+                c.isOn = std::move (isOn);
+                c.press = [this, centre = r.getCentre()] { Accessibility::clickAt (*this, centre); };
+                return c;
+            };
+
+            auto slider = [&] (const juce::String& id, const juce::String& title, juce::Rectangle<int> r,
+                               juce::Range<double> range, double step, double bigStep, double reset,
+                               std::function<double()> get, std::function<void (double)> set,
+                               std::function<juce::String (double)> text)
+            {
+                Accessibility::Control c;
+                c.id = id;
+                c.title = title;
+                c.role = Accessibility::Role::slider;
+                c.bounds = r;
+                c.range = range;
+                c.step = step; c.fineStep = step / 5.0; c.bigStep = bigStep; c.resetValue = reset;
+                c.getValue = std::move (get);
+                c.setValue = std::move (set);
+                c.valueText = std::move (text);
+                return c;
+            };
+
+            auto hz = [] (double v) { return v >= 1000.0 ? juce::String (v / 1000.0, 2) + " kHz" : juce::String (juce::roundToInt (v)) + " Hz"; };
+
+            controls.push_back (slider ("volume", "Volume, " + trackName, faderArea,
+                                        { AudioEngineManager::kMinVolumeDb, AudioEngineManager::kMaxVolumeDb }, 0.5, 3.0, 0.0,
+                                        [this, t] { return (double) audioEngine.getTrackVolumeDb (t); },
+                                        [this, t] (double v) { audioEngine.setTrackVolumeDb (t, (float) v); repaint(); },
+                                        [] (double v) { return juce::String (v, 1) + " dB"; }));
+            controls.push_back (button ("mute",  "Mute "  + trackName, muteBounds, [t] { return t->isMuted (false); }));
+            controls.push_back (button ("solo",  "Solo "  + trackName, soloBounds, [t] { return t->isSolo (false); }));
+            controls.push_back (button ("arm",   "Record arm " + trackName, armBounds, [this, t] { return audioEngine.isTrackArmed (t); }));
+            controls.push_back (button ("phase", "Phase invert", phaseBounds, [this, t] { return audioEngine.getTrackPhase (t); }));
+            controls.push_back (button ("mono",  "Mono", monoBounds, [this, t] { return audioEngine.getTrackMono (t); }));
+            controls.push_back (button ("monitor", "Input monitoring mode", monBounds));
+            controls.push_back (button ("freeze",  "Freeze or unfreeze track", freezeBounds));
+            controls.push_back (button ("input",   "Track input", inputRoutingBounds));
+            controls.push_back (slider ("hpf", "High-pass filter", hpfBounds, { 20.0, 20000.0 }, 10.0, 500.0, 20.0,
+                                        [this, t] { return (double) audioEngine.getTrackHPF (t); },
+                                        [this, t] (double v) { audioEngine.setTrackHPF (t, (float) v); repaint(); }, hz));
+            controls.push_back (slider ("lpf", "Low-pass filter", lpfBounds, { 20.0, 20000.0 }, 100.0, 2000.0, 20000.0,
+                                        [this, t] { return (double) audioEngine.getTrackLPF (t); },
+                                        [this, t] (double v) { audioEngine.setTrackLPF (t, (float) v); repaint(); }, hz));
+        }
+
+        controls.erase (std::remove_if (controls.begin(), controls.end(),
+                                        [] (const Accessibility::Control& c) { return c.bounds.isEmpty(); }),
+                        controls.end());
+        proxies.sync (std::move (controls));
+    }
 
     void drawFilterSlider (juce::Graphics& g, juce::Rectangle<int> r, float value, float min, float max)
     {

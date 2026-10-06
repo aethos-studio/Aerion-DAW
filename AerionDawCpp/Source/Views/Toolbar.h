@@ -73,7 +73,59 @@ public:
         iconBrowser   = load (BinaryData::aerion_browser_svg,   BinaryData::aerion_browser_svgSize);
         iconXfade     = load (BinaryData::aerion_xfade_svg,     BinaryData::aerion_xfade_svgSize);
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
+
+        setTitle ("Toolbar");
+        setFocusContainerType (juce::Component::FocusContainerType::focusContainer);
     }
+
+    void resized() override
+    {
+        const int btnY = 6, btnS = 28, W = getWidth();
+
+        inspectorBtn = { 8,       btnY, btnS, btnS };
+        selectBounds = { 52,      btnY, btnS, btnS };
+        razorBounds  = { 84,      btnY, btnS, btnS };
+        compBounds   = { 116,     btnY, btnS, btnS };
+        punchBtn     = { 160,     btnY, btnS, btnS };
+        pdcBtn       = { 192,     btnY, btnS, btnS };
+        browserBtn   = { W - 36,  btnY, btnS, btnS };
+        clickBtn     = { W - 86,  btnY, btnS, btnS };
+        countInBtn   = { W - 118, btnY, btnS, btnS };
+        snapBounds   = { W - 164, btnY, btnS, btnS };
+        xfadeBounds  = { W - 196, btnY, btnS, btnS };
+
+        auto toggle = [this] (const juce::String& id, const juce::String& title, juce::Rectangle<int> r,
+                              std::function<bool()> isOn)
+        {
+            Accessibility::Control c;
+            c.id = id;
+            c.title = title;
+            c.role = Accessibility::Role::toggle;
+            c.bounds = r;
+            c.isOn = std::move (isOn);
+            c.press = [this, centre = r.getCentre()] { Accessibility::clickAt (*this, centre); };
+            return c;
+        };
+
+        proxies.sync ({ toggle ("inspector", "Inspector",                   inspectorBtn, [this] { return inspectorVisible; }),
+                        toggle ("select",    "Select tool",                 selectBounds, [this] { return activeTool == EditTool::select; }),
+                        toggle ("razor",     "Razor tool",                  razorBounds,  [this] { return activeTool == EditTool::razor; }),
+                        toggle ("comp",      "Comp tool",                   compBounds,   [this] { return activeTool == EditTool::comp; }),
+                        toggle ("punch",     "Punch in and out",            punchBtn,     [this] { return punchEnabled; }),
+                        toggle ("pdc",       "Plugin delay compensation",   pdcBtn,       [this] { return pdcEnabled; }),
+                        toggle ("xfade",     "Auto-crossfade",              xfadeBounds,  [this] { return autoCrossfadeEnabled; }),
+                        toggle ("snap",      "Snap to grid",                snapBounds,   [this] { return snapEnabled; }),
+                        toggle ("countin",   "Count-in",                    countInBtn,   [this] { return countInBars > 0; }),
+                        toggle ("metronome", "Metronome",                   clickBtn,     [this] { return metronomeEnabled; }),
+                        toggle ("browser",   "Browser",                     browserBtn,   [this] { return browserVisible; }) });
+    }
+
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        proxies.paintFocusRing (g);
+    }
+
+    const Accessibility::ProxyPool& getAccessibleControls() const noexcept { return proxies; }
 
     void paint (juce::Graphics& g) override
     {
@@ -85,15 +137,11 @@ public:
 
         // -- Left side ---------------------------------------------------------
         // Group 1: Inspector toggle
-        inspectorBtn = { 8, btnY, btnS, btnS };
         drawIconBtn (g, inspectorBtn, iconInspector.get(), inspectorVisible);
 
         drawDivider (g, 44, btnY, h - btnY);
 
         // Group 2: Edit tools
-        selectBounds = { 52,  btnY, btnS, btnS };
-        razorBounds  = { 84,  btnY, btnS, btnS };
-        compBounds   = { 116, btnY, btnS, btnS };
         drawIconBtn (g, selectBounds, iconSelect.get(), activeTool == EditTool::select);
         drawIconBtn (g, razorBounds,  iconCut.get(),    activeTool == EditTool::razor);
         drawIconBtn (g, compBounds,   iconComp.get(),   activeTool == EditTool::comp);
@@ -101,8 +149,6 @@ public:
         drawDivider (g, 152, btnY, h - btnY);
 
         // Group 3: Recording setup
-        punchBtn = { 160, btnY, btnS, btnS };
-        pdcBtn   = { 192, btnY, btnS, btnS };
         drawIconBtn (g, punchBtn, iconPunch.get(), punchEnabled, Theme::recordRed);
         drawIconBtn (g, pdcBtn,   iconPdc.get(),   pdcEnabled);
 
@@ -110,14 +156,11 @@ public:
         const int W = getWidth();
 
         // Group 6: Browser toggle (far right)
-        browserBtn = { W - 36, btnY, btnS, btnS };
         drawIconBtn (g, browserBtn, iconBrowser.get(), browserVisible);
 
         drawDivider (g, W - 50, btnY, h - btnY);
 
         // Group 5: Metronome + CountIn
-        clickBtn   = { W - 86,  btnY, btnS, btnS };
-        countInBtn = { W - 118, btnY, btnS, btnS };
         drawIconBtn (g, clickBtn,   iconMetronome.get(), metronomeEnabled);
         drawIconBtn (g, countInBtn, iconCountIn.get(),   countInBars > 0, Theme::active, true);
 
@@ -127,12 +170,10 @@ public:
         drawDivider (g, W - 132, btnY, h - btnY);
 
         // Group 4: Snap (magnet with the interval below it)
-        snapBounds = { W - 164, btnY, btnS, btnS };
         drawIconBtn (g, snapBounds, iconMagnet.get(), snapEnabled, Theme::active, true);
         drawIconLabel (g, snapBounds, getSnapIntervalText (snapInterval), snapEnabled);
 
         // Group 4b: Auto-crossfade (left of Snap)
-        xfadeBounds = { W - 196, btnY, btnS, btnS };
         drawIconBtn (g, xfadeBounds, iconXfade.get(), autoCrossfadeEnabled, Theme::active);
     }
 
@@ -270,10 +311,12 @@ private:
     std::unique_ptr<juce::Drawable> iconPunch, iconPdc;
     std::unique_ptr<juce::Drawable> iconMagnet, iconMetronome, iconCountIn, iconBrowser, iconXfade;
 
-    // Hit-test rectangles (computed each paint, read in mouseDown)
+    // Hit-test rectangles (laid out in resized, read in mouseDown)
     juce::Rectangle<int> snapBounds, selectBounds, razorBounds, compBounds;
     juce::Rectangle<int> inspectorBtn, browserBtn, clickBtn, punchBtn, pdcBtn, countInBtn;
     juce::Rectangle<int> xfadeBounds;
+
+    Accessibility::ProxyPool proxies { *this };
 
     // Hover tracking (repaint only when the hovered control changes)
     juce::Point<int> hoverPos { -1, -1 };

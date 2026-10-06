@@ -13,6 +13,7 @@
 #include "../UI/CachedLayer.h"
 #include "../UI/ClipFrame.h"
 #include "../UI/LookAndFeel.h"
+#include "../UI/Accessibility.h"
 #include "../UI/ThemeTypefaces.h"
 #include "../UI/Profiling.h"
 #include <limits>

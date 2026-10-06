@@ -1,6 +1,7 @@
 #include <JuceHeader.h>
 #include "../UIComponents.h"
 #include "../UI/GraphicsEngine.h"
+#include "AudioBenchmark.h"
 
 //==============================================================================
 // Headless paint benchmark (Milestone 5).
@@ -37,6 +38,9 @@
 //   AerionBench --tracks=4 --clips=3 --snapshots=<dir>
 //               renders an icon sheet and the toolbar, transport, menu bar, Timeline
 //               and Mixer at 100 % and 150 % scale to PNGs, then exits
+//   AerionBench --audio [--audio-tracks=32] [--audio-blocks=3000]
+//               audio block timing, audio-thread allocations and graph rebuild
+//               time instead of paint (see AudioBenchmark.cpp)
 //==============================================================================
 
 namespace
@@ -584,6 +588,9 @@ int main (int argc, char* argv[])
     for (int i = 1; i < argc; ++i)
         args.add (juce::String (argv[i]));
 
+    if (args.contains ("--audio"))
+        return runAudioBenchmark (args);
+
     // Flat fills instead of decorative gradients, as View -> Lightweight UI does.
     Theme::lightweightUi() = args.contains ("--lightweight");
 
@@ -809,6 +816,79 @@ int main (int argc, char* argv[])
 
         // Dragging a lane's bottom edge in the header column resizes the
         // track, within its limits, and counts as a change to the project.
+        // Every painted control has an accessible stand-in with a title and a
+        // role, and the keyboard works it like the mouse does.
+        std::cout << "[verify accessibility]" << std::endl;
+        {
+            auto check = [&] (const juce::String& name, bool ok, const juce::String& detail)
+            {
+                std::cout << "  " << name.paddedRight (' ', 32) << (ok ? "ok" : "FAILED") << " (" << detail << ")" << std::endl;
+                startupFailures += ok ? 0 : 1;
+            };
+
+            auto allLabelled = [] (const Accessibility::ProxyPool& pool)
+            {
+                bool ok = pool.size() > 0;
+                pool.forEach ([&] (Accessibility::Proxy& p)
+                {
+                    // Headless there is no window, so getAccessibilityHandler() returns
+                    // nothing; build the handler a screen reader would get.
+                    auto h = p.createAccessibilityHandler();
+                    ok = ok && h != nullptr && p.getTitle().isNotEmpty()
+                            && h->getRole() != juce::AccessibilityRole::unspecified;
+                });
+                return ok;
+            };
+
+            mixer.repaint();
+            { juce::Image img (juce::Image::ARGB, mixer.getWidth(), mixer.getHeight(), true); juce::Graphics g (img); mixer.paintEntireComponent (g, false); }
+            mixer.syncAccessibleControlsNow();
+            check ("mixer controls labelled", allLabelled (mixer.getAccessibleControls()),
+                   juce::String (mixer.getAccessibleControls().size()) + " controls");
+
+            { juce::Image img (juce::Image::ARGB, timeline.getWidth(), timeline.getHeight(), true); juce::Graphics g (img); timeline.paintEntireComponent (g, false); }
+            timeline.syncAccessibleControlsNow();
+            check ("timeline header controls labelled", allLabelled (timeline.getAccessibleControls()),
+                   juce::String (timeline.getAccessibleControls().size()) + " controls");
+
+            Transport transportBar (audioEngine, projectData);
+            transportBar.setSize (width, 56);
+            check ("transport controls labelled", allLabelled (transportBar.getAccessibleControls()),
+                   juce::String (transportBar.getAccessibleControls().size()) + " controls");
+
+            DAWToolbar toolbarBar;
+            toolbarBar.setSize (width, 40);
+            check ("toolbar controls labelled", allLabelled (toolbarBar.getAccessibleControls()),
+                   juce::String (toolbarBar.getAccessibleControls().size()) + " controls");
+
+            if (auto tracks = audioEngine.getAudioTracks(); ! tracks.isEmpty())
+            {
+                auto* t = tracks.getFirst();
+                const auto id = t->itemID.toString();
+
+                if (auto* fader = mixer.getAccessibleControls().find (id + ":fader"))
+                {
+                    audioEngine.setTrackVolumeDb (t, -6.0f);
+                    fader->keyPressed (juce::KeyPress (juce::KeyPress::upKey));
+                    const float db = audioEngine.getTrackVolumeDb (t);
+                    check ("Up on a fader adds 0.5 dB", std::abs (db + 5.5f) < 0.05f, juce::String (db, 2) + " dB");
+                    audioEngine.setTrackVolumeDb (t, 0.0f);
+                }
+                else check ("Up on a fader adds 0.5 dB", false, "no fader control");
+
+                if (auto* mute = mixer.getAccessibleControls().find (id + ":mute"))
+                {
+                    const bool before = t->isMuted (false);
+                    mute->keyPressed (juce::KeyPress (juce::KeyPress::spaceKey));
+                    const bool after = t->isMuted (false);
+                    check ("Space on Mute toggles mute", after != before, after ? "muted" : "unmuted");
+                    if (after != before)
+                        audioEngine.toggleTrackMute (t);
+                }
+                else check ("Space on Mute toggles mute", false, "no mute control");
+            }
+        }
+
         std::cout << "[verify track resize]" << std::endl;
         if (auto rows = timeline.getVisibleRows(); ! rows.isEmpty())
         {

@@ -40,7 +40,10 @@ public:
             if (bpm > 0) audioEngine.setTempo (bpm);
         };
 
+        tempoLabel.setTitle ("Tempo, beats per minute");
+
         setupLabel (timeSigLabel);
+        timeSigLabel.setTitle ("Time signature");
         timeSigLabel.onTextChange = [this] {
             juce::String s = timeSigLabel.getText();
             int n = s.upToFirstOccurrenceOf ("/", false, false).getIntValue();
@@ -48,6 +51,9 @@ public:
             if (n > 0 && d > 0)
                 audioEngine.setTimeSigAtPosition (audioEngine.getTransportPosition(), n, d);
         };
+
+        setTitle ("Transport");
+        setFocusContainerType (juce::Component::FocusContainerType::focusContainer);
     }
 
     ~Transport() override { projectData.getProjectTree().removeListener (this); }
@@ -69,7 +75,46 @@ public:
         // Time sig display: 68px wide, rightmost
         timeSigBounds = { getWidth() - 80, panelY, 72, panelH };
         timeSigLabel.setBounds (timeSigBounds.reduced (4, 8));
+
+        // Transport buttons, centred
+        const int btnS = 34, btnGap = 8;
+        const int totalBtnW = 6 * btnS + 5 * btnGap;   // 6 buttons
+        int cx = getWidth() / 2 - totalBtnW / 2;
+        const int cy = (getHeight() - btnS) / 2;
+
+        for (auto* b : { &rewindBounds, &forwardBounds, &stopBounds, &playBounds, &recBounds, &loopBounds })
+        {
+            *b = { cx, cy, btnS, btnS };
+            cx += btnS + btnGap;
+        }
+
+        auto button = [this] (const juce::String& id, const juce::String& title, juce::Rectangle<int> r,
+                              std::function<bool()> isOn = nullptr)
+        {
+            Accessibility::Control c;
+            c.id = id;
+            c.title = title;
+            c.role = isOn != nullptr ? Accessibility::Role::toggle : Accessibility::Role::button;
+            c.bounds = r;
+            c.isOn = std::move (isOn);
+            c.press = [this, centre = r.getCentre()] { Accessibility::clickAt (*this, centre); };
+            return c;
+        };
+
+        proxies.sync ({ button ("rewind",  "Rewind",  rewindBounds),
+                        button ("forward", "Forward", forwardBounds),
+                        button ("stop",    "Stop",    stopBounds),
+                        button ("play",    "Play",    playBounds, [this] { return audioEngine.isPlaying(); }),
+                        button ("record",  "Record",  recBounds,  [this] { return audioEngine.isRecording(); }),
+                        button ("loop",    "Loop",    loopBounds, [this] { return audioEngine.isLooping(); }) });
     }
+
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        proxies.paintFocusRing (g);
+    }
+
+    const Accessibility::ProxyPool& getAccessibleControls() const noexcept { return proxies; }
 
     void paint (juce::Graphics& g) override
     {
@@ -114,19 +159,7 @@ public:
 
         drawSectionDivider (g, 190, panelY - 4, panelH + 8);
 
-        // -- Center: Transport buttons ------------------------------------------
-        const int btnS = 34, btnGap = 8;
-        const int totalBtnW = 6 * btnS + 5 * btnGap;   // 6 buttons
-        int cx = W / 2 - totalBtnW / 2;
-        int cy = (H - btnS) / 2;
-
-        rewindBounds  = { cx,                        cy, btnS, btnS }; cx += btnS + btnGap;
-        forwardBounds = { cx,                        cy, btnS, btnS }; cx += btnS + btnGap;
-        stopBounds    = { cx,                        cy, btnS, btnS }; cx += btnS + btnGap;
-        playBounds    = { cx,                        cy, btnS, btnS }; cx += btnS + btnGap;
-        recBounds     = { cx,                        cy, btnS, btnS }; cx += btnS + btnGap;
-        loopBounds    = { cx,                        cy, btnS, btnS };
-
+        // -- Center: Transport buttons (laid out in resized) --------------------
         drawBtn (g, rewindBounds.toFloat(),  Glyph::rewind);
         drawBtn (g, forwardBounds.toFloat(), Glyph::forward);
         drawBtn (g, stopBounds.toFloat(),    Glyph::stop);
@@ -266,6 +299,7 @@ private:
     ProjectData& projectData;
     juce::Rectangle<int> playBounds, stopBounds, recBounds, rewindBounds, forwardBounds, loopBounds, tempoBounds, timeSigBounds;
     juce::Label tempoLabel, timeSigLabel;
+    Accessibility::ProxyPool proxies { *this };
 };
 
 //==============================================================================

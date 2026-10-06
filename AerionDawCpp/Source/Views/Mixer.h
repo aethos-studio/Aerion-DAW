@@ -10,7 +10,8 @@
 // window via the header pop-out button.
 class Mixer : public juce::Component,
               public juce::DragAndDropTarget,
-              public juce::ValueTree::Listener
+              public juce::ValueTree::Listener,
+              private juce::AsyncUpdater
 {
     // Per-strip hit areas recorded while painting, reused by mouse handling
     // and by the playback repaint. Declared first because paintStrip() takes one.
@@ -61,9 +62,99 @@ public:
 
         if (auto svgXml = juce::XmlDocument::parse (juce::String::fromUTF8 (BinaryData::aerion_fader_svg, BinaryData::aerion_fader_svgSize)))
             faderKnobDrawable = juce::Drawable::createFromSVG (*svgXml);
+
+        setTitle ("Mixer");
+        setFocusContainerType (juce::Component::FocusContainerType::focusContainer);
+        setWantsKeyboardFocus (true);
     }
 
-    ~Mixer() override { projectData.getProjectTree().removeListener (this); }
+    ~Mixer() override
+    {
+        cancelPendingUpdate();
+        projectData.getProjectTree().removeListener (this);
+    }
+
+    /** The track whose strip has keyboard focus, or nullptr. */
+    tracktion::Track* getKeyboardTrack() const
+    {
+        if (auto* p = proxies.getFocused())
+            return trackForControlId (p->getControl().id);
+
+        return nullptr;
+    }
+
+    /** Puts keyboard focus on the first strip's fader (F6 / View > Focus Mixer). */
+    void focusFirstStrip()
+    {
+        if (! stripHits.isEmpty())
+            if (auto* p = proxies.find (controlId (stripHits.getFirst().track, "fader")))
+            {
+                p->grabKeyboardFocus();
+                return;
+            }
+
+        grabKeyboardFocus();
+    }
+
+    const Accessibility::ProxyPool& getAccessibleControls() const noexcept { return proxies; }
+
+    /** Brings the accessible controls up to date with the last paint now
+        instead of on the next message loop pass (for tests). */
+    void syncAccessibleControlsNow() { cancelPendingUpdate(); handleAsyncUpdate(); }
+
+    /** Left / Right move to the same control on the neighbouring strip,
+        Ctrl + Left / Right pans the focused strip. Up / Down, Page Up / Down
+        and Home are handled by the focused control itself. */
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        const bool left  = key.isKeyCode (juce::KeyPress::leftKey);
+        const bool right = key.isKeyCode (juce::KeyPress::rightKey);
+
+        if (! (left || right) || stripHits.isEmpty())
+            return false;
+
+        auto* focused = proxies.getFocused();
+
+        if (focused == nullptr)
+        {
+            focusFirstStrip();
+            return true;
+        }
+
+        const auto id   = focused->getControl().id;
+        const auto kind = id.fromLastOccurrenceOf (":", false, false);
+        auto* track     = trackForControlId (id);
+
+        if (key.getModifiers().isCommandDown())
+        {
+            if (track != nullptr)
+            {
+                audioEngine.setTrackPan (track, juce::jlimit (-1.0f, 1.0f, audioEngine.getTrackPan (track) + (left ? -0.05f : 0.05f)));
+                repaint();
+            }
+            return true;
+        }
+
+        int index = 0;
+        for (int i = 0; i < stripHits.size(); ++i)
+            if (stripHits.getReference (i).track == track)
+                index = i;
+
+        index = juce::jlimit (0, stripHits.size() - 1, index + (left ? -1 : 1));
+        auto* next = stripHits.getReference (index).track;
+
+        if (auto* p = proxies.find (controlId (next, kind)))
+            p->grabKeyboardFocus();
+        else if (auto* fader = proxies.find (controlId (next, "fader")))
+            fader->grabKeyboardFocus();
+
+        return true;
+    }
+
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        proxies.paintFocusRing (g);
+    }
 
     /** What playback changes in the console: each strip's meters, fader cap and
         peak readout, or the whole strip if automation has moved its fader or
@@ -150,6 +241,7 @@ public:
             g.drawText("Add a track to see the console.",
                        0, kHeaderH, getWidth(), getHeight() - kHeaderH, juce::Justification::centred);
             stripHits.clearQuick();
+            scheduleProxySyncIfLayoutChanged();
             return;
         }
 
@@ -199,6 +291,8 @@ public:
             if (isMaster) break;
             if (i == tracks.size() - 1) x += kMasterGap;
         }
+
+        scheduleProxySyncIfLayoutChanged();
     }
 
     /** `previous` is this strip's hit areas from the last paint if its layout
@@ -740,6 +834,128 @@ private:
 
     juce::Rectangle<int>     detachBtn;
     juce::Array<StripHit>    stripHits;
+
+    // Screen-reader / keyboard controls over the painted ones, rebuilt after a
+    // paint that changed the layout (never from inside paint itself).
+    Accessibility::ProxyPool proxies { *this };
+    juce::int64 syncedLayout = 0;
+
+    static juce::String controlId (const tracktion::Track* t, const juce::String& kind)
+    {
+        return t->itemID.toString() + ":" + kind;
+    }
+
+    tracktion::Track* trackForControlId (const juce::String& id) const
+    {
+        const auto trackId = id.upToLastOccurrenceOf (":", false, false);
+
+        for (auto& hit : stripHits)
+            if (hit.track->itemID.toString() == trackId)
+                return hit.track;
+
+        return nullptr;
+    }
+
+    juce::int64 layoutSignature() const
+    {
+        auto mix = [] (juce::int64 h, juce::int64 v) { return h * 1000003 + v; };
+        auto mixRect = [&] (juce::int64 h, juce::Rectangle<int> r)
+        {
+            return mix (mix (mix (mix (h, r.getX()), r.getY()), r.getWidth()), r.getHeight());
+        };
+
+        juce::int64 h = mix (mixRect (17, detachBtn), detached ? 1 : 0);
+
+        for (auto& hit : stripHits)
+        {
+            h = mix (h, (juce::int64) (juce::pointer_sized_int) hit.track);
+            h = mix (h, hit.track->getName().hashCode());
+
+            for (auto r : { hit.faderArea, hit.panArea, hit.muteBtn, hit.soloBtn, hit.monoBtn, hit.fxBtn, hit.infoBtn })
+                h = mixRect (h, r);
+        }
+
+        return h;
+    }
+
+    void scheduleProxySyncIfLayoutChanged()
+    {
+        if (layoutSignature() != syncedLayout)
+            triggerAsyncUpdate();
+    }
+
+    void handleAsyncUpdate() override
+    {
+        syncedLayout = layoutSignature();
+        std::vector<Accessibility::Control> controls;
+
+        Accessibility::Control detach;
+        detach.id = "detach";
+        detach.title = detached ? "Dock mixer" : "Pop out mixer";
+        detach.bounds = detachBtn;
+        detach.press = [this] { if (onDetachRequested) onDetachRequested(); };
+        controls.push_back (detach);
+
+        for (auto& hit : stripHits)
+        {
+            auto* t = hit.track;
+            const juce::String name = hit.isMaster ? juce::String ("Master") : t->getName();
+
+            auto button = [&] (const juce::String& kind, const juce::String& title, juce::Rectangle<int> r,
+                               std::function<bool()> isOn)
+            {
+                Accessibility::Control c;
+                c.id = controlId (t, kind);
+                c.title = title;
+                c.role = isOn != nullptr ? Accessibility::Role::toggle : Accessibility::Role::button;
+                c.bounds = r;
+                c.isOn = std::move (isOn);
+                c.press = [this, centre = r.getCentre()] { Accessibility::clickAt (*this, centre); };
+                return c;
+            };
+
+            Accessibility::Control fader;
+            fader.id = controlId (t, "fader");
+            fader.title = "Volume, " + name;
+            fader.role = Accessibility::Role::slider;
+            fader.bounds = hit.faderArea;
+            fader.range = { AudioEngineManager::kMinVolumeDb, AudioEngineManager::kMaxVolumeDb };
+            fader.step = 0.5; fader.fineStep = 0.1; fader.bigStep = 3.0; fader.resetValue = 0.0;
+            fader.getValue = [this, t] { return (double) audioEngine.getTrackVolumeDb (t); };
+            fader.setValue = [this, t] (double db) { audioEngine.setTrackVolumeDb (t, (float) db); repaint(); };
+            fader.valueText = [] (double db) { return juce::String (db, 1) + " dB"; };
+
+            Accessibility::Control pan;
+            pan.id = controlId (t, "pan");
+            pan.title = "Pan, " + name;
+            pan.role = Accessibility::Role::slider;
+            pan.bounds = hit.panArea;
+            pan.range = { -1.0, 1.0 };
+            pan.step = 0.05; pan.fineStep = 0.01; pan.bigStep = 0.25; pan.resetValue = 0.0;
+            pan.getValue = [this, t] { return (double) audioEngine.getTrackPan (t); };
+            pan.setValue = [this, t] (double v) { audioEngine.setTrackPan (t, (float) v); repaint(); };
+            pan.valueText = [] (double v)
+            {
+                const int percent = juce::roundToInt (std::abs (v) * 100.0);
+                return percent == 0 ? juce::String ("Centre")
+                                    : (v < 0 ? "Left " : "Right ") + juce::String (percent) + " %";
+            };
+
+            controls.push_back (fader);
+            controls.push_back (pan);
+            controls.push_back (button ("mute", "Mute " + name, hit.muteBtn, [t] { return t->isMuted (false); }));
+            controls.push_back (button ("solo", "Solo " + name, hit.soloBtn, [t] { return t->isSolo (false); }));
+            controls.push_back (button ("mono", "Mono " + name, hit.monoBtn, [this, t] { return audioEngine.getTrackMono (t); }));
+            controls.push_back (button ("fx", "Add plugin to " + name, hit.fxBtn, nullptr));
+            controls.push_back (button ("peak", "Reset peak, " + name, hit.infoBtn, nullptr));
+        }
+
+        // Controls whose button column was not laid out yet have no area.
+        controls.erase (std::remove_if (controls.begin(), controls.end(),
+                                        [] (const Accessibility::Control& c) { return c.bounds.isEmpty(); }),
+                        controls.end());
+        proxies.sync (std::move (controls));
+    }
 
     tracktion::Track*       activePanTrack   = nullptr;
     juce::Rectangle<int>    activePanArea;

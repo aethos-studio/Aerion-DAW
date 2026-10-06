@@ -49,6 +49,8 @@ struct AerionActionCatalog
 
         add ("audio.crossfade",        "Audio",      "Force Crossfade",      "X");
 
+        add ("view.nextPane",          "View",       "Focus Next Pane",      "F6");
+
         add ("track.mute",             "Track",      "Toggle Mute",          "M");
         add ("track.solo",             "Track",      "Toggle Solo",          "S");
         add ("track.arm",              "Track",      "Toggle Record Arm",    "R");

@@ -734,6 +734,8 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component* orig
             return true;
     }
 
+    if (km.matches ("view.nextPane", key)) { focusNextPane(); return true; }
+
     if (km.matches ("edit.undo", key)) { audioEngine.undo(); return true; }
     if (km.matches ("edit.redo", key)) { audioEngine.redo(); return true; }
     if (km.matches ("file.save", key)) { saveProject(); return true; }
@@ -832,6 +834,20 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component* orig
 
             timeline.selectedClip->removeFromParent();
             timeline.clearSelectedClip();
+            timeline.repaint();
+            return true;
+        }
+    }
+
+    // With a Mixer strip focused from the keyboard, track keys act on its track.
+    if (auto* strip = mixer.getKeyboardTrack())
+    {
+        if (km.matches ("track.mute", key)) { audioEngine.toggleTrackMute (strip); mixer.repaint(); timeline.repaint(); return true; }
+        if (km.matches ("track.solo", key)) { audioEngine.toggleTrackSolo (strip); mixer.repaint(); timeline.repaint(); return true; }
+        if (km.matches ("track.arm", key))
+        {
+            audioEngine.setTrackArmed (strip, ! audioEngine.isTrackArmed (strip));
+            mixer.repaint();
             timeline.repaint();
             return true;
         }
@@ -1823,6 +1839,32 @@ void MainComponent::editStateChanged()
 void MainComponent::engineStatusChanged()
 {
     refreshFromEngine();
+}
+
+void MainComponent::focusNextPane()
+{
+    juce::Array<juce::Component*> panes { &toolbar, &timeline, &mixer, &transport };
+
+    for (int i = panes.size(); --i >= 0;)
+        if (! panes[i]->isShowing())
+            panes.remove (i);
+
+    if (panes.isEmpty())
+        return;
+
+    auto* focused = juce::Component::getCurrentlyFocusedComponent();
+    int current = -1;
+
+    for (int i = 0; i < panes.size(); ++i)
+        if (focused != nullptr && (panes[i] == focused || panes[i]->isParentOf (focused)))
+            current = i;
+
+    auto* next = panes[(current + 1) % panes.size()];
+
+    if (next == &mixer)
+        mixer.focusFirstStrip();
+    else
+        next->grabKeyboardFocus(); // a pane that does not take focus itself passes it to its first control
 }
 
 void MainComponent::pluginFaulted (const juce::String& pluginName, PluginFaultMonitor::Stage stage,

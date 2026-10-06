@@ -111,6 +111,10 @@ public:
 
         setWantsKeyboardFocus (true);
         setMouseCursor (juce::MouseCursor::NormalCursor);
+
+        setTitle ("Timeline");
+        setFocusContainerType (juce::Component::FocusContainerType::focusContainer);
+        headerProxySync.onUpdate = [this] { syncHeaderProxies(); };
     }
 
     ~Timeline() override
@@ -1605,7 +1609,20 @@ public:
             g.setColour (Theme::textMain);
             g.drawText (currentTooltip.text, currentTooltip.bounds, juce::Justification::centred);
         }
+
+        if (headerLayoutSignature() != syncedHeaderLayout)
+            headerProxySync.triggerAsyncUpdate();
     }
+
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        headerProxies.paintFocusRing (g);
+    }
+
+    const Accessibility::ProxyPool& getAccessibleControls() const noexcept { return headerProxies; }
+
+    /** Brings the accessible controls up to date with the last paint now (for tests). */
+    void syncAccessibleControlsNow() { headerProxySync.cancelPendingUpdate(); syncHeaderProxies(); }
 
     static void drawHeaderButton (juce::Graphics& g, juce::Rectangle<int> b,
                                   const juce::String& label, juce::Colour col)
@@ -1774,6 +1791,7 @@ public:
         const int textX = 14 + indent;
         const int btnY  = y + 32;
         trackButtonCache[track->itemID.toString()] = {
+            track,
             juce::Rectangle<int> (textX,      btnY, 24, 22),
             juce::Rectangle<int> (textX + 28, btnY, 24, 22),
             juce::Rectangle<int> (textX + 56, btnY, 24, 22),
@@ -4029,9 +4047,92 @@ private:
 
     // Cache track button bounds keyed by track itemID string
     struct TrackButtonBounds {
+        tracktion::Track* track = nullptr;
         juce::Rectangle<int> m, s, r, a;  // mute, solo, arm, automation
     };
     std::map<juce::String, TrackButtonBounds> trackButtonCache;
+
+    // Screen-reader / keyboard controls over the header buttons, rebuilt after
+    // a paint that moved them (scrolling included), never from inside paint.
+    Accessibility::ProxyPool headerProxies { *this };
+    juce::int64 syncedHeaderLayout = 0;
+
+    struct ProxySync final : juce::AsyncUpdater
+    {
+        std::function<void()> onUpdate;
+        ~ProxySync() override { cancelPendingUpdate(); }
+        void handleAsyncUpdate() override { if (onUpdate) onUpdate(); }
+    };
+    ProxySync headerProxySync;
+
+    juce::int64 headerLayoutSignature() const
+    {
+        auto mixRect = [] (juce::int64 h, juce::Rectangle<int> r)
+        {
+            return (((h * 1000003 + r.getX()) * 1000003 + r.getY()) * 1000003 + r.getWidth()) * 1000003 + r.getHeight();
+        };
+
+        juce::int64 h = mixRect (mixRect (mixRect (7, addTrackBtn), addMidiTrackBtn), addFolderBtn);
+        h = mixRect (h, getLocalBounds());
+
+        for (auto& [id, b] : trackButtonCache)
+        {
+            h = h * 1000003 + id.hashCode();
+            h = h * 1000003 + (b.track != nullptr ? b.track->getName().hashCode() : 0);
+            h = mixRect (h, b.m);
+        }
+
+        return h;
+    }
+
+    void syncHeaderProxies()
+    {
+        syncedHeaderLayout = headerLayoutSignature();
+        std::vector<Accessibility::Control> controls;
+
+        auto button = [this] (const juce::String& id, const juce::String& title, juce::Rectangle<int> r,
+                              std::function<bool()> isOn = nullptr)
+        {
+            Accessibility::Control c;
+            c.id = id;
+            c.title = title;
+            c.role = isOn != nullptr ? Accessibility::Role::toggle : Accessibility::Role::button;
+            c.bounds = r;
+            c.isOn = std::move (isOn);
+            c.press = [this, centre = r.getCentre()] { Accessibility::clickAt (*this, centre); };
+            return c;
+        };
+
+        controls.push_back (button ("addAudio",  "Add audio track", addTrackBtn));
+        controls.push_back (button ("addMidi",   "Add MIDI track",  addMidiTrackBtn));
+        controls.push_back (button ("addFolder", "Add folder",      addFolderBtn));
+
+        // In the order the rows are shown.
+        std::vector<const TrackButtonBounds*> rows;
+        for (auto& [id, b] : trackButtonCache)
+            rows.push_back (&b);
+        std::sort (rows.begin(), rows.end(), [] (auto* x, auto* y) { return x->m.getY() < y->m.getY(); });
+
+        // Header column below the action bar: rows scrolled under it are left out.
+        const auto visible = juce::Rectangle<int> (0, laneTop(), kHeaderWidth, laneBottom() - laneTop());
+
+        for (auto* b : rows)
+        {
+            auto* t = b->track;
+            if (t == nullptr || ! visible.contains (b->m))
+                continue;
+
+            const auto id = t->itemID.toString();
+            const auto name = t->getName();
+            controls.push_back (button (id + ":mute", "Mute " + name, b->m, [t] { return t->isMuted (false); }));
+            controls.push_back (button (id + ":solo", "Solo " + name, b->s, [t] { return t->isSolo (false); }));
+            controls.push_back (button (id + ":arm",  "Record arm " + name, b->r, [this, t] { return audioEngine.isTrackArmed (t); }));
+            controls.push_back (button (id + ":automation", "Automation lanes, " + name, b->a,
+                                        [this, id] { return automationVisibleTracks.contains (id); }));
+        }
+
+        headerProxies.sync (std::move (controls));
+    }
 
     // Horizontal scroll position in whole pixels at the current zoom: the time
     // at the lane area's left edge is scrollPx / pxPerSec.
