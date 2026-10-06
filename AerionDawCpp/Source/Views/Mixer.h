@@ -329,6 +329,19 @@ public:
             const bool k14 = isMaster && (bool) projectData.getProjectTree().getProperty (IDs::masterKMeter, false);
             ::paintFader (g, faderZone, audioEngine, track, tColor, isMaster,
                           faderKnobDrawable.get(), &hit.peakReadoutArea, k14);
+
+            // The fader or pan was moved by hand, so the track's automation no
+            // longer drives them (context menu: Re-enable Automation).
+            if (audioEngine.isTrackAutomationOverridden (track))
+            {
+                auto badge = juce::Rectangle<int> (faderZone.getX() + 2, faderZone.getY() + 2, 14, 14).toFloat();
+                g.setColour (Theme::meterYellow.withAlpha (0.2f));
+                g.fillRoundedRectangle (badge, 3.0f);
+                g.setColour (Theme::meterYellow);
+                g.drawRoundedRectangle (badge.reduced (0.5f), 3.0f, 1.0f);
+                g.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
+                g.drawText ("A", badge, juce::Justification::centred, false);
+            }
         }
         else
         {
@@ -482,6 +495,12 @@ public:
             m.addItem (2, "Mono Sum", true, isMono);
             m.addSeparator();
 
+            if (audioEngine.isTrackAutomationOverridden (t))
+            {
+                m.addItem (4, "Re-enable Automation");
+                m.addSeparator();
+            }
+
             if (auto* f = dynamic_cast<tracktion::FolderTrack*> (t))
             {
                 if (audioEngine.isFolderSubmix (f))
@@ -524,6 +543,7 @@ public:
                     if (result == 1)      audioEngine.setTrackPhase (t, ! audioEngine.getTrackPhase (t));
                     else if (result == 2) audioEngine.setTrackMono (t, ! audioEngine.getTrackMono (t));
                     else if (result == 3) audioEngine.clearTrackMaxPeak (t);
+                    else if (result == 4) audioEngine.reenableTrackAutomation (t);
                     else if (result == 20 || result == 21)
                     {
                         if (auto* f = dynamic_cast<tracktion::FolderTrack*> (t))

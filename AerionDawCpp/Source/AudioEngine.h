@@ -281,6 +281,11 @@ public:
     float getTrackVolumeDb (tracktion::Track* track);
     void  ensureVolumeRange (tracktion::Track* track);
 
+    // Moving an automated volume or pan by hand bypasses its automation curve
+    // (kept in the project) until the user re-enables it.
+    bool  isTrackAutomationOverridden (tracktion::Track* track);
+    void  reenableTrackAutomation (tracktion::Track* track);
+
     // Filter, Phase and Mono (Phase 1)
     float getTrackHPF (tracktion::Track* track);
     void  setTrackHPF (tracktion::Track* track, float freq);

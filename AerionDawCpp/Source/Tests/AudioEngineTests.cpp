@@ -409,6 +409,36 @@ public:
             file.deleteFile();
         }
 
+        // With an automation curve the parameter follows the curve on every block,
+        // so a fader move used to snap back at once. It now overrides the curve.
+        beginTest ("moving an automated fader overrides its automation until re-enabled");
+        {
+            auto* track = engine.addAudioTrack();
+            auto* vol = engine.getAutomationParam (track, AudioEngineManager::AutomationParamKind::Volume);
+            expect (vol != nullptr);
+
+            const float curveValue = std::exp ((-20.0f - 6.0f) / 20.0f); // -20 dB
+            auto& curve = vol->getCurve();
+            curve.addPoint (tracktion::TimePosition::fromSeconds (0.0), curveValue, 0.0f);
+            curve.addPoint (tracktion::TimePosition::fromSeconds (10.0), curveValue, 0.0f);
+            vol->updateToFollowCurve (tracktion::TimePosition::fromSeconds (1.0));
+            expectWithinAbsoluteError (engine.getTrackVolumeDb (track), -20.0f, 0.1f);
+            expect (! engine.isTrackAutomationOverridden (track));
+
+            engine.setTrackVolumeDb (track, -6.0f);
+            vol->updateToFollowCurve (tracktion::TimePosition::fromSeconds (1.0)); // what playback does next
+            expectWithinAbsoluteError (engine.getTrackVolumeDb (track), -6.0f, 0.1f);
+            expect (engine.isTrackAutomationOverridden (track));
+            expectEquals (curve.getNumPoints(), 2, "the curve itself is kept");
+
+            engine.reenableTrackAutomation (track);
+            expect (! engine.isTrackAutomationOverridden (track));
+            vol->updateToFollowCurve (tracktion::TimePosition::fromSeconds (1.0));
+            expectWithinAbsoluteError (engine.getTrackVolumeDb (track), -20.0f, 0.1f);
+
+            engine.deleteTrack (track);
+        }
+
         // Plugins hand their settings to the Edit only when it is flushed (external
         // plugins call getStateInformation there). A plugin's window position takes
         // the same route, so it stands in for state changed inside a plugin's UI.

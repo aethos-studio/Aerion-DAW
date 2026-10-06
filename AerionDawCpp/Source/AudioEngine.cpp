@@ -1272,10 +1272,55 @@ void AudioEngineManager::moveExternalPlugin (te::Track* track, te::ExternalPlugi
     broadcastChange();
 }
 
+// A parameter with an automation curve follows that curve on every audio block,
+// stopped or playing, so a fader or pan move would snap straight back. The move
+// overrides the curve instead (it is bypassed, and stays in the project) until
+// the user re-enables automation. With a single point Tracktion moves that point.
+static void overrideAutomationForManualMove (te::AutomatableParameter& p)
+{
+    auto& curve = p.getCurve();
+
+    if (curve.getNumPoints() > 1 && ! curve.bypass.get())
+        curve.bypass = true;
+}
+
+static bool isAutomationOverridden (te::AutomatableParameter* p)
+{
+    return p != nullptr && p->getCurve().getNumPoints() > 1 && p->getCurve().bypass.get();
+}
+
 void AudioEngineManager::setTrackPan (te::Track* track, float pan)
 {
     if (auto* p = getAutomationParam (track, AutomationParamKind::Pan))
+    {
+        overrideAutomationForManualMove (*p);
         p->setParameter (juce::jlimit (-1.0f, 1.0f, pan), juce::sendNotification);
+    }
+}
+
+bool AudioEngineManager::isTrackAutomationOverridden (te::Track* track)
+{
+    return isAutomationOverridden (getAutomationParam (track, AutomationParamKind::Volume))
+        || isAutomationOverridden (getAutomationParam (track, AutomationParamKind::Pan));
+}
+
+void AudioEngineManager::reenableTrackAutomation (te::Track* track)
+{
+    if (edit == nullptr)
+        return;
+
+    const auto position = edit->getTransport().getPosition();
+
+    for (auto kind : { AutomationParamKind::Volume, AutomationParamKind::Pan })
+    {
+        if (auto* p = getAutomationParam (track, kind); isAutomationOverridden (p))
+        {
+            p->getCurve().bypass = false;
+            p->updateToFollowCurve (position);
+        }
+    }
+
+    broadcastChange();
 }
 
 float AudioEngineManager::getTrackPan (te::Track* track)
@@ -1311,6 +1356,7 @@ void AudioEngineManager::setTrackVolumeDb (te::Track* track, float db)
     if (auto* vp = getAutomationParam (track, AutomationParamKind::Volume))
     {
         ensureVolumeRange (track);
+        overrideAutomationForManualMove (*vp);
         // Tracktion's native fader-position formula: pos = exp((dB - 6) / 20)
         float nativeVal = std::exp ((db - 6.0f) / 20.0f);
         vp->setParameter (nativeVal, juce::sendNotification);

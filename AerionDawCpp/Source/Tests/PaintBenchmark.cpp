@@ -769,6 +769,44 @@ int main (int argc, char* argv[])
             if (playing) audioEngine.stop();
         }
 
+        // A track whose volume has automation follows its curve on every block;
+        // dragging its fader must still move it (the drag overrides the curve).
+        if (auto tracks = audioEngine.getAudioTracks(); ! tracks.isEmpty())
+        {
+            auto* t = tracks.getFirst();
+            auto* vol = audioEngine.getAutomationParam (t, AudioEngineManager::AutomationParamKind::Volume);
+            auto& curve = vol->getCurve();
+            const float originalDb = audioEngine.getTrackVolumeDb (t);
+            const float minus20 = std::exp ((-20.0f - 6.0f) / 20.0f);
+            curve.addPoint (tracktion::TimePosition::fromSeconds (0.0), minus20, 0.0f);
+            curve.addPoint (tracktion::TimePosition::fromSeconds (600.0), minus20, 0.0f);
+
+            audioEngine.play();
+            runLoopFor (300);
+
+            const auto area = mixer.getFaderArea (t);
+            const auto mid = area.getCentre().toFloat();
+            dragMouse (mixer, mid, mid.translated (0.0f, -40.0f));
+            runLoopFor (500);
+            const float draggedDb = audioEngine.getTrackVolumeDb (t);
+            const bool moved = draggedDb > -19.0f && audioEngine.isTrackAutomationOverridden (t);
+
+            audioEngine.reenableTrackAutomation (t);
+            runLoopFor (300);
+            const float backDb = audioEngine.getTrackVolumeDb (t);
+            const bool restored = std::abs (backDb + 20.0f) < 0.5f;
+            audioEngine.stop();
+
+            std::cout << "  " << juce::String ("automated track fader, playing").paddedRight (' ', 32)
+                      << (moved ? "ok" : "FAILED") << " (" << draggedDb << " dB)" << std::endl;
+            std::cout << "  " << juce::String ("re-enabled automation").paddedRight (' ', 32)
+                      << (restored ? "ok" : "FAILED") << " (" << backDb << " dB)" << std::endl;
+            startupFailures += (moved ? 0 : 1) + (restored ? 0 : 1);
+
+            curve.clear();
+            audioEngine.setTrackVolumeDb (t, originalDb);
+        }
+
         // Dragging a lane's bottom edge in the header column resizes the
         // track, within its limits, and counts as a change to the project.
         std::cout << "[verify track resize]" << std::endl;
