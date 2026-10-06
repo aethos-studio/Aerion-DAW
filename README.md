@@ -4,7 +4,7 @@
 
 **Aerion DAW** is a native digital audio workstation built in **C++20** with **JUCE 8** and the **Tracktion Engine v3.2**. It targets serious home and project-studio production on **Windows 11** first, with **macOS** builds supported through CI and release packaging.
 
-**Current version:** v0.3.0 Pre-Alpha · **Active milestone:** [M5 — Polish & Stability](AerionDawCpp/Documentation/ROADMAP.md) (targeting v0.4.0)
+**Current version:** v0.4.0 Pre-Alpha · **Active milestone:** [M6 — Complete Core](AerionDawCpp/Documentation/ROADMAP.md) (targeting v0.5.0)
 
 [![Build & Smoke Tests](https://github.com/aethos-studio/Aerion-DAW/actions/workflows/build-test.yml/badge.svg)](https://github.com/aethos-studio/Aerion-DAW/actions/workflows/build-test.yml)
 
@@ -12,7 +12,7 @@
 
 ## What Aerion is today
 
-Aerion is a **working pre-alpha DAW**, not a demo shell. You can record, edit, mix, and export a complete song session on Windows today. Milestones 1–4 — editing, mixing, recording, and project workflow — are implemented and in daily use. Milestone 5 adds stability, packaging, tests, and performance work toward a shippable v0.4.0.
+Aerion is a **working pre-alpha DAW**, not a demo shell. You can record, edit, mix, and export a complete song session on Windows today. Milestones 1–5 — editing, mixing, recording, project workflow, and polish & stability — are complete. Milestone 6 fills the remaining gaps to a modern DAW baseline: stock instruments and effects, full automation, time-stretch and sidechain.
 
 The long-term vision includes AI-assisted workflows and cloud project sync, but those are **scaffolding only** right now. The current focus is making the core DAW fast, stable, and trustworthy.
 
@@ -49,7 +49,8 @@ The long-term vision includes AI-assisted workflows and cloud project sync, but 
 
 - Save and load **`.aerion`** project files with full round-trip state
 - Collect & save, auto-save, and crash recovery
-- **Plugin crash protection** (Windows): a plugin that crashes while processing audio is caught and bypassed, and the session keeps playing
+- **Plugin crash protection** (Windows): a plugin that crashes while processing audio, loading, saving or restoring its settings, or opening its editor is caught and switched off, and the session keeps going; plugin scanning runs in a separate process
+- **Accessibility**: screen-reader labels and keyboard control for the Mixer, Transport, Toolbar, Inspector and track headers (F6 moves between panes)
 - **Freeze / bounce** tracks; mixdown and **stems** export to WAV / AIFF / FLAC / OGG
 - Customisable **keyboard shortcuts** (`.aerionkeys` import/export)
 - **Workspace layouts** — built-in Editing / Mixing / Recording presets plus saved custom layouts
@@ -66,9 +67,17 @@ The long-term vision includes AI-assisted workflows and cloud project sync, but 
 
 ---
 
-## Recent progress (September 2026)
+## Recent progress (October 2026)
 
-Milestone 5 work on `main`:
+Milestone 5 closed on October 6, 2026 (v0.4.0):
+
+- **Plugin settings saved (data loss)** — settings changed in a plugin's own window could be missing from saved projects and auto-save; saving now writes each plugin's current state first
+- **Plugin crash protection** extended to loading, saving and restoring settings and opening editors, with out-of-process plugin scanning
+- **Accessibility** — painted controls are reachable by screen readers and the keyboard
+- **Audio performance** measured with `AerionBench --audio`: 4.6 % of a 128-sample block at the 99th percentile for a 32-track reference project, no allocations on the audio thread
+- **Release packaging** — installers named after the release tag; macOS signing and notarization ready to run once the certificate secrets are added
+
+Earlier Milestone 5 work:
 
 - **Save prompts fixed (data loss)** — the Quit, New Project, Open Project, Open Recent and Crash Recovery prompts acted on the wrong buttons ("Save & Quit" quit without saving, "Cancel" discarded the project). Each button now does what it says, and Escape cancels
 - **Plugin crash protection** (Windows) — a plugin that crashes while processing audio is caught, silenced, bypassed and reported, instead of taking the session down
@@ -80,18 +89,18 @@ Milestone 5 work on `main`:
 
 ---
 
-## What's still in progress (M5)
+## Known limits
 
 | Area | State |
 |---|---|
-| UI performance | Mostly done, including scrolling by copying cached pixels; an audio-side hot-path review remains |
-| Plugin crash protection | Crashes during audio processing are caught on Windows; crashes in plugin editors or state save/load, and all plugin crashes on macOS, still need out-of-process hosting |
+| Performance | UI and audio targets met; numbers in [`PERFORMANCE.md`](AerionDawCpp/Documentation/PERFORMANCE.md) |
+| Plugin crash protection | Windows catches crashes while processing, loading, saving, restoring and opening editors. Crashes inside an open editor, and all plugin crashes on macOS, need out-of-process hosting (deferred) |
 | Error reporting | Done: the app log shows in a **Console** bottom-panel tab; a crash writes a local report (stack, log, Windows minidump) that the next launch points to |
 | High-DPI / UI scaling | Done: **View → UI Size** (Auto / 100–200 %) scales the whole interface; the Timeline stays fast and sharp on scaled displays |
 | Track heights | Done: drag a track's bottom edge (or use Track Height in its context menu); saved per track |
 | Tests | Smoke tests for `ProjectData`, `AerionKeymap`, `AudioEngineManager` (incl. track heights through save and load), graphics engine choice, UI size, plugin fault handling and dialogs; `AerionBench --verify` pixel checks run in CI at 100 % and 125 % UI size |
-| Packaging | Windows NSIS + optional self-signed signing; macOS DMG without notarization |
-| Accessibility | Not started |
+| Packaging | Windows NSIS and macOS DMG; production signing and notarization wait on paid certificates (the workflow runs them once the secrets are added) |
+| Accessibility | Mixer, Transport, Toolbar, Inspector and track headers; Timeline clips and Piano Roll notes not yet |
 | AI / Cloud | `AIManager` is a mock; Google Drive client has placeholder OAuth credentials |
 
 See [`STATUS.md`](AerionDawCpp/Documentation/STATUS.md) and [`ROADMAP.md`](AerionDawCpp/Documentation/ROADMAP.md) for the full milestone breakdown.

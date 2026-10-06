@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(AerionDaw VERSION 0.3.0)
+project(AerionDaw VERSION 0.4.0)
 
 # Fetch Tracktion Engine (includes JUCE)
 include(FetchContent)
