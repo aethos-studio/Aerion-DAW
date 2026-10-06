@@ -126,6 +126,43 @@ namespace
         }
     }
 
+    // Runs every call into a hosted plugin through the fault monitor, so a
+    // plugin crash is caught instead of taking the app down: processBlock
+    // through Patches/tracktion/0001-external-plugin-process-hook.patch,
+    // loading and saving or restoring its settings through
+    // Patches/tracktion/0002-external-plugin-call-hook.patch.
+    class AerionEngineBehaviour : public te::EngineBehaviour
+    {
+    public:
+        PluginFaultMonitor pluginFaults;
+
+        void processExternalPluginBlock (te::ExternalPlugin& plugin, juce::AudioPluginInstance& instance,
+                                         juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi,
+                                         bool bypassed) override
+        {
+            pluginFaults.process (&plugin, plugin.isEnabled(), instance, buffer, midi, bypassed);
+        }
+
+        bool callExternalPlugin (te::ExternalPlugin& plugin, ExternalPluginCall kind,
+                                 const std::function<void()>& call) override
+        {
+            using Stage = PluginFaultMonitor::Stage;
+            const auto stage = kind == ExternalPluginCall::createInstance ? Stage::loading
+                             : kind == ExternalPluginCall::saveState      ? Stage::savingState
+                                                                          : Stage::restoringState;
+            return pluginFaults.call (&plugin, stage, call);
+        }
+
+        // A plugin that crashes while being scanned takes down a child process
+        // (started in Main.cpp), not the app, and is listed as failed.
+        bool canScanPluginsOutOfProcess() override { return true; }
+    };
+
+    PluginFaultMonitor& faultMonitorFor (te::Engine& e)
+    {
+        return static_cast<AerionEngineBehaviour&> (e.getEngineBehaviour()).pluginFaults;
+    }
+
     // Hosts a tracktion plugin's AudioProcessorEditor inside a JUCE DocumentWindow.
     // Without this, te::UIBehaviour::createPluginWindow returns nothing and
     // showWindowExplicitly() is a silent no-op.
@@ -136,10 +173,18 @@ namespace
         {
             if (auto* pi = plugin.getAudioPluginInstance())
             {
-                editor.reset (pi->createEditorIfNeeded());
-                if (editor == nullptr)
-                    editor = std::make_unique<juce::GenericAudioProcessorEditor> (*pi);
-                addAndMakeVisible (*editor);
+                juce::AudioProcessorEditor* created = nullptr;
+
+                if (faultMonitorFor (plugin.engine).call (&plugin, PluginFaultMonitor::Stage::openingEditor,
+                                                          [&] { created = pi->createEditorIfNeeded(); }))
+                {
+                    editor.reset (created);
+
+                    if (editor == nullptr)
+                        editor = std::make_unique<juce::GenericAudioProcessorEditor> (*pi);
+
+                    addAndMakeVisible (*editor);
+                }
             }
             resizeToFitEditor (true);
         }
@@ -222,11 +267,16 @@ namespace
         {
             if (auto* ws = dynamic_cast<te::Plugin::WindowState*> (&pws))
             {
-                if (auto* ext = dynamic_cast<te::ExternalPlugin*> (&ws->plugin))
-                    if (ext->getAudioPluginInstance() == nullptr) return {};
+                auto* ext = dynamic_cast<te::ExternalPlugin*> (&ws->plugin);
+
+                if (ext != nullptr && ext->getAudioPluginInstance() == nullptr)
+                    return {};
 
                 auto w = std::make_unique<AerionPluginWindow> (ws->plugin);
                 if (w->getEditor() == nullptr) return {};
+
+                // Its editor crashed while opening; the fault dialog says so.
+                if (ext != nullptr && faultMonitorFor (ext->engine).isBroken (ext)) return {};
                 w->setVisible (true);
                 w->toFront (false);
                 return w;
@@ -235,21 +285,6 @@ namespace
         }
     };
 
-    // Runs every hosted plugin's processBlock through the fault monitor, so a
-    // plugin crash is caught instead of taking the app down. The hook is added
-    // to Tracktion by Patches/tracktion/0001-external-plugin-process-hook.patch.
-    class AerionEngineBehaviour : public te::EngineBehaviour
-    {
-    public:
-        PluginFaultMonitor pluginFaults;
-
-        void processExternalPluginBlock (te::ExternalPlugin& plugin, juce::AudioPluginInstance& instance,
-                                         juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi,
-                                         bool bypassed) override
-        {
-            pluginFaults.process (&plugin, plugin.isEnabled(), instance, buffer, midi, bypassed);
-        }
-    };
 }
 
 std::unique_ptr<te::UIBehaviour> AudioEngineManager::makeUIBehaviour()
@@ -262,7 +297,7 @@ std::unique_ptr<te::EngineBehaviour> AudioEngineManager::makeEngineBehaviour()
     return std::make_unique<AerionEngineBehaviour>();
 }
 
-bool AudioEngineManager::handlePluginFault (const void* key, const juce::String& reason)
+bool AudioEngineManager::handlePluginFault (const void* key, PluginFaultMonitor::Stage stage, const juce::String& reason)
 {
     if (edit == nullptr)
         return false;
@@ -275,13 +310,14 @@ bool AudioEngineManager::handlePluginFault (const void* key, const juce::String&
             continue;
 
         const auto name = external->getName();
-        juce::Logger::writeToLog ("Plugin fault: " + name + " crashed while processing audio ("
-                                  + reason + "); bypassing it.");
+        juce::Logger::writeToLog ("Plugin fault: " + name + " crashed while "
+                                  + PluginFaultMonitor::describeStage (stage)
+                                  + " (" + reason + "); bypassing it.");
 
         external->setEnabled (false);
         edit->pluginChanged (*external);
         broadcastChange();
-        listeners.call ([&] (Listener& l) { l.pluginFaulted (name, reason); });
+        listeners.call ([&] (Listener& l) { l.pluginFaulted (name, stage, reason); });
         return true;
     }
 
@@ -309,10 +345,10 @@ AudioEngineManager::AudioEngineManager()
 {
     const auto ctorStartMs = juce::Time::getMillisecondCounterHiRes();
 
-    pluginFaults = &static_cast<AerionEngineBehaviour&> (engine.getEngineBehaviour()).pluginFaults;
-    pluginFaults->onFault = [this] (const void* key, const juce::String& reason)
+    pluginFaults = &faultMonitorFor (engine);
+    pluginFaults->onFault = [this] (const void* key, PluginFaultMonitor::Stage stage, const juce::String& reason)
     {
-        return handlePluginFault (key, reason);
+        return handlePluginFault (key, stage, reason);
     };
 
     appProperties.setStorageParameters (userSettingsOptions());
@@ -2410,10 +2446,10 @@ void AudioEngineManager::cancelScan()
     if (scanThread != nullptr)
     {
         scanThread->signalThreadShouldExit();
-        // NOTE: a single misbehaving VST in scanNextFile can outlast this 2s
-        // bound. juce::Thread::stopThread returns regardless; the WeakReference
-        // captures used by the scan thread keep us safe if it leaks past us.
-        // Future work: out-of-process scanning per juce::PluginListComponent.
+        // NOTE: a plugin that hangs the scanner's child process can outlast
+        // this 2s bound. juce::Thread::stopThread returns regardless; the
+        // WeakReference captures used by the scan thread keep us safe if it
+        // leaks past us.
         scanThread->stopThread (2000);
         scanThread.reset();
     }
@@ -2622,6 +2658,16 @@ namespace
 
                 while (! threadShouldExit() && scanner.scanNextFile (true, pluginName))
                 {
+                    for (auto& failed : scanner.getFailedFiles())
+                    {
+                        if (failedFiles.contains (failed))
+                            continue;
+
+                        failedFiles.add (failed);
+                        juce::Logger::writeToLog ("Plugin scan: skipped " + failed
+                                                  + " (it crashed or failed to load in the scanner)");
+                    }
+
                     const auto nowMs = juce::Time::currentTimeMillis();
 
                     if (nowMs - lastProgressMs < scanProgressThrottleMs && pluginName.isNotEmpty())
@@ -2658,9 +2704,11 @@ namespace
             });
             juce::Logger::writeToLog ("Startup: plugin scan "
                                       + juce::String (finishedNormally ? "finished" : "cancelled")
-                                      + " in " + juce::String (elapsedMs, 1) + " ms");
+                                      + " in " + juce::String (elapsedMs, 1) + " ms, "
+                                      + juce::String (failedFiles.size()) + " plugin file(s) skipped");
         }
 
+        juce::StringArray failedFiles;
         AudioEngineManager& owner;
         juce::WeakReference<AudioEngineManager> weakOwner;
         juce::File cache;

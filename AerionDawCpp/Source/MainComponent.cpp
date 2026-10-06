@@ -1825,14 +1825,29 @@ void MainComponent::engineStatusChanged()
     refreshFromEngine();
 }
 
-void MainComponent::pluginFaulted (const juce::String& pluginName, const juce::String& reason)
+void MainComponent::pluginFaulted (const juce::String& pluginName, PluginFaultMonitor::Stage stage,
+                                   const juce::String& reason)
 {
-    juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
-        "Plugin Crashed",
-        pluginName + " crashed while processing audio (" + reason + ").\n\n"
-        "Aerion caught the crash and bypassed the plugin, so the rest of your session keeps playing. "
-        "Save your project, then restart Aerion before turning the plugin back on: "
-        "after a crash its state may be damaged.");
+    const auto what = pluginName + " crashed while " + PluginFaultMonitor::describeStage (stage)
+                    + " (" + reason + ").\n\n";
+
+    if (stage == PluginFaultMonitor::Stage::processing)
+    {
+        juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, "Plugin Crashed",
+            what + "Aerion caught the crash and bypassed the plugin, so the rest of your session keeps playing. "
+            "Save your project, then restart Aerion before turning the plugin back on: "
+            "after a crash its state may be damaged.");
+        return;
+    }
+
+    juce::String saved;
+
+    if (stage == PluginFaultMonitor::Stage::savingState)
+        saved = "Your project still saves, with the settings this plugin had when it was last saved. ";
+
+    juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon, "Plugin Crashed",
+        what + "Aerion caught the crash and switched the plugin off for the rest of this session. "
+        + saved + "Restart Aerion to use it again.");
 }
 
 void MainComponent::refreshFromEngine()

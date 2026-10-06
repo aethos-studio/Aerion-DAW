@@ -13,7 +13,11 @@ behind the hook a patch adds.
 | Patch | Why |
 |---|---|
 | `0001-external-plugin-process-hook.patch` | Adds `EngineBehaviour::processExternalPluginBlock`, which `ExternalPlugin` calls instead of calling the hosted plugin's `processBlock` directly. Aerion overrides it to catch plugin crashes (`Source/PluginFaultGuard.h`). |
+| `0002-external-plugin-call-hook.patch` | Adds `EngineBehaviour::callExternalPlugin`, through which `ExternalPlugin` makes its other calls into the hosted plugin: creating the instance (synchronous path), `getStateInformation` when flushing its state and `setStateInformation` when restoring it. When the call reports failure, the plugin's saved state is left as it was. Aerion overrides it to catch crashes there too. |
 
-To change a patch: edit the files in the engine tree, then regenerate it from
-the engine checkout with `git diff -- modules > <patch>` (LF line endings).
+Patches apply in file-name order, each on top of the ones before it. To change
+one, edit the files in the engine tree, then regenerate that patch as the
+difference from the tree with only the earlier patches applied (LF line
+endings, paths relative to the engine checkout, `a/` and `b/` prefixes). With a
+single patch, `git diff -- modules > <patch>` from the engine checkout does it.
 When updating Tracktion Engine, check that each patch still applies.

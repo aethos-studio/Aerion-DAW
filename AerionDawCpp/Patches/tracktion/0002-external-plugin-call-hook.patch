@@ -1,0 +1,77 @@
+diff --git a/modules/tracktion_engine/plugins/external/tracktion_ExternalPlugin.cpp b/modules/tracktion_engine/plugins/external/tracktion_ExternalPlugin.cpp
+--- a/modules/tracktion_engine/plugins/external/tracktion_ExternalPlugin.cpp
++++ b/modules/tracktion_engine/plugins/external/tracktion_ExternalPlugin.cpp
+@@ -1011,10 +1011,14 @@ void ExternalPlugin::flushPluginStateToValueTree()
+         juce::MemoryBlock chunk;
+ 
+         pi->suspendProcessing (true);
+-        pi->getStateInformation (chunk);
++        const bool savedState = engine.getEngineBehaviour().callExternalPlugin (*this, EngineBehaviour::ExternalPluginCall::saveState,
++                                                                                [&] { pi->getStateInformation (chunk); });
+         saveChangedParametersToState();
+         pi->suspendProcessing (false);
+ 
++        if (! savedState)
++            return;
++
+         engine.getEngineBehaviour().saveCustomPluginProperties (state, *pi, um);
+ 
+         if (chunk.getSize() > 0)
+@@ -1077,7 +1081,10 @@ void ExternalPlugin::restorePluginStateFromValueTree (const juce::ValueTree& v)
+         chunk.fromBase64Encoding (s);
+ 
+         if (chunk.getSize() > 0)
+-            callBlockingCatching ([&pi, &chunk] { pi->setStateInformation (chunk.getData(), (int) chunk.getSize()); });
++            engine.getEngineBehaviour().callExternalPlugin (*this, EngineBehaviour::ExternalPluginCall::restoreState, [&]
++            {
++                callBlockingCatching ([&pi, &chunk] { pi->setStateInformation (chunk.getData(), (int) chunk.getSize()); });
++            });
+     }
+ }
+ 
+@@ -1798,12 +1805,18 @@ void ExternalPlugin::startPluginInstanceCreation (const juce::PluginDescription&
+     }
+     else
+     {
+-        if (auto newInstance = engine.getPluginManager().createPluginInstance (description,
+-                                                                               dm.getSampleRate(), dm.getBlockSize(),
+-                                                                               loadError))
+-        {
++        std::unique_ptr<juce::AudioPluginInstance> newInstance;
++
++        if (! engine.getEngineBehaviour().callExternalPlugin (*this, EngineBehaviour::ExternalPluginCall::createInstance, [&]
++              {
++                  newInstance = engine.getPluginManager().createPluginInstance (description,
++                                                                                dm.getSampleRate(), dm.getBlockSize(),
++                                                                                loadError);
++              }))
++            loadError = TRANS("The plugin crashed while loading");
++
++        if (newInstance != nullptr)
+             completePluginInstanceCreation (std::move (newInstance));
+-        }
+     }
+ }
+ 
+diff --git a/modules/tracktion_engine/utilities/tracktion_EngineBehaviour.h b/modules/tracktion_engine/utilities/tracktion_EngineBehaviour.h
+--- a/modules/tracktion_engine/utilities/tracktion_EngineBehaviour.h
++++ b/modules/tracktion_engine/utilities/tracktion_EngineBehaviour.h
+@@ -74,6 +74,18 @@ public:
+             instance.processBlock (buffer, midi);
+     }
+ 
++    /// A call into a hosted plugin made outside audio processing. (Aerion patch.)
++    enum class ExternalPluginCall { createInstance, saveState, restoreState };
++
++    /// Called on the message thread to make a call into a hosted plugin outside audio processing.
++    /// Override to guard it, e.g. to catch a crash inside the plugin. Return false when the call
++    /// did not complete; the plugin's saved state is then left as it was. (Aerion patch.)
++    virtual bool callExternalPlugin (ExternalPlugin&, ExternalPluginCall, const std::function<void()>& call)
++    {
++        call();
++        return true;
++    }
++
+     /** Return true if your application supports scanning plugins out of process.
+ 
+         If you want to support scanning out of process, the allowing should be added

@@ -16,7 +16,10 @@ public:
 
     void initialise (const juce::String& commandLine) override
     {
-        juce::ignoreUnused (commandLine);
+        // A plugin-scan child process (see canScanPluginsOutOfProcess): it scans
+        // and quits, and must not touch the log or the crash reports.
+        if (tracktion::PluginManager::startChildProcessPluginScan (commandLine))
+            return;
 
         // Logging must be initialised after JUCE startup (not at global init).
         {

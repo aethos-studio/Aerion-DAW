@@ -24,7 +24,7 @@ public:
 
         /** A hosted plugin crashed while processing audio. It has been
             bypassed and the session kept running. */
-        virtual void pluginFaulted (const juce::String& /*pluginName*/, const juce::String& /*reason*/) {}
+        virtual void pluginFaulted (const juce::String& /*pluginName*/, PluginFaultMonitor::Stage, const juce::String& /*reason*/) {}
     };
 
     /** Tracktion's own change tracking: true after any undoable edit (clip
@@ -362,7 +362,7 @@ private:
 
     tracktion::Engine engine { ProjectInfo::projectName, makeUIBehaviour(), makeEngineBehaviour() };
     PluginFaultMonitor* pluginFaults = nullptr; // owned by the engine's behaviour
-    bool handlePluginFault (const void* key, const juce::String& reason);
+    bool handlePluginFault (const void* key, PluginFaultMonitor::Stage, const juce::String& reason);
     std::unique_ptr<tracktion::Edit> edit;
 
     juce::ApplicationProperties appProperties;

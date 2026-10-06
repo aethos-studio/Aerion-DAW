@@ -98,7 +98,7 @@ public:
             expect (engine.getPluginFaultMonitor().onFault != nullptr);
             // A key that is no plugin in the Edit stays skipped instead of bypassed.
             int notAPlugin = 0;
-            expect (! engine.getPluginFaultMonitor().onFault (&notAPlugin, "test"));
+            expect (! engine.getPluginFaultMonitor().onFault (&notAPlugin, PluginFaultMonitor::Stage::processing, "test"));
         }
 
        #if JUCE_WINDOWS
@@ -135,7 +135,7 @@ public:
             PluginFaultMonitor monitor;
             int reports = 0;
             juce::String reason;
-            monitor.onFault = [&] (const void*, const juce::String& r) { ++reports; reason = r; return true; };
+            monitor.onFault = [&] (const void*, PluginFaultMonitor::Stage, const juce::String& r) { ++reports; reason = r; return true; };
 
             TestPlugin plugin;
             plugin.failure = Failure::accessViolation;
@@ -168,7 +168,7 @@ public:
         beginTest ("a fault the app could not bypass stays skipped");
         {
             PluginFaultMonitor monitor;
-            monitor.onFault = [] (const void*, const juce::String&) { return false; };
+            monitor.onFault = [] (const void*, PluginFaultMonitor::Stage, const juce::String&) { return false; };
 
             TestPlugin plugin;
             plugin.failure = Failure::accessViolation;
@@ -203,7 +203,81 @@ public:
             expect (! monitor.hasFaulted (&healthy));
             expectEquals (healthy.processCalls, 1);
         }
+
+        beginTest ("a crash outside processing breaks the plugin for the session");
+        {
+            PluginFaultMonitor monitor;
+            int reports = 0;
+            PluginFaultMonitor::Stage reportedStage {};
+            monitor.onFault = [&] (const void*, PluginFaultMonitor::Stage s, const juce::String&)
+            {
+                ++reports;
+                reportedStage = s;
+                return true;
+            };
+
+            TestPlugin plugin;
+            int calls = 0;
+            const bool ok = monitor.call (&plugin, PluginFaultMonitor::Stage::savingState, [&]
+            {
+                ++calls;
+                volatile int* volatile nowhere = nullptr;
+                *nowhere = 1;
+            });
+
+            expect (! ok);
+            expect (monitor.isBroken (&plugin));
+            monitor.deliverPendingFaults();
+            expectEquals (reports, 1);
+            expect (reportedStage == PluginFaultMonitor::Stage::savingState);
+
+            // Never called again: not to save, and not to process even when enabled.
+            expect (! monitor.call (&plugin, PluginFaultMonitor::Stage::savingState, [&] { ++calls; }));
+            expectEquals (calls, 1);
+
+            juce::MidiBuffer midi;
+            auto buffer = makeBuffer (1.0f);
+            monitor.process (&plugin, true, plugin, buffer, midi, false);
+            expectEquals (plugin.processCalls, 0);
+            expectEquals (buffer.getSample (0, 0), 1.0f, "a broken plugin passes its input through");
+
+            monitor.clear();
+            expect (monitor.call (&plugin, PluginFaultMonitor::Stage::savingState, [&] { ++calls; }));
+            expectEquals (calls, 2);
+        }
+
+        beginTest ("a processing fault followed by a crash while saving becomes broken");
+        {
+            PluginFaultMonitor monitor;
+            monitor.onFault = [] (const void*, PluginFaultMonitor::Stage, const juce::String&) { return true; };
+
+            TestPlugin plugin;
+            plugin.failure = Failure::accessViolation;
+            juce::MidiBuffer midi;
+            auto buffer = makeBuffer (1.0f);
+            monitor.process (&plugin, true, plugin, buffer, midi, false);
+            monitor.deliverPendingFaults();
+            expect (! monitor.isBroken (&plugin));
+
+            expect (! monitor.call (&plugin, PluginFaultMonitor::Stage::savingState,
+                                    [] { throw std::runtime_error ("state bug"); }));
+            expect (monitor.isBroken (&plugin));
+
+            // Re-enabling no longer brings it back.
+            plugin.failure = Failure::none;
+            monitor.process (&plugin, true, plugin, buffer, midi, false);
+            expectEquals (plugin.processCalls, 1);
+        }
        #endif
+
+        beginTest ("a call that does not crash runs and reports success");
+        {
+            PluginFaultMonitor monitor;
+            int value = 0;
+            expect (monitor.call (&value, PluginFaultMonitor::Stage::loading, [&] { value = 7; }));
+            expectEquals (value, 7);
+            expect (! monitor.hasFaulted (&value));
+        }
     }
 };
 

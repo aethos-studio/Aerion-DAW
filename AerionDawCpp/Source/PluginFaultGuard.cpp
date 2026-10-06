@@ -32,6 +32,11 @@ namespace
             call.instance->processBlock (*call.buffer, *call.midi);
     }
 
+    void runFunction (void* context)
+    {
+        (*static_cast<const std::function<void()>*> (context))();
+    }
+
    #if JUCE_WINDOWS
     // Faults a plugin can cause and we can continue after. Breakpoints and
     // single steps belong to the debugger; a stack overflow leaves no stack to
@@ -106,6 +111,20 @@ juce::String PluginFaultMonitor::describeFault (unsigned int code)
     return "exception 0x" + juce::String::toHexString ((juce::int64) code).paddedLeft ('0', 8).toUpperCase();
 }
 
+juce::String PluginFaultMonitor::describeStage (Stage stage)
+{
+    switch (stage)
+    {
+        case Stage::processing:     return "processing audio";
+        case Stage::loading:        return "loading";
+        case Stage::savingState:    return "saving its settings";
+        case Stage::restoringState: return "restoring its settings";
+        case Stage::openingEditor:  return "opening its editor";
+    }
+
+    return {};
+}
+
 //==============================================================================
 PluginFaultMonitor::~PluginFaultMonitor()
 {
@@ -120,7 +139,7 @@ void PluginFaultMonitor::process (const void* key, bool pluginEnabled, juce::Aud
         if (auto* slot = findSlot (key))
         {
             // Skip it, letting the input pass through, until the app has
-            // bypassed it and the user turns it back on.
+            // bypassed it and the user turns it back on. A broken one stays out.
             if (! (slot->state.load (std::memory_order_acquire) == bypassedByApp && pluginEnabled))
                 return;
 
@@ -134,8 +153,45 @@ void PluginFaultMonitor::process (const void* key, bool pluginEnabled, juce::Aud
     {
         buffer.clear();
         midi.clear();
-        recordFault (key, code);
+        recordFault (key, code, Stage::processing);
     }
+}
+
+bool PluginFaultMonitor::call (const void* key, Stage stage, const std::function<void()>& fn)
+{
+    if (isBroken (key))
+        return false;
+
+    if (const auto code = callGuarded (runFunction, const_cast<std::function<void()>*> (&fn)))
+    {
+        // A plugin that faulted in processBlock and crashes again here is
+        // already in the table: mark that slot broken.
+        if (auto* slot = findSlot (key))
+        {
+            slot->code.store (code);
+            slot->stage.store ((int) stage);
+            slot->reported.store (false);
+            slot->state.store (broken, std::memory_order_release);
+            triggerAsyncUpdate();
+        }
+        else
+        {
+            recordFault (key, code, stage);
+        }
+
+        return false;
+    }
+
+    return true;
+}
+
+bool PluginFaultMonitor::isBroken (const void* key) const
+{
+    for (auto& slot : slots)
+        if (slot.key.load (std::memory_order_acquire) == key && slot.state.load (std::memory_order_acquire) == broken)
+            return true;
+
+    return false;
 }
 
 bool PluginFaultMonitor::hasFaulted (const void* key) const
@@ -170,7 +226,7 @@ PluginFaultMonitor::Slot* PluginFaultMonitor::findSlot (const void* key)
     return nullptr;
 }
 
-void PluginFaultMonitor::recordFault (const void* key, unsigned int code)
+void PluginFaultMonitor::recordFault (const void* key, unsigned int code, Stage stage)
 {
     for (auto& slot : slots)
     {
@@ -179,8 +235,9 @@ void PluginFaultMonitor::recordFault (const void* key, unsigned int code)
         if (slot.key.compare_exchange_strong (expected, key, std::memory_order_acq_rel))
         {
             slot.code.store (code);
+            slot.stage.store ((int) stage);
             slot.reported.store (false);
-            slot.state.store (faulted, std::memory_order_release);
+            slot.state.store (stage == Stage::processing ? faulted : broken, std::memory_order_release);
             numFaults.fetch_add (1, std::memory_order_acq_rel);
             triggerAsyncUpdate();
             return;
@@ -202,13 +259,16 @@ void PluginFaultMonitor::handleAsyncUpdate()
 {
     for (auto& slot : slots)
     {
-        if (slot.state.load (std::memory_order_acquire) != faulted || slot.reported.exchange (true))
+        const auto state = slot.state.load (std::memory_order_acquire);
+
+        if ((state != faulted && state != broken) || slot.reported.exchange (true))
             continue;
 
         const auto* key = slot.key.load (std::memory_order_acquire);
-        const bool bypassed = onFault != nullptr && onFault (key, describeFault (slot.code.load()));
+        const auto stage = (Stage) slot.stage.load();
+        const bool bypassed = onFault != nullptr && onFault (key, stage, describeFault (slot.code.load()));
 
-        if (bypassed)
+        if (bypassed && state == faulted)
             slot.state.store (bypassedByApp, std::memory_order_release);
     }
 }
