@@ -122,6 +122,7 @@ MixdownExportJob::MixdownExportJob (te::Engine& e,
         try
         {
             juce::Logger::writeToLog ("MixdownExportJob: about to createXml");
+            editToRender.flushState();
             if (auto xml = editToRender.state.createXml())
             {
                 juce::Logger::writeToLog ("MixdownExportJob: XML created, loading edit from state");

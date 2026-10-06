@@ -409,6 +409,39 @@ public:
             file.deleteFile();
         }
 
+        // Plugins hand their settings to the Edit only when it is flushed (external
+        // plugins call getStateInformation there). A plugin's window position takes
+        // the same route, so it stands in for state changed inside a plugin's UI.
+        beginTest ("saving a project flushes plugin state into the file");
+        {
+            auto* track = engine.addAudioTrack();
+            expect (track != nullptr);
+
+            auto plugin = engine.getEdit().getPluginCache()
+                              .createNewPlugin (tracktion::ReverbPlugin::xmlTypeName, {});
+            expect (plugin != nullptr);
+            track->pluginList.insertPlugin (plugin, 0, nullptr);
+            plugin->windowState->lastWindowBounds = juce::Rectangle<int> (123, 45, 300, 200);
+            plugin = nullptr; // must not outlive its Edit
+
+            auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                            .getChildFile ("aerion_plugin_flush_test.aerion");
+            engine.saveProject (file);
+            engine.createNewProject();
+            engine.loadProject (file);
+
+            int windowX = -1;
+            if (auto tracks = engine.getAudioTracks(); ! tracks.isEmpty())
+                for (auto* p : tracks.getFirst()->pluginList)
+                    if (dynamic_cast<tracktion::ReverbPlugin*> (p) != nullptr)
+                        windowX = p->state.getProperty (tracktion::IDs::windowX, -1);
+
+            expectEquals (windowX, 123);
+
+            engine.createNewProject();
+            file.deleteFile();
+        }
+
         // Unsaved-changes tracking (hasUnsavedEdits / markEditSaved) is checked by
         // `AerionBench --verify` instead: Tracktion attaches its change listener
         // on the message loop after an Edit is created, and running the loop here

@@ -1624,6 +1624,9 @@ void AudioEngineManager::saveProject (const juce::File& file, class ProjectData*
 {
     if (edit == nullptr) return;
 
+    // Plugins only write their current settings into the Edit on a flush.
+    edit->flushState();
+
     auto root = std::make_unique<juce::XmlElement> ("AerionProject");
     root->setAttribute ("version", 1);
 
