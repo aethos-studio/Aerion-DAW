@@ -142,9 +142,16 @@ cmake --build build --preset win-msvc-debug-tests
 & '.\build\AerionBench_artefacts\Debug\AerionBench.exe' --tracks=32 --clips=20 --frames=100
 ```
 
-It reports two scenarios: a `full repaint` (scroll, zoom, any edit) and a `playhead strip`
-(the 16 px invalidation `MainComponent::timerCallback` issues 25 times a second during
-playback), each against the 40 ms budget of a 25 Hz tick.
+It reports the Timeline's full repaint, playhead move, scroll steps and clip drag, and
+the Mixer, toolbar and transport, each against a 60 Hz frame (16.7 ms). Timings belong to
+the Release profiling build (`build-profiling`); see [`PERFORMANCE.md`](./PERFORMANCE.md).
+
+- `--verify` checks that partial repaints and scrolling give the same pixels as a full
+  repaint, plus unsaved-changes tracking, fader drags and track resizing; exit code 2 on a
+  failure. CI runs it at 100 % and at `--scale=1.25`.
+- `--scale=<factor>` paints as a window at that display scale does (UI Size times Windows
+  scaling); set `--width` / `--height` to the logical window size.
+- `--snapshots=<dir>` renders the main components at 100 % and 150 % to PNGs.
 
 `--png=<path>` dumps a full repaint to disk. Two runs that should render identically — a
 pure culling change, say — can then be compared byte-for-byte, which is the closest thing

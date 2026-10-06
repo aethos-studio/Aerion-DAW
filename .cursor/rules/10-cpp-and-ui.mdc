@@ -25,6 +25,8 @@ alwaysApply: false
 - Tooltips: use `AerionTooltipWindow` where the rest of the file does.
 - Each view has its own header in `Source/Views/` (`UIComponents.h` includes them all). A new view gets a new header that includes `ViewShared.h` and the views it uses; keep it consistent with existing section headers and paint methods.
 - Yes/no and save/discard/cancel questions go through `UI/Dialogs.h`. JUCE numbers dialog buttons 1, 2, 0 (Escape = 0), so never compare raw results.
+- The UI can be scaled (View → UI Size, Windows scaling). Cached images drawn in paint must be rendered at `physicalScaleOf (g)` and drawn with `drawPhysicalImage` (`UI/CachedLayer.h`), not resampled; check changes with `AerionBench --verify --scale=1.25`.
+- Timeline rows have per-track heights: use `Timeline::getLaneHeight (track)` / `getTrackHeight`, never `kTrackH` (the default) for a track's layout.
 
 ## Plugins & formats
 

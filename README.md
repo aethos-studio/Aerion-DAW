@@ -76,7 +76,7 @@ Milestone 5 work on `main`:
 - **Unsaved-changes tracking** — a fresh project no longer counts as changed; clip drags and other direct edits now do
 - **Stability** — crashes on quit / open / new project and an unfreeze data-loss bug fixed
 - **Code layout** — the 9,000-line `UIComponents.h` is split into one header per view under `Source/Views/`
-- **Tooling** — `AerionBench` headless paint benchmark with pixel checks (`--verify`), and smoke tests for the engine, plugin fault handling and dialogs
+- **Tooling** — `AerionBench` headless paint benchmark with pixel checks (`--verify`) at any display scale (`--scale`), and smoke tests for the engine, plugin fault handling and dialogs
 
 ---
 
@@ -89,7 +89,7 @@ Milestone 5 work on `main`:
 | Error reporting | Done: the app log shows in a **Console** bottom-panel tab; a crash writes a local report (stack, log, Windows minidump) that the next launch points to |
 | High-DPI / UI scaling | Done: **View → UI Size** (Auto / 100–200 %) scales the whole interface; the Timeline stays fast and sharp on scaled displays |
 | Track heights | Done: drag a track's bottom edge (or use Track Height in its context menu); saved per track |
-| Tests | Smoke tests for `ProjectData`, `AerionKeymap`, `AudioEngineManager`, graphics engine choice, plugin fault handling and dialogs; `AerionBench --verify` pixel checks run in CI |
+| Tests | Smoke tests for `ProjectData`, `AerionKeymap`, `AudioEngineManager` (incl. track heights through save and load), graphics engine choice, UI size, plugin fault handling and dialogs; `AerionBench --verify` pixel checks run in CI at 100 % and 125 % UI size |
 | Packaging | Windows NSIS + optional self-signed signing; macOS DMG without notarization |
 | Accessibility | Not started |
 | AI / Cloud | `AIManager` is a mock; Google Drive client has placeholder OAuth credentials |
