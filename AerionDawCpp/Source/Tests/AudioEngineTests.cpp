@@ -439,6 +439,39 @@ public:
             engine.deleteTrack (track);
         }
 
+        beginTest ("a new MIDI track has no instrument until one is added");
+        {
+            auto* track = engine.addMidiTrack();
+            expect (track != nullptr);
+            expect (AudioEngineManager::getInsertDevices (track).isEmpty());
+            expect (track->getLevelMeterPlugin() != nullptr);
+            engine.deleteTrack (track);
+        }
+
+        // The plugin lists and drag and drop carry a device as a description;
+        // a built-in one must come back from its identifier and land on the track.
+        beginTest ("every built-in device can be found and added like a plugin");
+        {
+            auto* track = engine.addMidiTrack();
+            const auto builtIn = AudioEngineManager::getBuiltInDevices();
+            expectEquals (builtIn.size(), AudioEngineManager::getStockDevices().size());
+
+            for (auto& desc : builtIn)
+            {
+                auto found = engine.findDevice (desc.createIdentifierString());
+                expect (found.has_value() && AudioEngineManager::isBuiltInDevice (*found), desc.name);
+                expect (engine.addPluginToTrack (track, *found) != nullptr, desc.name);
+            }
+
+            auto devices = AudioEngineManager::getInsertDevices (track);
+            expectEquals (devices.size(), builtIn.size());
+            // Instruments go first in the chain, ahead of the effects.
+            expect (devices.getFirst() != nullptr && devices.getFirst()->isSynth());
+            devices.clear();
+
+            engine.deleteTrack (track);
+        }
+
         // Plugins hand their settings to the Edit only when it is flushed (external
         // plugins call getStateInformation there). A plugin's window position takes
         // the same route, so it stands in for state changed inside a plugin's UI.

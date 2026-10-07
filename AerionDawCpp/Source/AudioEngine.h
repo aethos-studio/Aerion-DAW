@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include <map>
+#include <optional>
 #include <memory>
 #include "Keymap.h"
 #include "Export/MixdownExportJob.h"
@@ -203,9 +204,17 @@ public:
     static bool isInsertDevice (tracktion::Plugin* plugin);
     static juce::Array<tracktion::Plugin*> getInsertDevices (tracktion::Track* track);
 
-    /** Whether new MIDI tracks get the 4OSC synth, so they make sound straight away. */
-    bool getAddInstrumentToNewMidiTracks();
-    void setAddInstrumentToNewMidiTracks (bool);
+    /** The stock devices as plugin descriptions (format "Built-in", the
+        Tracktion type in fileOrIdentifier), so the plugin lists, the picker
+        and drag and drop handle them like any other plugin. */
+    static juce::Array<juce::PluginDescription> getBuiltInDevices();
+    static bool isBuiltInDevice (const juce::PluginDescription&);
+
+    /** Built-in devices first, then the scanned third-party plugins. */
+    juce::Array<juce::PluginDescription> getAllDevices();
+
+    /** A device by PluginDescription::createIdentifierString(), as drag and drop carries it. */
+    std::optional<juce::PluginDescription> findDevice (const juce::String& identifier);
 
     void removePlugin (tracktion::Plugin* plugin);
     bool isExternalPluginBypassed (tracktion::Plugin* plugin) const;

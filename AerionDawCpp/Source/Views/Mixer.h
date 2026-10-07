@@ -995,15 +995,8 @@ private:
         {
             juce::String idStr = d.description.toString()
                                      .fromFirstOccurrenceOf ("PLUGIN:", false, false);
-            auto& known = audioEngine.getEngine().getPluginManager().knownPluginList;
-            for (auto& t : known.getTypes())
-            {
-                if (t.createIdentifierString() == idStr)
-                {
-                    onPluginDroppedOnStrip (track, t);
-                    break;
-                }
-            }
+            if (auto device = audioEngine.findDevice (idStr))
+                onPluginDroppedOnStrip (track, *device);
         }
         repaint();
     }

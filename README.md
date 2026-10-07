@@ -72,7 +72,7 @@ The long-term vision includes AI-assisted workflows and cloud project sync, but 
 **v0.5.0 Alpha** is the first public release:
 
 - **User manual** — [`Aerion-DAW-Manual.html`](Aerion-DAW-Manual.html), one self-contained page covering the whole app; **Help → User Manual** opens it in your browser
-- **New MIDI tracks make sound** — they come with Tracktion's 4OSC synth, and built-in devices open in a generic editor with a knob per parameter
+- **Built-in devices** — ten Tracktion devices (4OSC synth, sampler, EQ, compressor, reverb, delay, chorus, phaser, pitch shift, low / high pass) at the top of the plugin list and picker, with a knob-per-parameter window
 - **Razor tool** — with snap on, its guide line no longer leaves copies behind as the mouse moves
 - **Version** — the app and installers say 0.5.0 Alpha; the macOS installer is named `…-macOS.dmg`
 

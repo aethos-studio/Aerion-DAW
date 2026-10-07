@@ -163,15 +163,21 @@ public:
     {
         auto& fm    = audioEngine.getEngine().getPluginManager().pluginFormatManager;
         auto& known = audioEngine.getEngine().getPluginManager().knownPluginList;
-        auto types  = known.getTypes();
+        auto types  = AudioEngineManager::getBuiltInDevices();
 
         int y = 40;
         g.setFont (Theme::uiSize (11.0f));
 
-        if (types.isEmpty())
+        // Built-in devices are always listed; third-party plugins follow once scanned.
+        const bool noThirdParty = known.getNumTypes() == 0;
+        types.addArray (known.getTypes());
+
+        if (noThirdParty)
         {
+            y = paintPluginRows (g, types, y);
+            y += 6;
             g.setColour (Theme::textMuted);
-            g.drawText (audioEngine.isScanningPlugins() ? "Scanning plugins..." : "No plugins found.",
+            g.drawText (audioEngine.isScanningPlugins() ? "Scanning plugins..." : "No third-party plugins found.",
                         12, y, getWidth() - 16, 22, juce::Justification::centredLeft);
             y += 22;
             g.setFont (Theme::uiSize (9.0f));
@@ -187,6 +193,12 @@ public:
             return;
         }
 
+        paintPluginRows (g, types, y);
+    }
+
+    /** Paints `types` as rows grouped under their maker, from `y`; returns the y below them. */
+    int paintPluginRows (juce::Graphics& g, const juce::Array<juce::PluginDescription>& types, int y)
+    {
         juce::StringArray seenManufacturers;
         for (auto& d : types)
         {
@@ -214,6 +226,8 @@ public:
             y += 22;
             if (y > getHeight()) break;
         }
+
+        return y;
     }
 
     void paintFileList (juce::Graphics& g)
@@ -355,6 +369,10 @@ public:
                     return;
 
                 juce::PluginDescription desc = rowDescs.getReference (i);
+
+                // Built-in devices are part of Aerion and can't be removed.
+                if (AudioEngineManager::isBuiltInDevice (desc))
+                    return;
 
                 juce::PopupMenu m;
                 const bool scanning = audioEngine.isScanningPlugins();

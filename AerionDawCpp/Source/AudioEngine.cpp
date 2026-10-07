@@ -1001,14 +1001,11 @@ te::AudioTrack* AudioEngineManager::addMidiTrack()
         // Mark as MIDI track for recording purposes
         at->state.setProperty(IDs::isMidiTrack, true, nullptr);
 
-        if (getAddInstrumentToNewMidiTracks())
-        {
-            addStockDevice (at, te::FourOscPlugin::xmlTypeName);
-
-            if (at->getLevelMeterPlugin() == nullptr)
-                at->pluginList.insertPlugin (edit->getPluginCache().createNewPlugin (te::LevelMeterPlugin::xmlTypeName, {}),
-                                             at->pluginList.size(), nullptr);
-        }
+        // No instrument: the user adds one (built-in or third-party). The
+        // meter is there so the track's level shows once they do.
+        if (at->getLevelMeterPlugin() == nullptr)
+            at->pluginList.insertPlugin (edit->getPluginCache().createNewPlugin (te::LevelMeterPlugin::xmlTypeName, {}),
+                                         at->pluginList.size(), nullptr);
     }
     broadcastChange();
     return t.get();
@@ -2882,6 +2879,9 @@ tracktion::Plugin::Ptr AudioEngineManager::addPluginToTrack (te::Track* track, c
 {
     if (track == nullptr) return {};
 
+    if (isBuiltInDevice (desc))
+        return addStockDevice (track, desc.fileOrIdentifier);
+
     if (auto* at = dynamic_cast<te::AudioTrack*> (track))
         if (isTrackFrozen (at) || isTrackFreezing (at))
             return {};
@@ -2962,19 +2962,46 @@ juce::Array<te::Plugin*> AudioEngineManager::getInsertDevices (te::Track* track)
     return devices;
 }
 
-bool AudioEngineManager::getAddInstrumentToNewMidiTracks()
+juce::Array<juce::PluginDescription> AudioEngineManager::getBuiltInDevices()
 {
-    auto* s = appProperties.getUserSettings();
-    return s == nullptr || s->getBoolValue ("addInstrumentToNewMidiTracks", true);
+    juce::Array<juce::PluginDescription> list;
+
+    for (auto& d : getStockDevices())
+    {
+        juce::PluginDescription desc;
+        desc.name = d.name;
+        desc.descriptiveName = d.name;
+        desc.pluginFormatName = "Built-in";
+        desc.manufacturerName = "Built-in";
+        desc.category = d.instrument ? "Instrument" : "Effect";
+        desc.isInstrument = d.instrument;
+        desc.fileOrIdentifier = d.xmlType;
+        desc.uniqueId = desc.deprecatedUid = d.xmlType.hashCode();
+        list.add (desc);
+    }
+
+    return list;
 }
 
-void AudioEngineManager::setAddInstrumentToNewMidiTracks (bool add)
+bool AudioEngineManager::isBuiltInDevice (const juce::PluginDescription& desc)
 {
-    if (auto* s = appProperties.getUserSettings())
-    {
-        s->setValue ("addInstrumentToNewMidiTracks", add);
-        s->saveIfNeeded();
-    }
+    return desc.pluginFormatName == "Built-in";
+}
+
+juce::Array<juce::PluginDescription> AudioEngineManager::getAllDevices()
+{
+    auto all = getBuiltInDevices();
+    all.addArray (engine.getPluginManager().knownPluginList.getTypes());
+    return all;
+}
+
+std::optional<juce::PluginDescription> AudioEngineManager::findDevice (const juce::String& identifier)
+{
+    for (auto& d : getAllDevices())
+        if (d.createIdentifierString() == identifier)
+            return d;
+
+    return std::nullopt;
 }
 
 //==============================================================================

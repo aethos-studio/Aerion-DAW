@@ -37,21 +37,26 @@ namespace PluginPicker
 
         juce::PopupMenu menu;
 
-        if (types.isEmpty())
+        // Built-in devices first, then the scanned plugins grouped by maker.
+        auto descs = std::make_shared<juce::Array<juce::PluginDescription>>();
+        int id = 1;
         {
-            menu.addItem (1, ae.isScanningPlugins() ? "Scanning plugins..." : "No plugins scanned",
-                          /*enabled*/ false, /*ticked*/ false);
-            menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (screenAnchor));
-            return;
+            juce::PopupMenu builtIn;
+            for (auto& d : AudioEngineManager::getBuiltInDevices())
+            {
+                builtIn.addItem (id++, d.name);
+                descs->add (d);
+            }
+            menu.addSubMenu ("Built-in", builtIn);
         }
 
-        // Group by manufacturer.
+        if (types.isEmpty())
+            menu.addItem (-1, ae.isScanningPlugins() ? "Scanning plugins..." : "No third-party plugins found",
+                          /*enabled*/ false, /*ticked*/ false);
+
         std::map<juce::String, juce::Array<juce::PluginDescription>> grouped;
         for (auto& d : types) grouped[d.manufacturerName.isEmpty() ? "Other" : d.manufacturerName].add (d);
 
-        // Build a flat lookup by menu id.
-        auto descs = std::make_shared<juce::Array<juce::PluginDescription>>();
-        int id = 1;
         for (auto& [mfg, list] : grouped)
         {
             juce::PopupMenu sub;
