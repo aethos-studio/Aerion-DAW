@@ -2,6 +2,7 @@
 #include "../UIComponents.h"
 #include "../UI/GraphicsEngine.h"
 #include "AudioBenchmark.h"
+#include "BenchBaseline.h"
 
 //==============================================================================
 // Headless paint benchmark (Milestone 5).
@@ -15,6 +16,9 @@
 //   mixer full / meters - full console vs the strip body repainted for meters
 //   clip drag          - what one mouse move costs while dragging a clip:
 //                        the Edit update plus the repaint of the clip area
+//   piano roll         - a dense MIDI clip (--notes, --cc) open in the Piano
+//                        Roll, repainted in full with no notes and with all
+//                        notes selected (selection is drawn per key row)
 //
 // Each scenario runs once per renderer: "native" (Direct2D on Windows, which is
 // what app windows use) and "software" (JUCE's CPU rasteriser). Direct2D work
@@ -29,7 +33,11 @@
 // you run and read, not a pass/fail gate.
 //
 //   AerionBench --tracks=32 --clips=20 --frames=200 [--renderer=both|native|software]
+//               [--notes=2000 --cc=1000 --pianoroll-height=600]
 //               [--verify]      exit code 2 if a partial repaint differs from a full one
+//               [--save-baseline=<file>] [--compare=<file>]
+//                               keep this run's timings, or compare with kept ones;
+//                               exit code 3 if anything is 20 % slower (BenchBaseline.h)
 //               [--lightweight] measure with View -> Lightweight UI on
 //               [--full-only]   only the full Timeline repaint (for the profile breakdown)
 //               [--scale=1.25]  paint as a window at that display scale does (View -> UI
@@ -540,8 +548,13 @@ namespace
     // or animates (playhead, meters, drags).
     constexpr double kFrameBudgetMs = 1000.0 / 60.0;
 
+    // The renderer being measured, which prefixes each timing's baseline name.
+    juce::String gRendererName;
+
     void report (const juce::String& label, const Result& r)
     {
+        BenchBaseline::record (gRendererName + ": " + label, r.avgMs, "ms");
+
         std::cout << label.paddedRight (' ', 30)
                   << juce::String (r.avgMs, 3).paddedLeft (' ', 9) << " ms avg"
                   << juce::String (r.minMs, 3).paddedLeft (' ', 9) << " ms min"
@@ -572,6 +585,80 @@ namespace
 
         return list;
     }
+
+    /** Sends one mouse-wheel event to `c`, as the mouse would. */
+    void wheel (juce::Component& c, float deltaY)
+    {
+        auto source = juce::Desktop::getInstance().getMainMouseSource();
+        const auto now = juce::Time::getCurrentTime();
+        const auto pos = c.getLocalBounds().getCentre().toFloat();
+        const juce::MouseEvent e (source, pos, {}, juce::MouseInputSource::defaultPressure,
+                                  juce::MouseInputSource::defaultOrientation, juce::MouseInputSource::defaultRotation,
+                                  juce::MouseInputSource::defaultTiltX, juce::MouseInputSource::defaultTiltY,
+                                  &c, &c, now, pos, now, 0, false);
+        juce::MouseWheelDetails details;
+        details.deltaX = 0.0f;
+        details.deltaY = deltaY;
+        details.isReversed = false;
+        details.isSmooth = false;
+        details.isInertial = false;
+        c.mouseWheelMove (e, details);
+    }
+
+    /** A dense MIDI clip open in the Piano Roll: `numNotes` notes between C2
+        and C6 and `numCC` CC1 events over 64 bars, scrolled so the notes fill
+        the view. It sits on a MIDI track of its own, deleted again afterwards,
+        so the Timeline and Mixer scenarios measure the same project with or
+        without it. */
+    struct PianoRollScene
+    {
+        PianoRollScene (AudioEngineManager& ae, ProjectData& pd, int numNotes, int numCC, int width, int height)
+            : audioEngine (ae)
+        {
+            namespace te = tracktion;
+            track = ae.addMidiTrack();
+            if (track == nullptr)
+                return;
+
+            constexpr double beats = 64.0 * 4.0;
+            auto& tempo = ae.getEdit().tempoSequence;
+            clip = track->insertMIDIClip ({ te::TimePosition(), tempo.toTime (te::BeatPosition::fromBeats (beats)) }, nullptr);
+            if (clip == nullptr)
+                return;
+
+            auto& seq = clip->getSequence();
+            juce::Random rng (42);   // the same clip every run
+            for (int i = 0; i < numNotes; ++i)
+                seq.addNote (36 + rng.nextInt (49), te::BeatPosition::fromBeats (beats * i / numNotes),
+                             te::BeatDuration::fromBeats (0.25 * (1 + rng.nextInt (4))), 40 + rng.nextInt (88), 0, nullptr);
+            for (int i = 0; i < numCC; ++i)
+                seq.addControllerEvent (te::BeatPosition::fromBeats (beats * i / numCC), 1, rng.nextInt (128), nullptr);
+
+            editor = std::make_unique<PianoRollEditor> (*clip, ae.getEdit(), pd, ae);
+            editor->setBounds (0, 0, width, height);
+            wheel (*editor, 18.0f);   // from near C1, where it opens, up to C6 at the top
+        }
+
+        ~PianoRollScene()
+        {
+            editor.reset();
+            if (track != nullptr)
+                audioEngine.deleteTrack (track);
+        }
+
+        bool isReady() const   { return editor != nullptr; }
+
+        /** Ctrl / Cmd + A, through the editor's own shortcut handling. */
+        bool selectAll()
+        {
+            return editor->keyPressed (juce::KeyPress ('a', juce::ModifierKeys::commandModifier, 0));
+        }
+
+        AudioEngineManager& audioEngine;
+        tracktion::AudioTrack* track = nullptr;
+        tracktion::MidiClip* clip = nullptr;
+        std::unique_ptr<PianoRollEditor> editor;
+    };
 }
 
 int main (int argc, char* argv[])
@@ -589,7 +676,7 @@ int main (int argc, char* argv[])
         args.add (juce::String (argv[i]));
 
     if (args.contains ("--audio"))
-        return runAudioBenchmark (args);
+        return BenchBaseline::finish (args, runAudioBenchmark (args));
 
     // Flat fills instead of decorative gradients, as View -> Lightweight UI does.
     Theme::lightweightUi() = args.contains ("--lightweight");
@@ -602,6 +689,9 @@ int main (int argc, char* argv[])
     const int frames       = intArg (args, "--frames", 200);
     const int width        = intArg (args, "--width",  1920);
     const int height       = intArg (args, "--height", 1080);
+    const int numNotes     = intArg (args, "--notes",  2000);
+    const int numCC        = intArg (args, "--cc",     1000);
+    const int pianoRollH   = intArg (args, "--pianoroll-height", 600);
 
     std::cout << "Aerion Timeline paint benchmark\n"
               << "  tracks=" << numTracks
@@ -960,6 +1050,21 @@ int main (int argc, char* argv[])
         timeline.setBounds (0, 0, 1100, 420);
         mixer.setBounds (0, 0, 1100, 320);
 
+        PianoRollScene pianoRoll (audioEngine, projectData, 400, 200, 1100, 520);
+
+        for (float scale : { 1.0f, 1.5f })
+        {
+            const auto suffix = scale > 1.0f ? juce::String ("_150.png") : juce::String ("_100.png");
+            if (pianoRoll.isReady())
+                writeSnapshot (*pianoRoll.editor, scale, dir.getChildFile ("pianoroll" + suffix));
+        }
+
+        // With every note selected: highlighted rows and keys, selected note outlines.
+        if (pianoRoll.isReady() && pianoRoll.selectAll())
+            for (float scale : { 1.0f, 1.5f })
+                writeSnapshot (*pianoRoll.editor, scale, dir.getChildFile (scale > 1.0f ? "pianoroll_selected_150.png"
+                                                                                        : "pianoroll_selected_100.png"));
+
         for (float scale : { 1.0f, 1.5f })
         {
             const auto suffix = scale > 1.0f ? juce::String ("_150.png") : juce::String ("_100.png");
@@ -1141,6 +1246,32 @@ int main (int argc, char* argv[])
             failures += result.visible > 0 ? 1 : 0;
         }
 
+        // The Piano Roll repaints in full itself, but a window uncovering part
+        // of it repaints only that part. With every note selected, the key and
+        // row highlights are drawn too.
+        {
+            PianoRollScene scene (audioEngine, projectData, numNotes, numCC, width, pianoRollH);
+            if (! scene.isReady() || ! scene.selectAll())
+            {
+                std::cout << "  " << juce::String ("piano roll").paddedRight (' ', 28) << "FAILED to set up" << std::endl;
+                ++failures;
+            }
+            else
+            {
+                const juce::Rectangle<int> slices[] = { { 20, 90, 320, 140 },                       // keys and grid
+                                                        { 200, pianoRollH - 190, 400, 176 },        // CC and velocity lanes
+                                                        { width - 30, 40, 30, pianoRollH - 60 } };  // right edge, scrollbar
+                const char* names[] = { "piano roll keys and grid", "piano roll lower lanes", "piano roll right edge" };
+
+                for (int i = 0; i < 3; ++i)
+                {
+                    const auto result = checkPartialRepaint (*scene.editor, width, pianoRollH, slices[i]);
+                    std::cout << "  " << juce::String (names[i]).paddedRight (' ', 28) << result.describe() << std::endl;
+                    failures += result.visible > 0 ? 1 : 0;
+                }
+            }
+        }
+
         if (failures > 0)
         {
             sourceFile.deleteFile();
@@ -1151,6 +1282,7 @@ int main (int argc, char* argv[])
     for (auto& renderer : renderersFromArgs (stringArg (args, "--renderer")))
     {
         std::cout << std::endl << "[" << renderer.name << " renderer]" << std::endl;
+        gRendererName = renderer.name;
 
         const auto full = timePaint (timeline, width, height, frames, fullArea, *renderer.type);
         report ("timeline full repaint", full);
@@ -1207,6 +1339,30 @@ int main (int argc, char* argv[])
                   << " % of a full repaint (the gap is wasted paint)." << std::endl;
     }
 
+    // After the Timeline and Mixer, so its MIDI track is not in their project.
+    if (! args.contains ("--full-only"))
+    {
+        for (auto& renderer : renderersFromArgs (stringArg (args, "--renderer")))
+        {
+            std::cout << std::endl << "[" << renderer.name << " renderer, piano roll: " << numNotes << " notes, "
+                      << numCC << " CC events, " << width << "x" << pianoRollH << "]" << std::endl;
+            gRendererName = renderer.name;
+            PianoRollScene scene (audioEngine, projectData, numNotes, numCC, width, pianoRollH);
+            if (! scene.isReady())
+            {
+                std::cout << "  could not create the Piano Roll clip" << std::endl;
+                break;
+            }
+
+            auto& editor = *scene.editor;
+            report ("piano roll full repaint",
+                    timePaint (editor, width, pianoRollH, frames, editor.getLocalBounds(), *renderer.type));
+            scene.selectAll();
+            report ("piano roll, all selected",
+                    timePaint (editor, width, pianoRollH, frames, editor.getLocalBounds(), *renderer.type));
+        }
+    }
+
    #if AERION_ENABLE_PROFILING
     // The benchmark has no UI timer, so flush the probes by hand. rowsDrawn vs
     // rowsInClip is the headline: how many track rows were painted against how
@@ -1216,5 +1372,5 @@ int main (int argc, char* argv[])
    #endif
 
     sourceFile.deleteFile();
-    return 0;
+    return BenchBaseline::finish (args, 0);
 }

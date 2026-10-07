@@ -142,9 +142,19 @@ cmake --build build --preset win-msvc-debug-tests
 & '.\build\AerionBench_artefacts\Debug\AerionBench.exe' --tracks=32 --clips=20 --frames=100
 ```
 
-It reports the Timeline's full repaint, playhead move, scroll steps and clip drag, and
-the Mixer, toolbar and transport, each against a 60 Hz frame (16.7 ms). Timings belong to
-the Release profiling build (`build-profiling`); see [`PERFORMANCE.md`](./PERFORMANCE.md).
+It reports the Timeline's full repaint, playhead move, scroll steps and clip drag, the
+Mixer, toolbar and transport, and the Piano Roll with a dense clip (`--notes=2000 --cc=1000`,
+`--pianoroll-height=600`; full repaint with no notes and with all notes selected), each
+against a 60 Hz frame (16.7 ms). Timings belong to the Release profiling build
+(`build-profiling`); see [`PERFORMANCE.md`](./PERFORMANCE.md).
+
+- `--save-baseline=<file>` keeps a run's timings in a JSON file; a later run with
+  `--compare=<file>` lists every timing against it and returns exit code 3 if any is more
+  than 20 % slower (ignoring changes under 0.05 ms, or 0.5 % of an audio block). Works with
+  `--audio` too. A baseline belongs to one machine, build type and set of arguments; the
+  file records them and `--compare` warns when they differ. Keep baselines next to the build
+  (`build-profiling\bench-baseline.json`), not in the repository; save one before a change,
+  compare after it.
 
 - `--verify` checks that partial repaints and scrolling give the same pixels as a full
   repaint, plus unsaved-changes tracking, fader drags (including a track whose automation
@@ -153,7 +163,10 @@ the Release profiling build (`build-profiling`); see [`PERFORMANCE.md`](./PERFOR
   failure. CI runs it at 100 % and at `--scale=1.25`.
 - `--scale=<factor>` paints as a window at that display scale does (UI Size times Windows
   scaling); set `--width` / `--height` to the logical window size.
-- `--snapshots=<dir>` renders the main components at 100 % and 150 % to PNGs.
+- `--verify` also checks partial repaints of the Piano Roll (keys and grid, CC and velocity
+  lanes, right edge) with every note selected.
+- `--snapshots=<dir>` renders the main components, the Piano Roll included, at 100 % and
+  150 % to PNGs.
 
 `--png=<path>` dumps a full repaint to disk. Two runs that should render identically — a
 pure culling change, say — can then be compared byte-for-byte, which is the closest thing

@@ -30,6 +30,16 @@ cmake --build build-profiling --config Release --target AerionBench AerionDaw --
 
 Add `--scale=1.25` (with `--width` / `--height` set to the logical window size) to measure a scaled display, and `--verify` to check partial repaints and scrolling against full repaints.
 
+**Before and after a change:** save the timings, make the change, and compare. `--compare` lists every timing against the saved one and returns exit code 3 if any is more than 20 % slower (changes under 0.05 ms, or 0.5 % of an audio block, count as noise). Use the same arguments both times; it warns when the machine, build type or arguments differ. Two runs with no change in between stay within about 10 %, except sub-0.05 ms timings.
+
+```powershell
+.\build-profiling\AerionBench_artefacts\Release\AerionBench.exe --save-baseline=build-profiling\bench-baseline.json
+# ... change, rebuild ...
+.\build-profiling\AerionBench_artefacts\Release\AerionBench.exe --compare=build-profiling\bench-baseline.json
+```
+
+The same options work with `--audio`.
+
 **In the app:** the profiling build writes a report every 5 s to `%APPDATA%\AerionDAW\aerion.log`. Each report has per-zone paint times and a `message thread:` line from the watchdog. The watchdog pings the message queue every 100 ms and records how long each ping waits, which is the delay a click or key press would see.
 
 ## Baseline: 2026-09-27
@@ -196,6 +206,19 @@ Software renderer, Release, 32 tracks × 20 clips, the window filling the displa
 | 4K, 150 % | 2560 × 1440 | 57.6 ms | 24.1 ms | 20.1 ms | 0.23 ms | 0.10 ms |
 
 Before these changes, 1440p at 125 % measured 59 ms for a full repaint and the same for every scroll step. Costs now follow the pixel count (1440p has 1.78× the pixels of 1080p). Scrolling on 4K exceeds a frame with the software renderer, but Auto uses Direct2D on displays above 2560 × 1600: 16.2 ms full repaint and 16.9 ms per scroll step there (CPU submission time).
+
+### Piano Roll measured (2026-10-07)
+
+`AerionBench` now paints the Piano Roll with a dense clip: 2000 notes between C2 and C6 and 1000 CC1 events over 64 bars, 1920 × 600, scrolled so the notes fill the view. `--verify` checks three partial repaints with every note selected (all pass).
+
+Release, 32 tracks × 20 clips in the project, the clip on a track of its own:
+
+| Scenario | Software | Direct2D |
+|---|---:|---:|
+| Full repaint, nothing selected | 5.4 ms | 5.0 ms |
+| Full repaint, all notes selected | **62.6 ms** | **64.0 ms** |
+
+Selecting notes makes the Piano Roll about 12× slower: with all 2000 selected, a repaint takes almost four frames, so dragging or editing a large selection stutters. `drawPianoKeys` calls `getSelectedNotes()` once per visible key row, and each call copies the clip's note array and searches it for every selected note; `drawGrid` does the same check per row and `drawNotes` searches the selection per note. Not fixed yet.
 
 ### Fixed along the way: crash when releasing the Edit
 

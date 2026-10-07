@@ -1,5 +1,6 @@
 #include <JuceHeader.h>
 #include "AudioBenchmark.h"
+#include "BenchBaseline.h"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -299,8 +300,13 @@ int runAudioBenchmark (const juce::StringArray& args)
                 measure (io, blockSize, sampleRate, 400);
                 const auto r = measure (io, blockSize, sampleRate, numBlocks);
 
-                printRow (juce::String (threads) + (threads == 1 ? " thread" : " threads")
-                            + (pooled ? ", pooled memory" : ""), r);
+                const auto label = juce::String (threads) + (threads == 1 ? " thread" : " threads")
+                                 + (pooled ? ", pooled memory" : "");
+                printRow (label, r);
+
+                const auto name = "audio " + juce::String (blockSize) + " samples, " + label;
+                BenchBaseline::record (name + ": mean", r.meanPct, "%");
+                BenchBaseline::record (name + ": p99",  r.p99Pct,  "%");
 
                 // Silence would mean the clips never played and the numbers
                 // describe an idle graph.
@@ -335,6 +341,7 @@ int runAudioBenchmark (const juce::StringArray& args)
         }
 
         std::sort (rebuildMs.begin(), rebuildMs.end());
+        BenchBaseline::record ("audio graph rebuild: median", rebuildMs[rebuildMs.size() / 2], "ms");
         std::cout << "[graph rebuild]\n  median " << juce::String (rebuildMs[rebuildMs.size() / 2], 1)
                   << " ms, max " << juce::String (rebuildMs.back(), 1) << " ms" << std::endl;
 
