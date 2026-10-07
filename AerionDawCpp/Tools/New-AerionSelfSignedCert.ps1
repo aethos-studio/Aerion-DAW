@@ -27,10 +27,14 @@ param(
     [string] $Subject = "CN=Aethos Studio Ltd., O=Aethos Studio Ltd., C=GB",
     [string] $FriendlyName = "Aerion DAW Self-Signed Code Signing",
     [int]    $ValidYears = 5,
-    [string] $OutputDirectory = $PSScriptRoot
+    [string] $OutputDirectory = ""
 )
 
 $ErrorActionPreference = "Stop"
+
+# Defaults to this script's folder. Set here, not in param(): Windows
+# PowerShell 5.1 leaves $PSScriptRoot empty while it binds parameters.
+if (-not $OutputDirectory) { $OutputDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path }
 
 $cert = New-SelfSignedCertificate `
     -Type CodeSigningCert `
