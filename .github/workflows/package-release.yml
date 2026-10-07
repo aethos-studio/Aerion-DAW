@@ -5,8 +5,14 @@ name: release-package
 # (build-test.yml); run those first if you want a pre-release check.
 #
 # Installers are named after the tag (v0.5.0-alpha -> AerionDAW-0.5.0-alpha-Windows.exe / -macOS.dmg).
-# Optional secrets:
-#   WINDOWS_CERT_PFX_BASE64, WINDOWS_CERT_PASSWORD   sign the Windows app and installer
+# Windows code signing, from Keeper (preferred) or repository secrets:
+#   KSM_CONFIG secret + KEEPER_CODESIGN_RECORD variable
+#                                                    fetch the certificate from a Keeper vault record:
+#                                                    the .pfx as a file attachment, its password in the
+#                                                    record's Password field. KEEPER_CODESIGN_PFX (variable)
+#                                                    names the attachment; default aerion-codesign.pfx
+#   WINDOWS_CERT_PFX_BASE64, WINDOWS_CERT_PASSWORD   used when Keeper is not set up
+# Other optional secrets:
 #   APPLE_DEVELOPER_ID_P12_BASE64, APPLE_DEVELOPER_ID_P12_PASSWORD
 #                                                    sign the macOS app and DMG (Developer ID)
 #   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD      also notarize and staple the DMG
@@ -56,11 +62,14 @@ jobs:
     if: ${{ inputs.platforms != 'macos' }}
     runs-on: windows-latest
 
-    # Self-signed code signing is optional: when both secrets are present the
-    # app + installer are signed and timestamped, otherwise signing is skipped
-    # and the unsigned installer is still produced. Generate the secrets with
-    # AerionDawCpp/Tools/New-AerionSelfSignedCert.ps1.
+    # Code signing is optional. The certificate comes from a Keeper vault
+    # record when KSM_CONFIG and KEEPER_CODESIGN_RECORD are set, otherwise from
+    # the WINDOWS_CERT_* secrets; with neither, signing is skipped and the
+    # unsigned installer is still produced. A self-signed certificate comes
+    # from AerionDawCpp/Tools/New-AerionSelfSignedCert.ps1.
     env:
+      KSM_CONFIG: ${{ secrets.KSM_CONFIG }}
+      KEEPER_RECORD: ${{ vars.KEEPER_CODESIGN_RECORD }}
       CERT_B64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
       CERT_PW: ${{ secrets.WINDOWS_CERT_PASSWORD }}
 
@@ -102,19 +111,63 @@ jobs:
         shell: pwsh
         run: cmake --build build --target AerionDaw --parallel
 
-      # Sign the built executable in place before CPack packages it, so the exe
-      # inside the installer is signed too. CPack copies the artefact as-is.
-      - name: Sign application (self-signed)
-        if: ${{ env.CERT_B64 != '' }}
+      # Keeper Secrets Manager: the .pfx attachment goes to a file on the
+      # runner, the record's Password field to KEEPER_CERT_PW (masked in logs).
+      # If Keeper is set up and this fails, the job fails rather than falling
+      # back to the repository secrets.
+      - name: Fetch code-signing certificate from Keeper
+        if: ${{ env.KSM_CONFIG != '' && env.KEEPER_RECORD != '' }}
+        uses: Keeper-Security/ksm-action@master
+        with:
+          keeper-secret-config: ${{ secrets.KSM_CONFIG }}
+          secrets: |
+            ${{ vars.KEEPER_CODESIGN_RECORD }}/field/password > env:KEEPER_CERT_PW
+            ${{ vars.KEEPER_CODESIGN_RECORD }}/file/${{ vars.KEEPER_CODESIGN_PFX || 'aerion-codesign.pfx' }} > file:${{ runner.temp }}/aerion-codesign-keeper.pfx
+
+      # One certificate for both signing steps: Keeper's, else the repository
+      # secret's. Opening it here fails early on a wrong password or file and
+      # logs which certificate signs this release.
+      - name: Prepare code-signing certificate
         shell: pwsh
         run: |
           $pfx = Join-Path $env:RUNNER_TEMP "aerion-codesign.pfx"
-          [System.IO.File]::WriteAllBytes($pfx, [System.Convert]::FromBase64String($env:CERT_B64))
+          $fromKeeper = Join-Path $env:RUNNER_TEMP "aerion-codesign-keeper.pfx"
+          if (Test-Path $fromKeeper) {
+            Move-Item $fromKeeper $pfx -Force
+            $source = "Keeper record $env:KEEPER_RECORD"
+            $password = $env:KEEPER_CERT_PW
+          } elseif ($env:CERT_B64) {
+            [System.IO.File]::WriteAllBytes($pfx, [System.Convert]::FromBase64String($env:CERT_B64))
+            $source = "repository secret WINDOWS_CERT_PFX_BASE64"
+            $password = $env:CERT_PW
+          } else {
+            Write-Output "No code-signing certificate configured; the installer will be unsigned."
+            exit 0
+          }
+          try {
+            $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($pfx, $password)
+          } catch {
+            Write-Error "Could not open the code-signing certificate from $source (wrong file or password): $($_.Exception.Message)"
+            exit 1
+          }
+          if (-not $cert.HasPrivateKey) { Write-Error "The certificate from $source has no private key"; exit 1 }
+          Write-Output "Signing with: $($cert.Subject), thumbprint $($cert.Thumbprint), valid until $($cert.NotAfter.ToString('yyyy-MM-dd')) (from $source)"
+          if ($cert.NotAfter -lt (Get-Date)) { Write-Error "The certificate expired on $($cert.NotAfter)"; exit 1 }
+          "SIGN_PFX=$pfx" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "SIGN_FROM_KEEPER=$([int](Test-Path env:KEEPER_CERT_PW))" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # Sign the built executable in place before CPack packages it, so the exe
+      # inside the installer is signed too. CPack copies the artefact as-is.
+      - name: Sign application
+        if: ${{ env.SIGN_PFX != '' }}
+        shell: pwsh
+        run: |
+          $password = if ($env:SIGN_FROM_KEEPER -eq '1') { $env:KEEPER_CERT_PW } else { $env:CERT_PW }
           $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1).FullName
           if (-not $signtool) { Write-Error "signtool.exe not found on runner"; exit 1 }
           $exe = (Get-ChildItem -Path build\AerionDaw_artefacts -Recurse -Filter "Aerion DAW.exe" | Select-Object -First 1).FullName
           if (-not $exe) { Write-Error "Built 'Aerion DAW.exe' not found"; exit 1 }
-          & $signtool sign /f $pfx /p $env:CERT_PW /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "$exe"
+          & $signtool sign /f $env:SIGN_PFX /p $password /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "$exe"
           & $signtool verify /pa "$exe"
 
       - name: Install NSIS (for CPack)
@@ -134,14 +187,19 @@ jobs:
           Write-Output "Installer: $($installer.FullName)"
           "path=$($installer.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      - name: Sign installer (self-signed)
-        if: ${{ env.CERT_B64 != '' }}
+      - name: Sign installer
+        if: ${{ env.SIGN_PFX != '' }}
         shell: pwsh
         run: |
-          $pfx = Join-Path $env:RUNNER_TEMP "aerion-codesign.pfx"
+          $password = if ($env:SIGN_FROM_KEEPER -eq '1') { $env:KEEPER_CERT_PW } else { $env:CERT_PW }
           $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1).FullName
-          & $signtool sign /f $pfx /p $env:CERT_PW /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "${{ steps.find_installer.outputs.path }}"
+          & $signtool sign /f $env:SIGN_PFX /p $password /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "${{ steps.find_installer.outputs.path }}"
           & $signtool verify /pa "${{ steps.find_installer.outputs.path }}"
+
+      - name: Remove code-signing certificate
+        if: ${{ always() }}
+        shell: pwsh
+        run: Remove-Item (Join-Path $env:RUNNER_TEMP "aerion-codesign*.pfx") -Force -ErrorAction SilentlyContinue
 
       - name: Upload NSIS installer
         uses: actions/upload-artifact@v7

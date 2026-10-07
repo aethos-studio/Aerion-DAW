@@ -59,12 +59,19 @@ Write-Host "  Valid until: $($cert.NotAfter.ToString('yyyy-MM-dd'))"
 Write-Host "  PFX file   : $pfxPath"
 Write-Host "  Base64 file: $b64Path"
 Write-Host ""
-Write-Host "Add these GitHub repository secrets:" -ForegroundColor Cyan
+Write-Host "Either store it in Keeper (preferred):" -ForegroundColor Cyan
+Write-Host "  Attach $pfxPath to a vault record shared with the Keeper Secrets Manager"
+Write-Host "  application, put the password in the record's Password field, then in"
+Write-Host "  Settings -> Secrets and variables -> Actions set the variable"
+Write-Host "  KEEPER_CODESIGN_RECORD to the record's UID (and the secret KSM_CONFIG)."
+Write-Host ""
+Write-Host "Or add these GitHub repository secrets:" -ForegroundColor Cyan
 Write-Host "  Settings -> Secrets and variables -> Actions -> New repository secret"
 Write-Host "    WINDOWS_CERT_PFX_BASE64  = the full contents of $b64Path"
 Write-Host "    WINDOWS_CERT_PASSWORD    = the password passed to this script"
 Write-Host ""
 Write-Host "The release-package workflow signs the app + installer automatically" -ForegroundColor Cyan
-Write-Host "when both secrets are present, and skips signing when they are not."
+Write-Host "when either is set up (Keeper first), and skips signing when neither is."
+Write-Host "Once the certificate is in Keeper, delete both local files."
 Write-Host ""
 Write-Warning "aerion-codesign.pfx and its base64 are private keys. They are gitignored - never commit them."
