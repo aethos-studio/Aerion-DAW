@@ -5,6 +5,7 @@
 #include "ViewShared.h"
 #include "AboutDialog.h"
 #include "../UI/UiScale.h"
+#include "../UserManual.h"
 
 //==============================================================================
 class DAWMenuBar : public juce::Component,
@@ -521,6 +522,7 @@ private:
     void showHelpMenu()
     {
         juce::PopupMenu m;
+        m.addItem (3, "User Manual");
         m.addItem (1, "Keyboard Shortcuts...");
         m.addSeparator();
         m.addItem (2, "About Aerion DAW");
@@ -529,6 +531,9 @@ private:
                 onShowKeyboardShortcuts();
             if (r == 2)
                 AboutDialog::launch();
+            if (r == 3 && ! UserManual::open())
+                juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "User Manual",
+                    "The manual could not be opened. It is saved at:\n" + UserManual::getFile().getFullPathName());
         });
     }
 };

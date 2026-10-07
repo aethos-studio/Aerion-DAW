@@ -6,6 +6,7 @@
 #include "../UI/UiScale.h"
 #include "../UI/Dialogs.h"
 #include "../CrashReporter.h"
+#include "../UserManual.h"
 
 //==============================================================================
 // Aerion smoke tests (Milestone 5).
@@ -279,6 +280,30 @@ public:
     }
 };
 
+class UserManualTests final : public juce::UnitTest
+{
+public:
+    UserManualTests() : juce::UnitTest ("UserManual", "Aerion") {}
+
+    void runTest() override
+    {
+        const juce::TemporaryFile temp (".html");
+        const auto file = temp.getFile();
+
+        beginTest ("the built-in manual is written out whole");
+        expect (UserManual::install (file));
+        expect (file.loadFileAsString().contains ("<title>Aerion DAW Manual</title>"));
+        const auto size = file.getSize();
+        expect (size > 100000);
+
+        beginTest ("a changed or damaged copy is replaced");
+        file.replaceWithText ("old manual");
+        expect (UserManual::install (file));
+        expectEquals (file.getSize(), size);
+    }
+};
+
+static UserManualTests userManualTests;
 static DialogTests dialogTests;
 static UiScaleTests uiScaleTests;
 static ProjectDataTests projectDataTests;

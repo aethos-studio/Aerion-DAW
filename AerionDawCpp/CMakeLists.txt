@@ -96,6 +96,8 @@ juce_add_binary_data(AerionDawResources
         Resources/Icons/aerion_transport_rewind.svg
         Resources/Icons/aerion_transport_forward.svg
         Resources/Icons/aerion_transport_loop.svg
+        # The user manual (Help > User Manual), kept at the repository root.
+        ../Aerion-DAW-Manual.html
 )
 
 juce_generate_juce_header(AerionDaw)
@@ -113,6 +115,7 @@ target_sources(AerionDaw PRIVATE
     Source/AudioEngine.h
     Source/AudioEngine.cpp
     Source/PluginFaultGuard.h
+    Source/UserManual.h
     Source/PluginFaultGuard.cpp
     Source/CrashReporter.h
     Source/CrashReporter.cpp
@@ -361,6 +364,7 @@ if (AERION_BUILD_TESTS)
         tracktion_core
         tracktion_graph
         tracktion_engine
+        AerionDawResources
     )
 
     target_compile_features(AerionTests PRIVATE cxx_std_20)
