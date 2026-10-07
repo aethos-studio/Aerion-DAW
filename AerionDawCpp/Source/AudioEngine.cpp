@@ -1,7 +1,6 @@
 #include "AudioEngine.h"
 #include "ProjectData.h"
 #include "Export/MixdownExportJob.h"
-#include "UI/DeviceEditor.h"
 
 namespace te = tracktion;
 
@@ -246,8 +245,6 @@ namespace
             setEditor (nullptr);
             if (auto e = plugin.createEditor())
                 setEditor (std::move (e));
-            else if (dynamic_cast<te::ExternalPlugin*> (&plugin) == nullptr)
-                setEditor (std::make_unique<DeviceEditor> (plugin));
         }
 
         void setEditor (std::unique_ptr<te::Plugin::EditorComponent> newEd)
@@ -531,11 +528,9 @@ static te::EqualiserPlugin* getOrCreateUtilityEQ (te::Track* track, te::Edit& ed
 {
     if (track == nullptr) return nullptr;
     
-    // An EQ the user added as a device is theirs, not this one.
     for (auto* p : track->pluginList)
         if (auto* eq = dynamic_cast<te::EqualiserPlugin*> (p))
-            if (! AudioEngineManager::isInsertDevice (eq))
-                return eq;
+            return eq;
 
     // Front of the list, after an instrument (it would otherwise filter silence).
     if (auto* audioTrack = dynamic_cast<te::AudioTrack*> (track))
@@ -2879,9 +2874,6 @@ tracktion::Plugin::Ptr AudioEngineManager::addPluginToTrack (te::Track* track, c
 {
     if (track == nullptr) return {};
 
-    if (isBuiltInDevice (desc))
-        return addStockDevice (track, desc.fileOrIdentifier);
-
     if (auto* at = dynamic_cast<te::AudioTrack*> (track))
         if (isTrackFrozen (at) || isTrackFreezing (at))
             return {};
@@ -2898,56 +2890,9 @@ tracktion::Plugin::Ptr AudioEngineManager::addPluginToTrack (te::Track* track, c
     return {};
 }
 
-const juce::Array<AudioEngineManager::StockDevice>& AudioEngineManager::getStockDevices()
-{
-    static const juce::Array<StockDevice> devices = []
-    {
-        juce::Array<StockDevice> d;
-        d.add ({ te::FourOscPlugin::xmlTypeName, "4OSC Synth", true });
-        d.add ({ te::SamplerPlugin::xmlTypeName, "Sampler", true });
-        d.add ({ te::EqualiserPlugin::xmlTypeName, "EQ", false });
-        d.add ({ te::CompressorPlugin::xmlTypeName, "Compressor", false });
-        d.add ({ te::ReverbPlugin::xmlTypeName, "Reverb", false });
-        d.add ({ te::DelayPlugin::xmlTypeName, "Delay", false });
-        d.add ({ te::ChorusPlugin::xmlTypeName, "Chorus", false });
-        d.add ({ te::PhaserPlugin::xmlTypeName, "Phaser", false });
-        d.add ({ te::PitchShiftPlugin::xmlTypeName, "Pitch Shift", false });
-        d.add ({ te::LowPassPlugin::xmlTypeName, "Low / High Pass", false });
-        return d;
-    }();
-
-    return devices;
-}
-
-te::Plugin::Ptr AudioEngineManager::addStockDevice (te::Track* track, const juce::String& xmlType)
-{
-    if (track == nullptr || edit == nullptr)
-        return {};
-
-    if (auto* at = dynamic_cast<te::AudioTrack*> (track))
-        if (isTrackFrozen (at) || isTrackFreezing (at))
-            return {};
-
-    auto p = edit->getPluginCache().createNewPlugin (xmlType, {});
-    if (p == nullptr)
-        return {};
-
-    p->state.setProperty (IDs::aerionUserDevice, true, nullptr);
-
-    // An instrument has to come before anything that processes its output.
-    const int index = p->isSynth() ? 0 : track->pluginList.size();
-    track->pluginList.insertPlugin (p, index, nullptr);
-    p->setEnabled (true);
-    p->setProcessingEnabled (true);
-    broadcastChange();
-    return p;
-}
-
 bool AudioEngineManager::isInsertDevice (te::Plugin* plugin)
 {
-    return plugin != nullptr
-        && (dynamic_cast<te::ExternalPlugin*> (plugin) != nullptr
-            || (bool) plugin->state.getProperty (IDs::aerionUserDevice, false));
+    return dynamic_cast<te::ExternalPlugin*> (plugin) != nullptr;
 }
 
 juce::Array<te::Plugin*> AudioEngineManager::getInsertDevices (te::Track* track)
@@ -2962,42 +2907,9 @@ juce::Array<te::Plugin*> AudioEngineManager::getInsertDevices (te::Track* track)
     return devices;
 }
 
-juce::Array<juce::PluginDescription> AudioEngineManager::getBuiltInDevices()
-{
-    juce::Array<juce::PluginDescription> list;
-
-    for (auto& d : getStockDevices())
-    {
-        juce::PluginDescription desc;
-        desc.name = d.name;
-        desc.descriptiveName = d.name;
-        desc.pluginFormatName = "Built-in";
-        desc.manufacturerName = "Built-in";
-        desc.category = d.instrument ? "Instrument" : "Effect";
-        desc.isInstrument = d.instrument;
-        desc.fileOrIdentifier = d.xmlType;
-        desc.uniqueId = desc.deprecatedUid = d.xmlType.hashCode();
-        list.add (desc);
-    }
-
-    return list;
-}
-
-bool AudioEngineManager::isBuiltInDevice (const juce::PluginDescription& desc)
-{
-    return desc.pluginFormatName == "Built-in";
-}
-
-juce::Array<juce::PluginDescription> AudioEngineManager::getAllDevices()
-{
-    auto all = getBuiltInDevices();
-    all.addArray (engine.getPluginManager().knownPluginList.getTypes());
-    return all;
-}
-
 std::optional<juce::PluginDescription> AudioEngineManager::findDevice (const juce::String& identifier)
 {
-    for (auto& d : getAllDevices())
+    for (auto& d : engine.getPluginManager().knownPluginList.getTypes())
         if (d.createIdentifierString() == identifier)
             return d;
 

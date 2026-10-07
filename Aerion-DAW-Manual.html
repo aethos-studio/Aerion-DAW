@@ -544,7 +544,7 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
 
   <div class="anat">
     <div><dl><dt>Audio track</dt><dd>Records and plays audio clips. Its devices are effects.</dd></dl></div>
-    <div><dl><dt>MIDI track</dt><dd>Records and plays MIDI clips. Add an instrument to hear them: a built-in one such as 4OSC, or your own plugin.</dd></dl></div>
+    <div><dl><dt>MIDI track</dt><dd>Records and plays MIDI clips. Add an instrument plugin to hear them.</dd></dl></div>
     <div><dl><dt>Folder track</dt><dd>Groups other tracks so you can fold them away. It can also act as a submix bus with its own fader.</dd></dl></div>
   </div>
 
@@ -788,36 +788,17 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
 <section class="chapter" id="plugins">
   <div class="eyebrow">Chapter 12</div>
   <h2>Instruments &amp; plugins</h2>
-  <p class="intro">Each track runs its sound through a chain of devices. A device is either a third-party plugin (VST3 on Windows and macOS, plus Audio Units on macOS) or one of Aerion's built-in devices.</p>
-
-  <h3>Built-in devices</h3>
-  <p>Aerion comes with ten devices of its own, so you can make music without installing any plugins. They are listed at the top of the plugin list under <span class="ui">BUILT-IN</span>.</p>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Device</th><th>What it is</th></tr></thead>
-    <tbody>
-      <tr><td>4OSC Synth</td><td class="wrap">A synthesizer with four oscillators. Put it on a MIDI track to play notes.</td></tr>
-      <tr><td>Sampler</td><td class="wrap">Plays audio samples from MIDI notes.</td></tr>
-      <tr><td>EQ</td><td class="wrap">Shapes the tone by boosting or cutting frequency ranges.</td></tr>
-      <tr><td>Compressor</td><td class="wrap">Evens out the level by turning down loud parts.</td></tr>
-      <tr><td>Reverb</td><td class="wrap">Adds the sound of a room or hall.</td></tr>
-      <tr><td>Delay</td><td class="wrap">Repeats the sound as echoes.</td></tr>
-      <tr><td>Chorus</td><td class="wrap">Thickens the sound with slightly detuned copies.</td></tr>
-      <tr><td>Phaser</td><td class="wrap">Adds a sweeping, swirling movement.</td></tr>
-      <tr><td>Pitch Shift</td><td class="wrap">Raises or lowers the pitch.</td></tr>
-      <tr><td>Low / High Pass</td><td class="wrap">Removes frequencies above or below a cut-off.</td></tr>
-    </tbody>
-  </table></div>
-  <p>Add them the same way as any other plugin (below). An instrument always goes to the top of the track's chain, so effects after it process its sound. A built-in device's window shows one knob per setting: drag a knob up or down, double-click it to reset it, or click its value to type a number.</p>
+  <p class="intro">Each track runs its sound through a chain of devices: instrument and effect plugins. Aerion hosts VST3 plugins on Windows and macOS, and Audio Units on macOS.</p>
 
   <h3>Finding your plugins</h3>
-  <p>The Browser's <span class="ui">Plugins</span> tab lists the built-in devices first, then every plugin Aerion found, grouped by maker. Plugins installed after Aerion started appear after you click <span class="ui">RESCAN</span> or choose <span class="menu">Audio › Rescan Plugins</span>. To hide a plugin you don't use, right-click it and choose <span class="ui">Delete from Plugin Browser</span>; it comes back on the next rescan if it is still installed.</p>
+  <p>The Browser's <span class="ui">Plugins</span> tab lists every plugin Aerion found, grouped by maker. Plugins installed after Aerion started appear after you click <span class="ui">RESCAN</span> or choose <span class="menu">Audio › Rescan Plugins</span>. To hide a plugin you don't use, right-click it and choose <span class="ui">Delete from Plugin Browser</span>; it comes back on the next rescan if it is still installed.</p>
 
   <h3>Adding a device to a track</h3>
   <ul>
     <li>Drag a plugin from the Browser onto a track's header or a Mixer strip.</li>
     <li>Click a Mixer strip's <span class="btnface">FX</span> button, the Inspector's <span class="ui">+</span> next to INSERTS, or <span class="ui">Add Plugin…</span> in a track's right-click menu, and pick from the list.</li>
   </ul>
-  <p>In the pick list, the built-in devices are in the <span class="ui">Built-in</span> submenu at the top. The device's window opens straight away.</p>
+  <p>The plugin's window opens straight away. On a MIDI track, put the instrument first in the chain, so the effects after it process its sound.</p>
 
   <h3>The device chain</h3>
   <p>The Inspector's <span class="ui">INSERTS</span> section, the Mixer's insert column and the track's <span class="ui">FX</span> window all list the same devices, top to bottom in the order the sound passes through them.</p>
@@ -1026,7 +1007,7 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
   <ul>
     <li>Check <span class="menu">File › Audio Settings…</span>: the right output, and the sample rate your interface uses.</li>
     <li>Click <span class="ui">Reset Audio Settings</span> to return to a safe default.</li>
-    <li>On a MIDI track, check that it has an instrument (a built-in one such as 4OSC, or a plugin) and that its input is your keyboard. New MIDI tracks start without one.</li>
+    <li>On a MIDI track, check that it has an instrument plugin and that its input is your keyboard. New MIDI tracks start without one.</li>
   </ul>
 
   <h3>Clicks, pops or dropouts</h3>
@@ -1126,7 +1107,7 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
   <h2>Known limitations</h2>
   <p class="intro">What version 0.5.0 doesn't do yet.</p>
   <ul>
-    <li><strong>Built-in devices</strong> use a plain window with one knob per setting. Dedicated windows for the EQ (with a frequency curve) and the compressor (with a gain-reduction meter) are coming next.</li>
+    <li><strong>No built-in instruments or effects.</strong> Aerion uses your VST3 and Audio Unit plugins; to play MIDI you need an instrument plugin.</li>
     <li><strong>Automation</strong> covers track volume and pan only, drawn by hand.</li>
     <li><strong>Plugin crash protection</strong> is Windows-only, and doesn't yet cover a crash inside a plugin window that is already open.</li>
     <li><strong>Not yet supported:</strong> time-stretching, sidechain routing, MIDI learn, control surfaces, project templates and loudness metering. All are planned.</li>

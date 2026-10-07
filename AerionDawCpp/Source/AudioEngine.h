@@ -186,34 +186,13 @@ public:
 
     tracktion::Plugin::Ptr addPluginToTrack (tracktion::Track* track, const juce::PluginDescription& desc);
 
-    /** Tracktion's built-in effects and instruments that Aerion offers as devices. */
-    struct StockDevice
-    {
-        juce::String xmlType, name;
-        bool instrument = false;
-    };
-    static const juce::Array<StockDevice>& getStockDevices();
-
-    /** Adds a stock device: an instrument goes first in the chain, an effect
-        after the existing inserts. Nothing on a frozen track. */
-    tracktion::Plugin::Ptr addStockDevice (tracktion::Track* track, const juce::String& xmlType);
-
     /** A device the user added and sees in the insert list: a third-party
-        plugin or a stock device. Not Aerion's own plugins (fader, meter,
-        sends, the EQ behind the track's quick filters). */
+        plugin. Not Aerion's own plugins (fader, meter, sends, the EQ behind
+        the track's quick filters). */
     static bool isInsertDevice (tracktion::Plugin* plugin);
     static juce::Array<tracktion::Plugin*> getInsertDevices (tracktion::Track* track);
 
-    /** The stock devices as plugin descriptions (format "Built-in", the
-        Tracktion type in fileOrIdentifier), so the plugin lists, the picker
-        and drag and drop handle them like any other plugin. */
-    static juce::Array<juce::PluginDescription> getBuiltInDevices();
-    static bool isBuiltInDevice (const juce::PluginDescription&);
-
-    /** Built-in devices first, then the scanned third-party plugins. */
-    juce::Array<juce::PluginDescription> getAllDevices();
-
-    /** A device by PluginDescription::createIdentifierString(), as drag and drop carries it. */
+    /** A scanned plugin by PluginDescription::createIdentifierString(), as drag and drop carries it. */
     std::optional<juce::PluginDescription> findDevice (const juce::String& identifier);
 
     void removePlugin (tracktion::Plugin* plugin);

@@ -6,7 +6,7 @@ In practice that means two phases:
 
 | Phase | Milestones | Goal |
 |---|---|---|
-| **DAW essentials** | M1–M6 | Everything a producer expects from any modern DAW: editing, mixing, recording, project workflow, stability, and the core feature set (stock devices, full automation, time-stretch, sidechain, controller mapping). |
+| **DAW essentials** | M1–M6 | Everything a producer expects from any modern DAW: editing, mixing, recording, project workflow, stability, and the core feature set (full automation, time-stretch, sidechain, controller mapping). |
 | **Differentiators** | M7–M9 + Future | What makes Aerion distinct: composition tools, creative/performance workflows, AI, cloud and collaboration. |
 
 A milestone is done when its items are verified: benchmark targets for performance work (see [`PERFORMANCE.md`](./PERFORMANCE.md)), pixel checks and snapshot renders for UI work (`AerionBench --verify` / `--snapshots`), and smoke tests in CI for engine work.
@@ -217,12 +217,11 @@ These are not code work that can be finished in the repository, so they no longe
 ---
 
 ## Milestone 6 — DAW Essentials: Complete Core (v0.6.0)
-*Close the gaps every mainstream DAW already covers, so Aerion is complete before it adds differentiators. Several items build on capabilities Tracktion Engine already ships, so they are exposure and UI work rather than new DSP.*
+*Close the gaps every mainstream DAW already covers, so Aerion is complete before it adds differentiators. Several items build on capabilities Tracktion Engine already ships, so they are exposure and UI work rather than new DSP. Built-in (stock) instruments and effects are not part of Aerion: they will come as a separate product (decided October 7, 2026). Aerion hosts the user's plugins; new MIDI tracks start without an instrument.*
 
-- [ ] **Stock Instruments & Effects:** Expose Tracktion's built-in devices as Aerion devices with styled editors: EQ, Compressor / Limiter, Reverb, Delay, Chorus, Phaser, Pitch Shift, the 4OSC synth and the Sampler. Add a "Built-in" category to the Browser and the plugin picker, so a MIDI track can make sound without third-party plugins. New MIDI tracks start empty; the user adds an instrument (decided October 7, 2026). *Partial (v0.5.0): all ten devices are in the Browser and picker under Built-in, can be dragged onto tracks and strips, and open in a generic knob editor. Still to do: custom EQ and Compressor editors.*
 - [ ] **Full Parameter Automation:** Automate any plugin or mixer parameter, not just volume and pan. Per-track lane chooser, multiple visible lanes, automation modes (Read / Write / Touch / Latch) that record from UI and controller moves, point thinning, and copy/paste of automation with clips.
 - [ ] **Audio Warping & Time-Stretch:** Audio clips follow tempo changes (auto-tempo), warp markers for manual timing correction, per-clip pitch and speed controls. SoundTouch is already compiled in (`TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH`); evaluate higher-quality stretchers (Rubber Band, élastique) and their licences.
-- [ ] **Sidechain Routing:** Sidechain inputs for stock and hosted plugins that support them, set up from the Inspector and the Mixer strip context menu (for ducking, sidechain compression and gating).
+- [ ] **Sidechain Routing:** Sidechain inputs for hosted plugins that support them, set up from the Inspector and the Mixer strip context menu (for ducking, sidechain compression and gating).
 - [ ] **MIDI Learn & Controller Mapping:** Map hardware knobs, faders and buttons to any parameter by moving the control; mappings saved per project, with user-level defaults.
 - [ ] **Control Surface Support:** Mackie Control (MCU) and HUI transport and mixer control, building on Tracktion's control surface support.
 - [ ] **Audio Clip Processing:** Reverse, normalise, clip gain envelope, and pitch/speed per clip; non-destructive where possible, with rendered results kept in the project folder.

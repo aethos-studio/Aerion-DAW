@@ -12,7 +12,7 @@
 | M3: DAW Essentials — Recording & Monitoring (v0.2.0) | **Complete** — Metronome, Count-In, Punch In/Out, PDC, multi-channel input routing, buffer safety readout, live recording waveform, full driver pack (ASIO/WASAPI/DirectSound/CoreAudio/ALSA/JACK/WinRT MIDI), Reset Audio Settings, per-track monitor modes, per-track MIDI controller selector |
 | M4: DAW Essentials — Project & Workflow (v0.3.0) | **Complete** — Save/Load (`.aerion`), Collect & Save, Bounce/Freeze, Mixdown + Stems export, Tempo Map, Time Signature changes, per-track input/monitor persistence, customisable keyboard shortcuts (`AerionKeymap`), Recent Projects, Auto-save / Crash Recovery, icon system |
 | M5: DAW Essentials — Polish & Stability (v0.4.0) | **Complete** (October 6, 2026) — performance (UI and audio), plugin crash protection (Windows), accessibility, error reporting, UI scaling, packaging; paid signing and out-of-process hosting deferred |
-| M6: DAW Essentials — Complete Core (v0.6.0) | **In progress** — first part shipped in v0.5.0 (ten built-in devices in the plugin list and picker, generic device editor); still to come: stock instruments and effects, full parameter automation, time-stretch, sidechain, MIDI learn and control surfaces, clip processing, templates, loudness metering, CLAP spike |
+| M6: DAW Essentials — Complete Core (v0.6.0) | **In progress** — groundwork for MIDI learn and control surfaces shipped in v0.5.0; still to come: full parameter automation, time-stretch, sidechain, MIDI learn and control surfaces, clip processing, templates, loudness metering, CLAP spike |
 | M7–M9 + Future USPs | Not started — `AIManager` is still a 2-second mock; ONNX Runtime declared in CMake but intentionally not linked |
 
 ---
@@ -48,7 +48,7 @@ What already exists versus what remains, verified against the source tree:
 
 - **v0.5.0 Alpha (October 7), first public release:**
   - **User manual:** `Aerion-DAW-Manual.html` at the repository root, one self-contained page (fonts and logos embedded). It is built into the app; **Help → User Manual** writes it next to the settings (`UserManual.h`) and opens it in the default browser.
-  - **Stock devices and generic editor:** ten Tracktion built-ins appear under BUILT-IN at the top of the Browser's plugin list and the picker, as plugin descriptions with the format "Built-in" (`AudioEngineManager::getBuiltInDevices`), so drag and drop works as for any plugin; they open in a knob-per-parameter editor (`UI/DeviceEditor.h`). New MIDI tracks start without an instrument but with a level meter. The EQ behind the quick filters no longer mistakes a user's EQ for its own.
+  - **M6 groundwork:** Aerion's `UIBehaviour` reports the open Edit and a `SelectionManager` that follows the Timeline's selected tracks, which MIDI learn and control surfaces need. Insert rows work on any `te::Plugin`. New MIDI tracks get a level meter. Built-in (stock) instruments and effects were tried and removed again: they will be a separate product, not part of Aerion.
   - **Razor tool:** with snap on, the hairline left copies in the Timeline's cached layer; fixed, with an `AerionBench --verify` check.
   - **CI on Node 24:** checkout v7, upload-artifact v7, download-artifact v8; MSVC set up by a pwsh step instead of `ilammy/msvc-dev-cmd`.
   - **Version:** 0.5.0 Alpha in the app, About dialog and installers; the macOS installer is named `…-macOS.dmg`.
@@ -124,7 +124,7 @@ What already exists versus what remains, verified against the source tree:
 
 Mirrors [`ROADMAP.md`](./ROADMAP.md) so the two documents agree.
 
-**M6 — Complete Core (v0.6.0)**, in this order: stock instruments and effects, full parameter automation, audio warping and time-stretch, sidechain routing, MIDI learn and control surfaces, clip processing, templates, analysis metering, CLAP spike.
+**M6 — Complete Core (v0.6.0)**, in this order: full parameter automation, audio warping and time-stretch, sidechain routing, MIDI learn and control surfaces, clip processing, templates, analysis metering, CLAP spike.
 
 **Deferred from M5:**
 
