@@ -113,7 +113,7 @@ public:
         beginTest ("matches() honours default bindings, case-insensitively");
         {
             AerionKeymap km;
-            const auto ctrlS = juce::KeyPress::createFromDescription ("ctrl + S");
+            const auto ctrlS = juce::KeyPress::createFromDescription ("command + S");
             expect (km.matches ("file.save", ctrlS));
             expect (! km.matches ("file.open", ctrlS));
 
@@ -127,15 +127,15 @@ public:
         beginTest ("conflict detection finds duplicate bindings");
         {
             AerionKeymap km;
-            const auto ctrlS = juce::KeyPress::createFromDescription ("ctrl + S");
+            const auto ctrlS = juce::KeyPress::createFromDescription ("command + S");
 
             auto before = km.conflicts (ctrlS, "file.save");
-            expect (before.isEmpty(), "default keymap must have no conflicts on ctrl+S");
+            expect (before.isEmpty(), "default keymap must have no conflicts on command+S");
 
             km.set ("track.mute", ctrlS);
             auto after = km.conflicts (ctrlS, "track.mute");
             expect (after.contains ("file.save"),
-                    "rebinding track.mute to ctrl+S must conflict with file.save");
+                    "rebinding track.mute to command+S must conflict with file.save");
         }
 
         beginTest ("export / import round-trip preserves custom bindings");
@@ -152,10 +152,60 @@ public:
             expect (restored.matches ("transport.playStop", custom),
                     "custom binding must survive the round-trip");
             expect (restored.matches ("file.save",
-                                      juce::KeyPress::createFromDescription ("ctrl + S")),
+                                      juce::KeyPress::createFromDescription ("command + S")),
                     "untouched bindings must stay at defaults");
 
             file.deleteFile();
+        }
+
+        beginTest ("defaults use Command, which is Ctrl on Windows and Cmd on macOS");
+        {
+            AerionKeymap km;
+            for (auto* id : { "file.new", "file.open", "file.save", "edit.undo", "edit.redo", "transport.record",
+                              "pianoRoll.selectAll", "pianoRoll.copy", "pianoRoll.cut", "pianoRoll.paste" })
+                expect (km.get (id).getModifiers().isCommandDown(), juce::String (id) + " must use Command");
+
+            const auto deleteKey = km.get ("clip.delete").getKeyCode();
+           #if JUCE_MAC
+            expectEquals (deleteKey, juce::KeyPress::backspaceKey);   // the key labelled Delete on a Mac
+           #else
+            expectEquals (deleteKey, juce::KeyPress::deleteKey);
+           #endif
+        }
+
+        beginTest ("menus show keys the platform's way");
+        {
+            AerionKeymap km;
+           #if JUCE_MAC
+            expect (km.menuHint ("edit.redo").contains (juce::String::fromUTF8 (u8"⌘")), km.menuHint ("edit.redo"));
+           #else
+            expectEquals (km.menuHint ("edit.redo"),          juce::String ("\tCtrl+Shift+Z"));
+            expectEquals (km.menuHint ("transport.playStop"), juce::String ("\tSpace"));
+            expectEquals (km.menuHint ("transport.goToStart"), juce::String ("\tHome"));
+           #endif
+            expectEquals (km.menuHint ("no.such.action"), juce::String());
+        }
+
+        beginTest ("a keymap saved before version 2 moves to the Mac defaults on macOS");
+        {
+            AerionAction save, del;
+            for (auto& a : AerionActionCatalog::actions())
+            {
+                if (a.id == "file.save")   save = a;
+                if (a.id == "clip.delete") del  = a;
+            }
+
+            // The old forward-Delete default becomes the Mac Delete key...
+            expectEquals (AerionKeymap::keyFromSaved (del, "delete", 1, true).getKeyCode(),
+                          juce::KeyPress::backspaceKey);
+            // ...but not on Windows, not from a version 2 keymap, and not a key the user chose.
+            expectEquals (AerionKeymap::keyFromSaved (del, "delete", 1, false).getKeyCode(), juce::KeyPress::deleteKey);
+            expectEquals (AerionKeymap::keyFromSaved (del, "delete", 2, true).getKeyCode(),  juce::KeyPress::deleteKey);
+            expect (AerionKeymap::keyFromSaved (save, "F2", 1, true) == juce::KeyPress::createFromDescription ("F2"));
+            expect (AerionKeymap::keyFromSaved (save, "ctrl + S", 1, true).getModifiers().isCommandDown());
+
+            AerionKeymap km;
+            expectEquals (km.toXml()->getIntAttribute ("version"), AerionKeymap::kFormatVersion);
         }
 
         beginTest ("import rejects files without a keymap root");

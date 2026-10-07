@@ -212,7 +212,7 @@ private:
                 section = a.section;
                 rows.push_back ({ true, section, {}, {}, {}, false });
             }
-            rows.push_back ({ false, {}, a.id, a.name, a.defaultKey, a.rebindable });
+            rows.push_back ({ false, {}, a.id, a.name, a.platformDefaultKey(), a.rebindable });
         }
         list.updateContent();
     }

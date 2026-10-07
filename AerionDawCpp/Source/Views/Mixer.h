@@ -103,7 +103,7 @@ public:
     void syncAccessibleControlsNow() { cancelPendingUpdate(); handleAsyncUpdate(); }
 
     /** Left / Right move to the same control on the neighbouring strip,
-        Ctrl + Left / Right pans the focused strip. Up / Down, Page Up / Down
+        Ctrl + Left / Right (Cmd on macOS) pans the focused strip. Up / Down, Page Up / Down
         and Home are handled by the focused control itself. */
     bool keyPressed (const juce::KeyPress& key) override
     {

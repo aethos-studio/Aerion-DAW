@@ -23,7 +23,9 @@ public:
     bool   pdcEnabled       = false;
     bool   loopEnabled      = false;
     bool   followPlayback   = false;
-    juce::String followPlaybackKey;   // its shortcut, as the keymap has it
+
+    // Menu items show the key bound to their action, as the keymap has it.
+    const AerionKeymap* keymap = nullptr;
     bool   inspectorVisible = true;
     bool   browserVisible   = true;
     bool   mixerDetached    = false;
@@ -255,11 +257,16 @@ private:
         return (i >= 0 && i < 9) ? i : -1;
     }
 
+    juce::String hint (const char* actionId) const
+    {
+        return keymap != nullptr ? keymap->menuHint (actionId) : juce::String();
+    }
+
     void showFileMenu()
     {
         juce::PopupMenu m;
-        m.addItem (1, "New Project");
-        m.addItem (2, "Open Project...");
+        m.addItem (1, "New Project" + hint ("file.new"));
+        m.addItem (2, "Open Project..." + hint ("file.open"));
 
         // Open Recent submenu
         juce::PopupMenu recentSub;
@@ -276,7 +283,7 @@ private:
         recentSub.addItem (299, "Clear Recent");
         m.addSubMenu ("Open Recent", recentSub);
 
-        m.addItem (3, "Save Project");
+        m.addItem (3, "Save Project" + hint ("file.save"));
         m.addItem (6, "Save Project As...");
         m.addItem (8, "Collect & Save As...");
         m.addSeparator();
@@ -305,8 +312,8 @@ private:
     void showEditMenu()
     {
         juce::PopupMenu m;
-        m.addItem (1, "Undo\tCtrl+Z");
-        m.addItem (2, "Redo\tCtrl+Shift+Z");
+        m.addItem (1, "Undo" + hint ("edit.undo"));
+        m.addItem (2, "Redo" + hint ("edit.redo"));
         showMenu (m, [this] (int r) {
             if (r == 1 && onUndo) onUndo();
             if (r == 2 && onRedo) onRedo();
@@ -421,13 +428,12 @@ private:
         countInSub.addItem (12, "2 Bars", true, countInBars == 2);
 
         juce::PopupMenu m;
-        m.addItem (1, "Play / Pause\tSpace");
+        m.addItem (1, "Play / Pause" + hint ("transport.playStop"));
         m.addItem (2, "Stop");
-        m.addItem (3, "Record");
+        m.addItem (3, "Record" + hint ("transport.record"));
         m.addSeparator();
-        m.addItem (4, "Go to Start\tHome");
-        m.addItem (7, "Follow Playback" + (followPlaybackKey.isNotEmpty() ? "\t" + followPlaybackKey : juce::String()),
-                   true, followPlayback);
+        m.addItem (4, "Go to Start" + hint ("transport.goToStart"));
+        m.addItem (7, "Follow Playback" + hint ("transport.follow"), true, followPlayback);
         m.addSeparator();
         m.addItem (5, "Loop",         true, loopEnabled);
         m.addItem (6, "Punch In/Out", true, punchEnabled);

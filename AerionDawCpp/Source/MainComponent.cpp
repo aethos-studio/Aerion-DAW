@@ -1015,7 +1015,7 @@ void MainComponent::syncMenuBarState()
     menuBar.pdcEnabled       = audioEngine.isLatencyCompensationEnabled();
     menuBar.loopEnabled      = audioEngine.isLooping();
     menuBar.followPlayback   = timeline.isFollowingPlayback();
-    menuBar.followPlaybackKey = audioEngine.getKeymap().get ("transport.follow").getTextDescription();
+    menuBar.keymap           = &audioEngine.getKeymap();
     menuBar.inspectorVisible = ! inspectorToggle.collapsed;
     menuBar.browserVisible   = ! browserToggle.collapsed;
     menuBar.mixerDetached    = (mixerWindow != nullptr);
