@@ -3,6 +3,8 @@
 // Piano Roll editor and its floating window.
 
 #include "ViewShared.h"
+#include <array>
+#include <unordered_set>
 
 //==============================================================================
 // Piano Roll editor  -  opens when the user double-clicks an existing MIDI clip.
@@ -223,6 +225,8 @@ public:
     void paint (juce::Graphics& g) override
     {
         AERION_PROFILE_SCOPE ("PianoRollEditor::paint");
+
+        prepareSelectionForPaint();
 
         g.fillAll (Theme::bgBase);
         auto ga = gridArea();
@@ -890,6 +894,11 @@ private:
     tracktion::MidiNote* draggingNote  = nullptr;
     juce::Array<tracktion::MidiNote*> selectedNotes;
     juce::Array<tracktion::MidiNote*> marqueeBaseSelection;
+
+    // Worked out once per paint (prepareSelectionForPaint), so drawing looks
+    // up the selection instead of searching it per key row and per note.
+    std::unordered_set<tracktion::MidiNote*> paintSelection;
+    std::array<bool, 128> highlightedPitches {};
     juce::Rectangle<int> marqueeBounds;
     juce::Point<int> marqueeAnchor;
     bool marqueeAdditive = false;
@@ -1175,17 +1184,36 @@ private:
         return nullptr;
     }
 
+    /** The selection without notes that are no longer in the clip (undo,
+        delete) or listed twice. */
     juce::Array<tracktion::MidiNote*> getSelectedNotes()
     {
-        juce::Array<tracktion::MidiNote*> valid;
-        auto notes = midiClip.getSequence().getNotes();
+        const auto& notes = midiClip.getSequence().getNotes();
+        const std::unordered_set<tracktion::MidiNote*> inClip (notes.begin(), notes.end());
+        std::unordered_set<tracktion::MidiNote*> seen;
 
+        juce::Array<tracktion::MidiNote*> valid;
         for (auto* selected : selectedNotes)
-            if (selected != nullptr && notes.contains (selected))
-                valid.addIfNotAlreadyThere (selected);
+            if (selected != nullptr && inClip.count (selected) > 0 && seen.insert (selected).second)
+                valid.add (selected);
 
         selectedNotes = valid;
         return valid;
+    }
+
+    void prepareSelectionForPaint()
+    {
+        paintSelection.clear();
+        highlightedPitches.fill (false);
+
+        for (auto* n : getSelectedNotes())
+        {
+            paintSelection.insert (n);
+            highlightedPitches[(size_t) juce::jlimit (0, 127, n->getNoteNumber())] = true;
+        }
+
+        if (juce::isPositiveAndBelow (auditionNote, 128))
+            highlightedPitches[(size_t) auditionNote] = true;
     }
 
     bool isSelected (tracktion::MidiNote* note)
@@ -1360,7 +1388,6 @@ private:
         ::drawPill (g, prRecBounds,  "REC",  recording, Theme::recordRed);
 
         // Row backgrounds
-        auto currentSelection = getSelectedNotes();
         for (int note = 0; note <= 127; ++note)
         {
             int y = noteToY (note);
@@ -1369,16 +1396,7 @@ private:
             g.setColour (black ? Theme::bgBase.darker (0.25f) : Theme::bgPanel.withAlpha (0.35f));
             g.fillRect (ga.getX(), y, ga.getWidth(), kRowH - 1);
 
-            bool highlightedPitch = (note == auditionNote);
-            if (! highlightedPitch)
-                for (auto* selected : currentSelection)
-                    if (selected != nullptr && selected->getNoteNumber() == note)
-                    {
-                        highlightedPitch = true;
-                        break;
-                    }
-
-            if (highlightedPitch)
+            if (highlightedPitches[(size_t) note])
             {
                 g.setColour (Theme::active.withAlpha (0.10f));
                 g.fillRect (ga.getX(), y, ga.getWidth(), kRowH - 1);
@@ -1470,14 +1488,12 @@ private:
 
     void drawNotes (juce::Graphics& g, juce::Rectangle<int> ga)
     {
-        getSelectedNotes();
-
         for (auto* n : midiClip.getSequence().getNotes())
         {
             auto r = noteRect (n, ga);
             if (r.getRight() < (float) ga.getX() || r.getX() > (float) ga.getRight()) continue;
             if (r.getBottom() < (float) ga.getY() || r.getY() > (float) ga.getBottom()) continue;
-            const bool selected = selectedNotes.contains (n);
+            const bool selected = paintSelection.count (n) > 0;
             auto col = selected ? Theme::active.brighter (0.45f)
                                 : (n == draggingNote) ? Theme::active.brighter (0.3f) : Theme::active;
             g.setColour (col);
@@ -1512,14 +1528,7 @@ private:
             int y = noteToY (note);
             if (y + kRowH < 0 || y > getHeight()) continue;
             bool black = isBlackKey (note);
-            bool selectedPitch = (note == auditionNote);
-            if (! selectedPitch)
-                for (auto* selected : getSelectedNotes())
-                    if (selected != nullptr && selected->getNoteNumber() == note)
-                    {
-                        selectedPitch = true;
-                        break;
-                    }
+            const bool selectedPitch = highlightedPitches[(size_t) note];
 
             if (!black)
             {

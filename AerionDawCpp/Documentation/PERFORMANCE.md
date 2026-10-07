@@ -216,9 +216,11 @@ Release, 32 tracks × 20 clips in the project, the clip on a track of its own:
 | Scenario | Software | Direct2D |
 |---|---:|---:|
 | Full repaint, nothing selected | 5.4 ms | 5.0 ms |
-| Full repaint, all notes selected | **62.6 ms** | **64.0 ms** |
+| Full repaint, all notes selected | 62.6 ms → **7.1 ms** | 64.0 ms → **5.3 ms** |
 
-Selecting notes makes the Piano Roll about 12× slower: with all 2000 selected, a repaint takes almost four frames, so dragging or editing a large selection stutters. `drawPianoKeys` calls `getSelectedNotes()` once per visible key row, and each call copies the clip's note array and searches it for every selected note; `drawGrid` does the same check per row and `drawNotes` searches the selection per note. Not fixed yet.
+Selecting notes made the Piano Roll about 12× slower: with all 2000 selected, a repaint took almost four frames, so dragging or editing a large selection stuttered. `drawPianoKeys` called `getSelectedNotes()` once per visible key row, and each call copied the clip's note array and searched it for every selected note; `drawGrid` did the same check per row and `drawNotes` searched the selection per note.
+
+Fixed: `paint()` now works out the selection once (`prepareSelectionForPaint`: a set of the selected notes and a table of the 128 highlighted pitches), the grid, keys and notes look it up, and `getSelectedNotes()` checks the selection against the clip in one pass instead of one search per selected note. Renders with and without a selection, at 100 % and 150 %, are byte-identical before and after (`--snapshots`); `--verify` passes.
 
 ### Fixed along the way: crash when releasing the Edit
 
