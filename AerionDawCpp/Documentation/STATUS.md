@@ -12,7 +12,7 @@
 | M3: DAW Essentials — Recording & Monitoring (v0.2.0) | **Complete** — Metronome, Count-In, Punch In/Out, PDC, multi-channel input routing, buffer safety readout, live recording waveform, full driver pack (ASIO/WASAPI/DirectSound/CoreAudio/ALSA/JACK/WinRT MIDI), Reset Audio Settings, per-track monitor modes, per-track MIDI controller selector |
 | M4: DAW Essentials — Project & Workflow (v0.3.0) | **Complete** — Save/Load (`.aerion`), Collect & Save, Bounce/Freeze, Mixdown + Stems export, Tempo Map, Time Signature changes, per-track input/monitor persistence, customisable keyboard shortcuts (`AerionKeymap`), Recent Projects, Auto-save / Crash Recovery, icon system |
 | M5: DAW Essentials — Polish & Stability (v0.4.0) | **Complete** (October 6, 2026) — performance (UI and audio), plugin crash protection (Windows), accessibility, error reporting, UI scaling, packaging; paid signing and out-of-process hosting deferred |
-| M6: DAW Essentials — Complete Core (v0.6.0) | **In progress** — groundwork for MIDI learn and control surfaces shipped in v0.5.0; still to come: update mechanism (first), full parameter automation, time-stretch, sidechain, MIDI learn and control surfaces, clip processing, templates, loudness metering, CLAP spike |
+| M6: DAW Essentials — Complete Core (v0.6.0) | **In progress** — groundwork for MIDI learn and control surfaces shipped in v0.5.0; update mechanism built and checked against GitHub (manual check in the app and a first real update still to do); still to come: full parameter automation, time-stretch, sidechain, MIDI learn and control surfaces, clip processing, templates, loudness metering, CLAP spike |
 | M7–M9 + Future USPs | Not started — `AIManager` is still a 2-second mock; ONNX Runtime declared in CMake but intentionally not linked |
 
 ---
@@ -38,7 +38,7 @@ What already exists versus what remains, verified against the source tree:
 | Workspace Layouts | **Done** | **View → Workspace** submenu: built-in Editing / Mixing / Recording presets + save/delete custom layouts. Captures inspector/browser collapse, mixer dock/detach, bottom panel, and console height; custom layouts + last-active layout persist via `appProperties` and restore on launch. |
 | Accessibility | **Done** | `UI/Accessibility.h` proxies give the painted controls of the Mixer, Transport, Toolbar, Inspector and Timeline track headers a title, role and value; Tab, Space / Return, arrows, Page Up / Down and Home work them. Mixer: Left / Right between strips, Ctrl + Left / Right pan, M / S / R on the focused strip. F6 cycles panes. Checked by `AerionBench --verify`. Timeline clips and Piano Roll notes not yet covered. |
 | Error Reporting / Console panel | **Done** | The app log (`Logger::writeToLog`) shows in the **Console** bottom-panel tab and still goes to `aerion.log`; `DBG` output is not captured. `CrashReporter` writes a report folder per crash under `AerionDAW/Crashes` (reason, thread, stack, the session's log, a minidump on Windows); the next launch points to it before Crash Recovery. Reports stay local; `std::terminate` / `abort` on Windows are not caught. |
-| App version / title bar | **Done** | CMake `project` version **0.5.0**, release stage **Alpha** (`AERION_RELEASE_STAGE`, shown in the About dialog and the installer title; installers take the release tag's version, `AERION_PACKAGE_VERSION`, and are named `…-Windows.exe` / `…-macOS.dmg`); menu bar + window title use `Theme::windowTitle()` (`<ProjectName> — Aerion DAW`); About dialog reads `ProjectInfo::versionString`. |
+| App version / title bar | **Done** | CMake `project` version **0.5.1** (the next release, the first with the update check), release stage **Alpha** (`AERION_RELEASE_STAGE`, shown in the About dialog and the installer title; installers take the release tag's version, `AERION_PACKAGE_VERSION`, and are named `…-Windows.exe` / `…-macOS.dmg`); menu bar + window title use `Theme::windowTitle()` (`<ProjectName> — Aerion DAW`); About dialog reads `ProjectInfo::versionString`. |
 
 ---
 
@@ -46,6 +46,7 @@ What already exists versus what remains, verified against the source tree:
 
 ### October 2026
 
+- **Update mechanism (October 7, M6, first item):** **Help → Check for Updates** asks GitHub for Aerion's releases, and a quiet check runs 8 seconds after startup unless **Help → Check for Updates Automatically** is off. A newer release opens a window with its notes and Download and Install / Skip This Version / Later. The installer for the platform (`.exe` / `.dmg`) downloads to `AerionDAW/Updates` with a progress bar, and is checked against the size and SHA-256 digest GitHub lists for it. Then Aerion closes, asking to save as usual, and starts it (Windows) or opens it (macOS), or does so whenever it next closes. Alpha and beta builds are also offered pre-releases. A build knows the exact tag it was packaged from (`AERION_BUILD_VERSION` = `AERION_PACKAGE_VERSION`), so tags must be semantic versions that increase from release to release. Code in `Source/Updates/`; `UpdateTests` cover version order, release choice and the download check; `AerionTests --check-updates <version>` runs a real check and download (as 0.4.0 it fetched and verified the v0.5.0 installer). Not yet checked by hand in the running app, and not yet tried on macOS. The app version is now **0.5.1**, the first release with the updater; v0.5.0 has none, so its users install 0.5.1 by hand once.
 - **v0.5.0 Alpha (October 7), first public release:**
   - **User manual:** `Aerion-DAW-Manual.html` at the repository root, one self-contained page (fonts and logos embedded). It is built into the app; **Help → User Manual** writes it next to the settings (`UserManual.h`) and opens it in the default browser.
   - **M6 groundwork:** Aerion's `UIBehaviour` reports the open Edit and a `SelectionManager` that follows the Timeline's selected tracks, which MIDI learn and control surfaces need. Insert rows work on any `te::Plugin`. New MIDI tracks get a level meter. Built-in (stock) instruments and effects were tried and removed again: they will be a separate product, not part of Aerion.
@@ -124,7 +125,7 @@ What already exists versus what remains, verified against the source tree:
 
 Mirrors [`ROADMAP.md`](./ROADMAP.md) so the two documents agree.
 
-**M6 — Complete Core (v0.6.0)**, in this order: update mechanism (in-app update check and install from GitHub releases), full parameter automation, audio warping and time-stretch, sidechain routing, MIDI learn and control surfaces, clip processing, templates, analysis metering, CLAP spike.
+**M6 — Complete Core (v0.6.0)**, in this order: update mechanism (built; release v0.5.1 with it, check Help → Check for Updates in a 0.5.1 build by hand, then prove it with a real update from 0.5.1 to the next release), full parameter automation, audio warping and time-stretch, sidechain routing, MIDI learn and control surfaces, clip processing, templates, analysis metering, CLAP spike.
 
 **Deferred from M5:**
 
@@ -135,7 +136,7 @@ Mirrors [`ROADMAP.md`](./ROADMAP.md) so the two documents agree.
 
 - **Track faders reported not moving** (October 4, 2026). Not reproduced. One cause that fits is now fixed: on a track whose volume automation drives the fader, a move was undone by the curve; it now overrides the automation. Whether the report's tracks had automation is unknown; if it happens again, note whether the track has a volume or pan curve.
 - **`release-package` could not create the GitHub Release** (HTTP 403 on v0.3.6, although the job's token had `contents: write`, the repository has no rulesets and earlier runs worked). Cause not found. If it recurs, add a `RELEASE_TOKEN` secret; the step uses it instead of `GITHUB_TOKEN`. The installers are attached to the run as artifacts either way.
-- **v0.5.0 Alpha not yet tagged:** run `build-test`, then `release-package` with tag `v0.5.0-alpha` (as a pre-release) to publish the installers. v0.4.0 was never published; 0.5.0 Alpha is the first public release.
+- **v0.5.0's macOS installer name:** v0.5.0 is published (pre-release, tag `v0.5.0`), but its DMG is named `AerionDAW-0.5.0-Darwin.dmg`, not `…-macOS.dmg`. Later releases built from the current `CMakeLists.txt` should carry the new name; the update check accepts any `.dmg`, so either works. v0.4.0 was never published.
 
 ## Trademarks
 

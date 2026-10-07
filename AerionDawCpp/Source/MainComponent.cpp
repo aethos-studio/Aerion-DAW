@@ -396,6 +396,10 @@ MainComponent::MainComponent()
         KeyboardShortcutsDialog::launch (audioEngine.getKeymap(), audioEngine.getUserSettings());
     };
 
+    menuBar.onCheckForUpdates        = [this] { updater.checkNow(); };
+    menuBar.onAutoUpdateCheckChanged = [this] (bool on) { updater.setAutoCheckEnabled (on); };
+    updater.onInstallRequested       = [this] { requestQuit(); };
+
     menuBar.onBeforeMenuOpen = [this] { syncMenuBarState(); };
 
     timeline.onAddTrack = [this]
@@ -709,6 +713,8 @@ MainComponent::MainComponent()
     // this timer only handles slow chores such as the auto-save countdown.
     startTimerHz (5);
 
+    updater.checkAfterStartup();
+
     juce::Logger::writeToLog ("Startup: MainComponent ctor completed in "
                               + juce::String (juce::Time::getMillisecondCounterHiRes() - ctorStartMs, 1)
                               + " ms");
@@ -1018,6 +1024,7 @@ void MainComponent::syncMenuBarState()
     menuBar.lightweightUiActive  = Theme::lightweightUi();
     menuBar.uiSizeChoice         = uiSizeChoice;
     menuBar.uiSizePercent        = UiScale::currentPercent();
+    menuBar.autoUpdateCheck      = updater.isAutoCheckEnabled();
     menuBar.graphicsEngineChoice = (int) graphicsEngine.getChoice();
     menuBar.graphicsEngineInUse  = GraphicsEngine::resolvedEngineName (graphicsEngine.getChoice());
 

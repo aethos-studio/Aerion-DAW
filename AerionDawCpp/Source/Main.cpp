@@ -4,6 +4,7 @@
 #include "UIComponents.h"
 #include "CrashReporter.h"
 #include "UI/UiScale.h"
+#include "Updates/UpdateChecker.h"
 
 class AerionDawApplication  : public juce::JUCEApplication
 {
@@ -150,6 +151,9 @@ public:
     {
         mainWindow = nullptr;
         splashWindow = nullptr;
+
+        // Help › Check for Updates downloaded an installer to run once Aerion has closed.
+        Updates::launchPendingInstaller();
 
         if (appLogger != nullptr)
             juce::Logger::writeToLog ("=== Aerion shutting down ===");

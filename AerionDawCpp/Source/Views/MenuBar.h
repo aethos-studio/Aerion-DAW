@@ -34,6 +34,7 @@ public:
     bool         lightweightUiActive  = false;
     int          uiSizeChoice         = 0;   // 0 = Auto, else percent
     int          uiSizePercent        = 100; // what is in use
+    bool         autoUpdateCheck      = true;
     bool   hasSelectedTrack = false;
     bool   hasSelectedClip  = false;
     bool   trackArmed       = false;
@@ -71,6 +72,8 @@ public:
     std::function<void()>             onClearRecent;
     std::function<void()>             onCollectSaveAs;
     std::function<void()>             onShowKeyboardShortcuts;
+    std::function<void()>             onCheckForUpdates;
+    std::function<void(bool)>         onAutoUpdateCheckChanged;
     std::function<void()> onBeforeMenuOpen;
 
     DAWMenuBar()
@@ -525,10 +528,17 @@ private:
         m.addItem (3, "User Manual");
         m.addItem (1, "Keyboard Shortcuts...");
         m.addSeparator();
+        m.addItem (4, "Check for Updates...");
+        m.addItem (5, "Check for Updates Automatically", true, autoUpdateCheck);
+        m.addSeparator();
         m.addItem (2, "About Aerion DAW");
         showMenu (m, [this] (int r) {
             if (r == 1 && onShowKeyboardShortcuts)
                 onShowKeyboardShortcuts();
+            if (r == 4 && onCheckForUpdates)
+                onCheckForUpdates();
+            if (r == 5 && onAutoUpdateCheckChanged)
+                onAutoUpdateCheckChanged (! autoUpdateCheck);
             if (r == 2)
                 AboutDialog::launch();
             if (r == 3 && ! UserManual::open())

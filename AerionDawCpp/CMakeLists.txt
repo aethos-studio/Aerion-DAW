@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(AerionDaw VERSION 0.5.0)
+project(AerionDaw VERSION 0.5.1)
 
 # Release stage shown next to the version (About dialog, installer title).
 set(AERION_RELEASE_STAGE "Alpha" CACHE STRING "Release stage shown next to the version, e.g. Alpha, Beta; empty for none")
@@ -133,6 +133,10 @@ target_sources(AerionDaw PRIVATE
     Source/Export/MixdownExportJob.h
     Source/Export/MixdownExportJob.cpp
     Source/Export/WaveformPreviewComponent.h
+    Source/Updates/UpdateChecker.h
+    Source/Updates/UpdateChecker.cpp
+    Source/Updates/UpdateDialog.h
+    Source/Updates/Updater.h
 )
 
 # Link necessary JUCE and Tracktion modules
@@ -332,6 +336,9 @@ if (AERION_BUILD_TESTS)
         Source/Tests/AudioEngineTests.cpp
         Source/Tests/PluginFaultTests.cpp
         Source/Tests/CrashReporterTests.cpp
+        Source/Tests/UpdateTests.cpp
+        Source/Updates/UpdateChecker.h
+        Source/Updates/UpdateChecker.cpp
         Source/CrashReporter.h
         Source/CrashReporter.cpp
         Source/ProjectData.h
@@ -436,6 +443,13 @@ set(AERION_PACKAGE_VERSION "" CACHE STRING
     "Version shown in installer names and titles (the release tag without its leading v); empty uses the project version")
 if (NOT AERION_PACKAGE_VERSION)
     set(AERION_PACKAGE_VERSION "${PROJECT_VERSION}")
+endif()
+
+# The update check compares GitHub's releases with the exact tag this build was
+# packaged from (Source/Updates/UpdateChecker.cpp).
+target_compile_definitions(AerionDaw PRIVATE AERION_BUILD_VERSION="${AERION_PACKAGE_VERSION}")
+if (TARGET AerionTests)
+    target_compile_definitions(AerionTests PRIVATE AERION_BUILD_VERSION="${AERION_PACKAGE_VERSION}")
 endif()
 
 set(CPACK_PACKAGE_NAME             "Aerion DAW")

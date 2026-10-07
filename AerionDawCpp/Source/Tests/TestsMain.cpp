@@ -7,6 +7,7 @@
 #include "../UI/Dialogs.h"
 #include "../CrashReporter.h"
 #include "../UserManual.h"
+#include "../Updates/UpdateChecker.h"
 
 //==============================================================================
 // Aerion smoke tests (Milestone 5).
@@ -330,12 +331,50 @@ static int crashInto (const juce::File& reportsFolder, const juce::File& logFile
     return 0;
 }
 
+// "--check-updates <version>": asks GitHub as a build of that version would,
+// then downloads and checks the installer it is offered. Needs the network,
+// so it is a manual check, not part of the test run.
+static int checkUpdatesAs (const juce::String& versionText)
+{
+    const auto version = Updates::Version::parse (versionText);
+    if (! version.has_value())
+    {
+        std::cout << "Not a version: " << versionText << std::endl;
+        return 1;
+    }
+
+    const auto result = Updates::checkForUpdate (*version, true);
+    if (result.error.isNotEmpty())
+    {
+        std::cout << "Check failed: " << result.error << std::endl;
+        return 1;
+    }
+
+    if (! result.update.has_value())
+    {
+        std::cout << version->toString() << " is up to date." << std::endl;
+        return 0;
+    }
+
+    const auto& update = *result.update;
+    std::cout << "Offered " << update.version.toString() << " (" << update.tag << "): " << update.assetName
+              << ", " << update.assetSize << " bytes, sha256 " << update.sha256 << std::endl;
+
+    const juce::TemporaryFile temp (update.assetName);
+    const auto error = Updates::download (update, temp.getFile(), [] (double) { return true; });
+    std::cout << (error.isEmpty() ? juce::String ("Downloaded and verified.") : "Download failed: " + error) << std::endl;
+    return error.isEmpty() ? 0 : 1;
+}
+
 int main (int argc, char* argv[])
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
 
     if (argc == 4 && juce::String (argv[1]) == "--crash-into")
         return crashInto (juce::File (juce::String::fromUTF8 (argv[2])), juce::File (juce::String::fromUTF8 (argv[3])));
+
+    if (argc == 3 && juce::String (argv[1]) == "--check-updates")
+        return checkUpdatesAs (juce::String::fromUTF8 (argv[2]));
 
     ConsoleUnitTestRunner runner;
     runner.setAssertOnFailure (false);

@@ -10,6 +10,7 @@
 #include "Export/MixdownExportDialog.h"
 #include "UI/GraphicsEngine.h"
 #include "UI/UiScale.h"
+#include "Updates/Updater.h"
 
 class MainComponent  : public juce::Component,
                        public juce::DragAndDropContainer,
@@ -236,6 +237,9 @@ private:
 
     std::vector<WorkspaceLayout> customLayouts;
     juce::String activeLayoutName;
+
+    // Help -> Check for Updates, and the quiet check after startup.
+    Updater updater { audioEngine.getUserSettings() };
 
     // Display-synced clock for everything that animates during playback. Declared
     // last so it is destroyed first, before anything its callback touches.

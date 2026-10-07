@@ -291,6 +291,8 @@ Local Debug presets are fine for day-to-day work; run Release + tests before ope
 
 `release-package` (`.github/workflows/package-release.yml`, run from the Actions tab) builds the Windows NSIS installer and the macOS DMG and attaches them to a GitHub Release for the `tag_name` input. Installers are named after the tag without its `v` (`v0.5.0-alpha` → `AerionDAW-0.5.0-alpha-Windows.exe` and `AerionDAW-0.5.0-alpha-macOS.dmg`), passed to CMake as `AERION_PACKAGE_VERSION`; local builds use the `project()` version. The release stage (`AERION_RELEASE_STAGE`, default `Alpha`) appears in the About dialog and the installer title; change it in `CMakeLists.txt` when the stage changes.
 
+Installed copies find new releases through **Help → Check for Updates** (and a quiet check after startup), so tag names matter: the update check reads each release's tag as a semantic version (`v0.5.1`, `v0.6.0-alpha.1`; three numbers, an optional `-` suffix) and ignores tags it cannot read, drafts, and releases without a `.exe` (Windows) or `.dmg` (macOS) asset. Builds with a release stage, or of a pre-release tag, are also offered pre-releases; final builds only final releases. A build knows its own version from `AERION_PACKAGE_VERSION` (`AERION_BUILD_VERSION` in the code), so a new release must have a higher tag than the one before. The download is checked against the size and SHA-256 digest GitHub lists for the asset. Logic and tests: `Source/Updates/UpdateChecker.cpp`, `Source/Tests/UpdateTests.cpp`.
+
 Signing is optional; each part runs only when its repository secrets exist:
 
 | Secrets | What they enable |
