@@ -209,6 +209,12 @@ private:
     // applies the saved size at startup, before any window opens.
     int uiSizeChoice = 0;
     void applyUiSize (int choice);
+
+    // Transport -> Follow Playback (also the toolbar button and F): the
+    // Timeline pages to keep the playhead in view. Off by default; remembered
+    // for the user, not the project.
+    static constexpr const char* kFollowPlaybackKey = "followPlayback";
+    void setFollowPlayback (bool shouldFollow);
     double meterTailUntilSec = 0.0;
     juce::uint32 lastChoreMs = 0;
 

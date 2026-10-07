@@ -353,6 +353,8 @@ MainComponent::MainComponent()
         audioEngine.setPunchEnabled (! audioEngine.isPunchEnabled());
         syncToolbarFromEngine();
     };
+    menuBar.onToggleFollowPlayback = [this] { setFollowPlayback (! timeline.isFollowingPlayback()); };
+    toolbar.onToggleFollowPlayback = [this] { setFollowPlayback (toolbar.followPlayback); };
 
     menuBar.onToggleInspector = [this] {
         inspectorToggle.collapsed = ! inspectorToggle.collapsed;
@@ -702,6 +704,7 @@ MainComponent::MainComponent()
         graphicsEngine.setChoice (GraphicsEngine::choiceFromInt (s->getIntValue (GraphicsEngine::settingsKey, 0)));
         applyLightweightUi (s->getIntValue (kLightweightUiKey, 0));
         uiSizeChoice = s->getIntValue (UiScale::settingsKey, 0);
+        setFollowPlayback (s->getBoolValue (kFollowPlaybackKey, false));
     }
 
     // Restore the last-used workspace layout (built-in or custom) from settings.
@@ -821,6 +824,8 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component* orig
             return true;
         }
     }
+
+    if (km.matches ("transport.follow", key)) { setFollowPlayback (! timeline.isFollowingPlayback()); return true; }
 
     if (km.matches ("transport.goToStart", key))
     {
@@ -1009,6 +1014,8 @@ void MainComponent::syncMenuBarState()
     menuBar.punchEnabled     = audioEngine.isPunchEnabled();
     menuBar.pdcEnabled       = audioEngine.isLatencyCompensationEnabled();
     menuBar.loopEnabled      = audioEngine.isLooping();
+    menuBar.followPlayback   = timeline.isFollowingPlayback();
+    menuBar.followPlaybackKey = audioEngine.getKeymap().get ("transport.follow").getTextDescription();
     menuBar.inspectorVisible = ! inspectorToggle.collapsed;
     menuBar.browserVisible   = ! browserToggle.collapsed;
     menuBar.mixerDetached    = (mixerWindow != nullptr);
@@ -1357,6 +1364,16 @@ void MainComponent::exportMixdown()
     juce::Logger::writeToLog ("ExportMixdown: launchAsync returned");
 }
 
+void MainComponent::setFollowPlayback (bool shouldFollow)
+{
+    timeline.setFollowPlayback (shouldFollow);
+    toolbar.followPlayback = shouldFollow;
+    toolbar.repaint();
+
+    if (auto* s = audioEngine.getUserSettings())
+        s->setValue (kFollowPlaybackKey, shouldFollow);
+}
+
 void MainComponent::applyLightweightUi (int choice)
 {
     lightweightUiChoice = juce::jlimit (0, 2, choice);
@@ -1435,6 +1452,9 @@ void MainComponent::onDisplayFrame (double nowSec)
     if (nowSec - lastPlayheadFrameSec >= playheadIntervalSec * 0.9)
     {
         lastPlayheadFrameSec = nowSec;
+        // Follow Playback pages the Timeline first, so the overlay draws the
+        // playhead at its new place.
+        timeline.followPlayhead (pos, playing);
         playheadOverlay.update();
     }
 

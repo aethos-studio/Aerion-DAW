@@ -31,6 +31,8 @@ public:
                                          : juce::String ("Snap: off"))
                           + " - Click to toggle, right-click for interval";
             case 11: return autoCrossfadeEnabled ? "Auto-crossfade (on)" : "Auto-crossfade (off)";
+            case 12: return followPlayback ? "Follow playback (on): the view keeps the playhead in sight"
+                                           : "Follow playback (off)";
             default: return {};
         }
     }
@@ -46,7 +48,9 @@ public:
     std::function<void(bool)> onPdcChanged;
     std::function<void(int)>  onCountInChanged;
     std::function<void()> onToggleAutoCrossfade;
+    std::function<void()> onToggleFollowPlayback;
 
+    bool followPlayback = false;
     bool snapEnabled = true;
     double snapInterval = 1.0;
     bool inspectorVisible = true;
@@ -72,6 +76,7 @@ public:
         iconCountIn   = load (BinaryData::aerion_countin_svg,   BinaryData::aerion_countin_svgSize);
         iconBrowser   = load (BinaryData::aerion_browser_svg,   BinaryData::aerion_browser_svgSize);
         iconXfade     = load (BinaryData::aerion_xfade_svg,     BinaryData::aerion_xfade_svgSize);
+        iconFollow    = load (BinaryData::aerion_follow_svg,    BinaryData::aerion_follow_svgSize);
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
 
         setTitle ("Toolbar");
@@ -88,6 +93,7 @@ public:
         compBounds   = { 116,     btnY, btnS, btnS };
         punchBtn     = { 160,     btnY, btnS, btnS };
         pdcBtn       = { 192,     btnY, btnS, btnS };
+        followBtn    = { 236,     btnY, btnS, btnS };
         browserBtn   = { W - 36,  btnY, btnS, btnS };
         clickBtn     = { W - 86,  btnY, btnS, btnS };
         countInBtn   = { W - 118, btnY, btnS, btnS };
@@ -113,6 +119,7 @@ public:
                         toggle ("comp",      "Comp tool",                   compBounds,   [this] { return activeTool == EditTool::comp; }),
                         toggle ("punch",     "Punch in and out",            punchBtn,     [this] { return punchEnabled; }),
                         toggle ("pdc",       "Plugin delay compensation",   pdcBtn,       [this] { return pdcEnabled; }),
+                        toggle ("follow",    "Follow playback",             followBtn,    [this] { return followPlayback; }),
                         toggle ("xfade",     "Auto-crossfade",              xfadeBounds,  [this] { return autoCrossfadeEnabled; }),
                         toggle ("snap",      "Snap to grid",                snapBounds,   [this] { return snapEnabled; }),
                         toggle ("countin",   "Count-in",                    countInBtn,   [this] { return countInBars > 0; }),
@@ -151,6 +158,11 @@ public:
         // Group 3: Recording setup
         drawIconBtn (g, punchBtn, iconPunch.get(), punchEnabled, Theme::recordRed);
         drawIconBtn (g, pdcBtn,   iconPdc.get(),   pdcEnabled);
+
+        drawDivider (g, 228, btnY, h - btnY);
+
+        // Group 3b: Follow playback
+        drawIconBtn (g, followBtn, iconFollow.get(), followPlayback);
 
         // -- Right side --------------------------------------------------------
         const int W = getWidth();
@@ -204,6 +216,14 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override
     {
+        if (followBtn.contains (e.getPosition()))
+        {
+            followPlayback = ! followPlayback;
+            repaint();
+            if (onToggleFollowPlayback) onToggleFollowPlayback();
+            return;
+        }
+
         if (xfadeBounds.contains (e.getPosition()))
         {
             autoCrossfadeEnabled = ! autoCrossfadeEnabled;
@@ -309,12 +329,12 @@ private:
     // Icon drawables
     std::unique_ptr<juce::Drawable> iconInspector, iconSelect, iconCut, iconComp;
     std::unique_ptr<juce::Drawable> iconPunch, iconPdc;
-    std::unique_ptr<juce::Drawable> iconMagnet, iconMetronome, iconCountIn, iconBrowser, iconXfade;
+    std::unique_ptr<juce::Drawable> iconMagnet, iconMetronome, iconCountIn, iconBrowser, iconXfade, iconFollow;
 
     // Hit-test rectangles (laid out in resized, read in mouseDown)
     juce::Rectangle<int> snapBounds, selectBounds, razorBounds, compBounds;
     juce::Rectangle<int> inspectorBtn, browserBtn, clickBtn, punchBtn, pdcBtn, countInBtn;
-    juce::Rectangle<int> xfadeBounds;
+    juce::Rectangle<int> xfadeBounds, followBtn;
 
     Accessibility::ProxyPool proxies { *this };
 
@@ -335,6 +355,7 @@ private:
         if (juce::Rectangle<int> (116, btnY, btnS, btnS).contains (p)) return 4;
         if (juce::Rectangle<int> (160, btnY, btnS, btnS).contains (p)) return 5;
         if (juce::Rectangle<int> (192, btnY, btnS, btnS).contains (p)) return 6;
+        if (juce::Rectangle<int> (236, btnY, btnS, btnS).contains (p)) return 12;
         if (juce::Rectangle<int> (W - 36,  btnY, btnS, btnS).contains (p)) return 7;
         if (juce::Rectangle<int> (W - 86,  btnY, btnS, btnS).contains (p)) return 8;
         if (juce::Rectangle<int> (W - 118, btnY, btnS, btnS).contains (p)) return 9;

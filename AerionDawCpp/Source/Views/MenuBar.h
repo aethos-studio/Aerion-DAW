@@ -22,6 +22,8 @@ public:
     bool   punchEnabled     = false;
     bool   pdcEnabled       = false;
     bool   loopEnabled      = false;
+    bool   followPlayback   = false;
+    juce::String followPlaybackKey;   // its shortcut, as the keymap has it
     bool   inspectorVisible = true;
     bool   browserVisible   = true;
     bool   mixerDetached    = false;
@@ -60,7 +62,7 @@ public:
     std::function<void()> onToggleAutoCrossfade;
     std::function<void(int)> onAutoCrossfadeMaxChanged;
     std::function<void()> onPlay, onStop, onRecord, onGoToStart;
-    std::function<void()> onToggleLoop, onTogglePunch;
+    std::function<void()> onToggleLoop, onTogglePunch, onToggleFollowPlayback;
     std::function<void()> onToggleInspector, onToggleBrowser, onToggleMixerDetach;
     std::function<void(juce::String)> onApplyWorkspace;
     std::function<void()>             onSaveWorkspace;
@@ -424,6 +426,8 @@ private:
         m.addItem (3, "Record");
         m.addSeparator();
         m.addItem (4, "Go to Start\tHome");
+        m.addItem (7, "Follow Playback" + (followPlaybackKey.isNotEmpty() ? "\t" + followPlaybackKey : juce::String()),
+                   true, followPlayback);
         m.addSeparator();
         m.addItem (5, "Loop",         true, loopEnabled);
         m.addItem (6, "Punch In/Out", true, punchEnabled);
@@ -435,6 +439,7 @@ private:
             if (r == 4  && onGoToStart)      onGoToStart();
             if (r == 5  && onToggleLoop)     onToggleLoop();
             if (r == 6  && onTogglePunch)    onTogglePunch();
+            if (r == 7  && onToggleFollowPlayback) onToggleFollowPlayback();
             if (r == 10 && onCountInChanged) onCountInChanged (0);
             if (r == 11 && onCountInChanged) onCountInChanged (1);
             if (r == 12 && onCountInChanged) onCountInChanged (2);

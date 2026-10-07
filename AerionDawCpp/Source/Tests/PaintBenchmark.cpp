@@ -1218,6 +1218,58 @@ int main (int argc, char* argv[])
             timeline.repaint();
         }
 
+        // Follow Playback: playing frame by frame (60 per second), the
+        // playhead stays in view; a scroll away by hand is left alone; a jump
+        // brings the view back; switched off, the view never moves.
+        {
+            const float laneLeft = (float) Timeline::kHeaderWidth;
+            const float laneRight = (float) (timeline.getWidth() - Timeline::kVScrollW);
+            auto inView = [&] (double t) { const float x = timeline.timeToX (t); return x >= laneLeft && x < laneRight; };
+            auto check = [&] (const juce::String& name, bool ok, const juce::String& detail)
+            {
+                std::cout << "  " << name.paddedRight (' ', 32) << (ok ? "ok" : "FAILED") << " (" << detail << ")" << std::endl;
+                failures += ok ? 0 : 1;
+            };
+
+            timeline.scrollTo (0.0, 0);
+            timeline.setFollowPlayback (true);
+            timeline.followPlayhead (0.0, false);
+
+            int pages = 0, outOfView = 0;
+            double t = 0.0;
+            for (; t < 40.0; t += 1.0 / 60.0)
+            {
+                const double before = timeline.getStartTime();
+                timeline.followPlayhead (t, true);
+                pages += timeline.getStartTime() != before ? 1 : 0;
+                outOfView += inView (t) ? 0 : 1;
+            }
+            check ("follow: playhead stays in view", outOfView == 0 && pages > 0,
+                   juce::String (pages) + " pages, " + juce::String (outOfView) + " frames out of view");
+
+            timeline.scrollTo (timeline.getScrollPx() + 5000.0, 0);
+            const double awayStart = timeline.getStartTime();
+            for (int i = 0; i < 120; ++i, t += 1.0 / 60.0)
+                timeline.followPlayhead (t, true);
+            check ("follow: scroll away is kept", timeline.getStartTime() == awayStart,
+                   "view at " + juce::String (timeline.getStartTime(), 1) + " s");
+
+            timeline.followPlayhead (3.0, true);   // playback jumps back
+            check ("follow: a jump is followed", inView (3.0),
+                   "view at " + juce::String (timeline.getStartTime(), 1) + " s");
+
+            timeline.setFollowPlayback (false);
+            timeline.scrollTo (0.0, 0);
+            timeline.followPlayhead (0.0, false);
+            for (t = 0.0; t < 40.0; t += 1.0 / 60.0)
+                timeline.followPlayhead (t, true);
+            check ("follow off: view stays put", timeline.getStartTime() == 0.0,
+                   "view at " + juce::String (timeline.getStartTime(), 1) + " s");
+
+            timeline.followPlayhead (0.0, false);
+            timeline.updateScrollBar();
+        }
+
         // A hidden window must follow the graphics engine choice both ways.
         {
             juce::Component probe;

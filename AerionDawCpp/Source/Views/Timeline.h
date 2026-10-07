@@ -1012,6 +1012,58 @@ public:
     double getScrollPx() const   { return scrollPx; }
     int    getScrollY() const    { return scrollY; }
 
+    /** Transport › Follow Playback. Turning it on brings the playhead into
+        view on the next frame of playback. */
+    void setFollowPlayback (bool shouldFollow)
+    {
+        followPlayback = shouldFollow;
+        followPlayheadInView = true;
+    }
+
+    bool isFollowingPlayback() const noexcept   { return followPlayback; }
+
+    /** Called every display frame. With Follow Playback on, while playing,
+        pages the view when the playhead runs off it, so the playhead shows
+        again near the left edge. The same when it jumps out of view (a loop
+        going round, playback starting somewhere else). A scroll by the user
+        that leaves the playhead out of view is respected until the playhead
+        is back in view or jumps. */
+    void followPlayhead (double seconds, bool playing)
+    {
+        const bool jumped = ! followWasPlaying
+                         || seconds < followLastSeconds - 0.001
+                         || seconds > followLastSeconds + 0.5;
+        const bool scrolledByUser = scrollPx != followScrollPx;
+        followWasPlaying  = playing;
+        followLastSeconds = seconds;
+        followScrollPx    = scrollPx;
+
+        if (! followPlayback || ! playing)
+            return;
+
+        const float x = timeToX (seconds);
+        const float left  = (float) kHeaderWidth;
+        const float right = (float) (getWidth() - kVScrollW);
+
+        if (x >= left && x < right)
+        {
+            followPlayheadInView = true;
+            return;
+        }
+
+        if (! jumped && (scrolledByUser || ! followPlayheadInView))
+        {
+            followPlayheadInView = false;
+            return;
+        }
+
+        const double viewSeconds = (double) (right - left) / pxPerSec;
+        scrollTo (pixelsForStartTime (seconds - 0.05 * viewSeconds), scrollY);
+        updateScrollBar();
+        followScrollPx = scrollPx;
+        followPlayheadInView = true;
+    }
+
     /** Scroll positions are multiples of this many logical pixels: 1 at
         100 %, more on a scaled display (CachedLayer::getWholePixelStep). */
     int scrollStep() const
@@ -4145,6 +4197,13 @@ private:
     double scrollPx  = 0.0;
     double pxPerSec  = 100.0;
     int    scrollY   = 0;
+
+    // Follow Playback (followPlayhead): the state seen on the previous frame.
+    bool   followPlayback       = false;
+    bool   followPlayheadInView = true;
+    bool   followWasPlaying     = false;
+    double followLastSeconds    = 0.0;
+    double followScrollPx       = 0.0;
     juce::ScrollBar horizontalScrollBar { false };
     juce::ScrollBar verticalScrollBar   { true };
     juce::Slider    zoomSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };

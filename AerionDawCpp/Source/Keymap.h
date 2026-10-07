@@ -40,6 +40,7 @@ struct AerionActionCatalog
         add ("transport.playStop",     "Transport",  "Play / Stop",          "spacebar");
         add ("transport.record",       "Transport",  "Record",               "ctrl + R");
         add ("transport.goToStart",    "Transport",  "Go to Start",          "home");
+        add ("transport.follow",       "Transport",  "Follow Playback",      "F");
 
         add ("clip.nudgeLeft",         "Clip",       "Nudge Clip Left",      "cursor left");
         add ("clip.nudgeRight",        "Clip",       "Nudge Clip Right",     "cursor right");
