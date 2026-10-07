@@ -4,7 +4,11 @@
 
 **Aerion DAW** is a native digital audio workstation built in **C++20** with **JUCE 8** and the **Tracktion Engine v3.2**. It targets serious home and project-studio production on **Windows 11** first, with **macOS** builds supported through CI and release packaging.
 
+<<<<<<< HEAD
 **Current version:** v0.5.0 Alpha, the first public release · **Active milestone:** [M6 — Complete Core](AerionDawCpp/Documentation/ROADMAP.md) (targeting v0.6.0) · **[User Manual](Aerion-DAW-Manual.html)**
+=======
+**Current version:** v0.5.0 Alpha · **Active milestone:** [M6 — Complete Core](AerionDawCpp/Documentation/ROADMAP.md)
+>>>>>>> ded93e1b08530f7f8bb68715208b4d7c6f1cdc41
 
 [![Build & Smoke Tests](https://github.com/aethos-studio/Aerion-DAW/actions/workflows/build-test.yml/badge.svg)](https://github.com/aethos-studio/Aerion-DAW/actions/workflows/build-test.yml)
 
