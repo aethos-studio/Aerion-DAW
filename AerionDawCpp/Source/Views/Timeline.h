@@ -206,11 +206,17 @@ public:
 
         if (activeTool == EditTool::razor)
         {
-            int oldX = lastMouseX;
+            // The hairline sits on the grid when snap is on, so the strips to
+            // invalidate are where it was drawn and where it goes, not the mouse.
+            const int oldLineX = juce::roundToInt (razorLineX (lastMouseX));
             lastMouseX = e.x;
-            // Only invalidate the 3px strips where the hairline was and where it's going
-            repaint (juce::jmax (kHeaderWidth, oldX - 1), 0, 3, getHeight());
-            repaint (juce::jmax (kHeaderWidth, e.x  - 1), 0, 3, getHeight());
+            const int newLineX = juce::roundToInt (razorLineX (lastMouseX));
+
+            if (newLineX != oldLineX)
+            {
+                repaint (juce::jmax (kHeaderWidth, oldLineX - 2), 0, 5, getHeight());
+                repaint (juce::jmax (kHeaderWidth, newLineX - 2), 0, 5, getHeight());
+            }
         }
         else if (activeTool == EditTool::select)
         {
@@ -1581,17 +1587,7 @@ public:
         // Razor hairline preview
         if (activeTool == EditTool::razor && lastMouseX >= kHeaderWidth && lastMouseX < getWidth() - kVScrollW)
         {
-            const bool   snapEnabled_  = (bool)   projectData.getProjectTree().getProperty (IDs::snapEnabled,  true);
-            const double snapInterval_ = (double) projectData.getProjectTree().getProperty (IDs::snapInterval, 1.0);
-            float drawX = (float) lastMouseX;
-            if (snapEnabled_)
-            {
-                auto& ts = audioEngine.getEdit().tempoSequence;
-                auto t = tracktion::TimePosition::fromSeconds (xToTime (drawX));
-                auto beats = ts.toBeats (t);
-                double snappedBeats = std::round (beats.inBeats() / snapInterval_) * snapInterval_;
-                drawX = timeToX (ts.toTime (tracktion::BeatPosition::fromBeats (snappedBeats)).inSeconds());
-            }
+            const float drawX = razorLineX (lastMouseX);
 
             g.setColour (Theme::accent.withAlpha (0.6f));
             g.drawLine (drawX, (float) kRulerH, drawX, (float) (getHeight() - kFooterH), 1.0f);
@@ -1623,6 +1619,23 @@ public:
 
     /** Brings the accessible controls up to date with the last paint now (for tests). */
     void syncAccessibleControlsNow() { headerProxySync.cancelPendingUpdate(); syncHeaderProxies(); }
+
+    /** Where the razor's hairline is drawn for a mouse x: on the grid when snap is on. */
+    float razorLineX (int mouseX)
+    {
+        float x = (float) mouseX;
+
+        if ((bool) projectData.getProjectTree().getProperty (IDs::snapEnabled, true))
+        {
+            const double interval = (double) projectData.getProjectTree().getProperty (IDs::snapInterval, 1.0);
+            auto& ts = audioEngine.getEdit().tempoSequence;
+            const auto beats = ts.toBeats (tracktion::TimePosition::fromSeconds (xToTime (x)));
+            const double snapped = std::round (beats.inBeats() / interval) * interval;
+            x = timeToX (ts.toTime (tracktion::BeatPosition::fromBeats (snapped)).inSeconds());
+        }
+
+        return x;
+    }
 
     static void drawHeaderButton (juce::Graphics& g, juce::Rectangle<int> b,
                                   const juce::String& label, juce::Colour col)

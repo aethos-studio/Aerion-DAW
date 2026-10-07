@@ -1069,6 +1069,48 @@ int main (int argc, char* argv[])
             timeline.scrollTo (0.0, 0);
         }
 
+        // With snap on, the razor's hairline sits on the grid, not under the
+        // mouse: each move must clear the line where it was drawn, or old
+        // lines stay in the cached layer until something repaints everything.
+        {
+            timeline.activeTool = EditTool::razor;
+            projectData.getProjectTree().setProperty (IDs::snapEnabled, true, nullptr);
+
+            auto source = juce::Desktop::getInstance().getMainMouseSource();
+            auto moveTo = [&] (int x)
+            {
+                const juce::Point<float> p ((float) (Timeline::kHeaderWidth + x), (float) (Timeline::kRulerH + 40));
+                const auto now = juce::Time::getCurrentTime();
+                timeline.mouseMove (juce::MouseEvent (source, p, {}, juce::MouseInputSource::defaultPressure,
+                                                      juce::MouseInputSource::defaultOrientation, juce::MouseInputSource::defaultRotation,
+                                                      juce::MouseInputSource::defaultTiltX, juce::MouseInputSource::defaultTiltY,
+                                                      &timeline, &timeline, now, p, now, 0, false));
+            };
+
+            const juce::SoftwareImageType software;
+            moveTo (300);
+            timeline.repaint();
+            auto viaCache = makeImage (layers.getWidth(), layers.getHeight(), software);
+            paintInto (viaCache, layers);
+
+            for (int x : { 337, 371, 402, 455, 517, 263 })
+            {
+                moveTo (x);
+                paintInto (viaCache, layers);
+            }
+
+            timeline.repaint();
+            auto fresh = makeImage (layers.getWidth(), layers.getHeight(), software);
+            paintInto (fresh, layers);
+
+            const auto cmp = compareImages (viaCache, fresh, viaCache.getBounds());
+            std::cout << "  " << juce::String ("razor line, snap on").paddedRight (' ', 28) << cmp.describe() << std::endl;
+            failures += cmp.visible > 0 ? 1 : 0;
+
+            timeline.activeTool = EditTool::select;
+            timeline.repaint();
+        }
+
         // A hidden window must follow the graphics engine choice both ways.
         {
             juce::Component probe;
