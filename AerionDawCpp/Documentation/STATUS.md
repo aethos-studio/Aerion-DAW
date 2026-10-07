@@ -12,7 +12,7 @@
 | M3: DAW Essentials — Recording & Monitoring (v0.2.0) | **Complete** — Metronome, Count-In, Punch In/Out, PDC, multi-channel input routing, buffer safety readout, live recording waveform, full driver pack (ASIO/WASAPI/DirectSound/CoreAudio/ALSA/JACK/WinRT MIDI), Reset Audio Settings, per-track monitor modes, per-track MIDI controller selector |
 | M4: DAW Essentials — Project & Workflow (v0.3.0) | **Complete** — Save/Load (`.aerion`), Collect & Save, Bounce/Freeze, Mixdown + Stems export, Tempo Map, Time Signature changes, per-track input/monitor persistence, customisable keyboard shortcuts (`AerionKeymap`), Recent Projects, Auto-save / Crash Recovery, icon system |
 | M5: DAW Essentials — Polish & Stability (v0.4.0) | **Complete** (October 6, 2026) — performance (UI and audio), plugin crash protection (Windows), accessibility, error reporting, UI scaling, packaging; paid signing and out-of-process hosting deferred |
-| M6: DAW Essentials — Complete Core (v0.6.0) | **In progress** — groundwork for MIDI learn and control surfaces shipped in v0.5.0; still to come: full parameter automation, time-stretch, sidechain, MIDI learn and control surfaces, clip processing, templates, loudness metering, CLAP spike |
+| M6: DAW Essentials — Complete Core (v0.6.0) | **In progress** — groundwork for MIDI learn and control surfaces shipped in v0.5.0; still to come: update mechanism (first), full parameter automation, time-stretch, sidechain, MIDI learn and control surfaces, clip processing, templates, loudness metering, CLAP spike |
 | M7–M9 + Future USPs | Not started — `AIManager` is still a 2-second mock; ONNX Runtime declared in CMake but intentionally not linked |
 
 ---
@@ -124,7 +124,7 @@ What already exists versus what remains, verified against the source tree:
 
 Mirrors [`ROADMAP.md`](./ROADMAP.md) so the two documents agree.
 
-**M6 — Complete Core (v0.6.0)**, in this order: full parameter automation, audio warping and time-stretch, sidechain routing, MIDI learn and control surfaces, clip processing, templates, analysis metering, CLAP spike.
+**M6 — Complete Core (v0.6.0)**, in this order: update mechanism (in-app update check and install from GitHub releases), full parameter automation, audio warping and time-stretch, sidechain routing, MIDI learn and control surfaces, clip processing, templates, analysis metering, CLAP spike.
 
 **Deferred from M5:**
 

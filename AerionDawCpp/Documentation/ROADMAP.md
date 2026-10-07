@@ -6,219 +6,23 @@ In practice that means two phases:
 
 | Phase | Milestones | Goal |
 |---|---|---|
-| **DAW essentials** | M1–M6 | Everything a producer expects from any modern DAW: editing, mixing, recording, project workflow, stability, and the core feature set (full automation, time-stretch, sidechain, controller mapping). |
+| **Complete core** | M6 | In-app updates first, then the last gaps to a modern DAW baseline: full automation, time-stretch, sidechain, controller mapping, templates and metering. |
 | **Differentiators** | M7–M9 + Future | What makes Aerion distinct: composition tools, creative/performance workflows, AI, cloud and collaboration. |
 
 A milestone is done when its items are verified: benchmark targets for performance work (see [`PERFORMANCE.md`](./PERFORMANCE.md)), pixel checks and snapshot renders for UI work (`AerionBench --verify` / `--snapshots`), and smoke tests in CI for engine work.
 
 ---
 
-## Current State (v0.5.0 Alpha — October 2026)
+## Where Aerion is now
 
-**Milestones 1–5 are complete.** **v0.5.0 Alpha** is the first public release: the Milestone 5 app plus the first Milestone 6 work and the user manual. Active development is **Milestone 6 (Complete Core, v0.6.0)**, which closes the remaining gaps to a modern DAW baseline. The app version is **v0.5.0** (CMake `project` version, with the release stage `AERION_RELEASE_STAGE` = Alpha); release installers are named after the tag they are built for. Milestone targets from M6 on moved up one minor version when 0.5.0 became the public alpha. Two items left M5 for reasons outside the code: see [Deferred from Milestone 5](#deferred-from-milestone-5).
-
-All items below are fully implemented and working in the current build (unless marked as partial).
-
-### Audio Engine & Transport
-- Tracktion Engine v3.2 / JUCE 8 integration
-- Audio and Folder track support; basic transport (play, stop, record)
-- Tempo, time signature, and bars/beats/ticks readout bound to engine state
-- Record-arm per track; wave input device routing wired correctly
-- Undo / Redo via Tracktion Engine `UndoManager`
-- **Startup:** Session/edit initialisation runs first; opening the audio device is deferred to the next message-loop tick so the main window can appear while drivers initialise.
-
-### Mixer
-- Real-time level meters (`LevelMeterPlugin` / `LevelMeasurer`)
-- Volume (dB, correct Tracktion native fader formula) and Pan per track
-- Mute and Solo functional and reactive
-- Detachable Mixer window
-- Automation lanes — volume/pan curves drawn and edited in the Timeline
-
-### Tracks
-- Audio, Folder, and Master tracks
-- Free drag reordering — move any track or folder to any position
-- "Move into folder" / "Detach from folder" via context menu; drag-into-folder and drag-left-to-detach gestures on headers
-- **Submix folders (opt-in):** `Convert to Submix` / `Convert to Folder` on folder headers (Timeline + Mixer); submix folders show an **S** badge and narrower colour bar in the Arranger
-- Track grouping (`groupTracks`)
-
-### Plugin Hosting
-- VST3 (Windows/Linux) and AU (macOS) scanning and hosting
-- Plugin windows with branded JUCE-rendered (`MetalLookAndFeel`) title bars
-- Drag plugin from Browser → Timeline track header or Mixer strip
-
-### Browser & File Management
-- Local file-system navigator with `AudioThumbnail` waveform preview (80 px strip)
-- Plugin browser tab with category listing
-- Position-aware audio file drop onto Timeline (ghost preview + grid snap)
-- Consecutive multi-file drop — files placed back-to-back using actual duration
-- Click-drag on Browser file row → OS-level drag-and-drop import
-
-### Piano Roll
-- 128-note grid, beat ruler, piano keyboard
-- Add (click-drag), move (drag body), resize (drag right edge), delete (right-click / Delete)
-- Selection-aware editing: single/multi-select, marquee select, copy/cut/paste, duplicate, nudge, transpose, quantize, and Escape-to-clear.
-- Snap to configurable note length with visible dynamic subdivisions; note insertion snaps to the clicked cell start.
-- **MIDI CC / Pitch lane:** switchable lane (Mod, Volume, Pan, Expression, Sustain, Pitch Bend, custom CC) with resizable splitter above the velocity lane; draw/edit via `MidiList::setControllerValueAt` / `removeControllerEvent`; selection persisted per clip (`IDs::pianoRollCC`)
-- Horizontal and vertical scrollbars
-- Opens on double-click of a MIDI clip in the Timeline
-
-### AI (Scaffolding)
-- `AIManager` thread scaffold — audio-to-MIDI transcription stub
-- Mock transcription (2 s delay → hardcoded MIDI note) wired to `processTranscription()`
-
-### UI & Branding
-- dark theme (`MetalLookAndFeel`)
-- Animated fog splash screen — full intro hold; Cinzel for splash title/subtitle only; body UI uses **system sans** at scaled sizes (`Theme::uiSize` / `kUiFontScale`)
-- Collapsible Inspector (left) and Browser (right) panels with directional chevron toggles
-- Project title bar updates to `<ProjectName> — Aerion DAW` after save/load
-- Reactive UI state — all components bound to `ProjectData` ValueTree
-- Recent passes: tooltip timing, toolbar hover invalidation, throttled idle transport readout, tuned inspector/meter refresh
-- Icon system (`UI/Icons.h`): SVG icons fitted to their 24×24 viewBox and tinted per state; track toggles are letter buttons (M / S / R / A) shared by Timeline, Mixer and Inspector (`paintLetterButton`); in-app logo variant without SVG filters (`aerion_logo_ui.svg`)
-- Rendering performance: the Timeline is a cached layer with the playhead on its own overlay; clip drags repaint only the clip; the Mixer repaints only meters during playback; one display-synced UI clock. **View → Graphics Engine** (Auto uses the software renderer up to 2560 × 1600) and **View → Lightweight UI** (Auto on weak machines). Numbers in [`PERFORMANCE.md`](./PERFORMANCE.md)
-
-### Architecture
-- MVC pattern: `AudioEngineManager` (model), `ProjectData` (ValueTree), UI components (view)
-- One header per UI view under `Source/Views/` (`UIComponents.h` includes them all); question dialogs go through `UI/Dialogs.h`, which names each answer instead of relying on JUCE's button numbers
-- Small Aerion patches to Tracktion Engine in `Patches/`, applied at configure time (currently a hook around each hosted plugin's `processBlock`)
-- Plugin crash protection (Windows): a plugin that crashes while processing audio is caught, bypassed and reported (`PluginFaultMonitor`; MSVC builds use `/EHa`)
-- `ProjectData::syncWithEngine()` keeps ValueTree in sync with live engine state
-- `AudioDeviceSelectorComponent` settings panel (ASIO / CoreAudio / ALSA)
-- Performance tooling: `AerionBench` (headless Timeline/Mixer paint benchmark with Direct2D and software renderers, `--verify` pixel checks, `--snapshots` UI renders) and a message-thread stall watchdog in profiling builds
-
----
-
-## Milestone 1 — DAW Essentials: Editing (v0.0.1)
-*Everything a producer needs to actually edit a song.*
-
-- [x] **Clip Editing — Trim & Split:** Click-drag clip edges to trim; razor/split tool to cut clips at the playhead or a click point.
-- [x] **Clip Move & Nudge:** Drag clips freely on the timeline; nudge by one frame/beat with arrow keys.
-- [x] **Clip Gain & Fade Handles:** Per-clip input gain knob; drag-in fade-in and fade-out handles directly on the clip.
-- [x] **Comp Tool / Takes:** Record multiple takes on a track; display take lanes and allow comping by selecting segments from different takes.
-- [x] **Loop / Cycle Range:** Set a loop region on the ruler; transport loops automatically within it.
-- [x] **Markers:** Add, name, and navigate between named markers on the ruler.
-- [x] **Snap Settings UI:** Snap mode selector (Bar / Beat / Sub-beat / Off) accessible from the toolbar.
-- [x] **MIDI Quantization:** Quantize selected MIDI notes to grid in the Piano Roll (Q shortcut). `PianoRollEditor::quantize()` snaps each note's start and length to the active snap interval.
-- [x] **MIDI Velocity Editor:** Velocity lane below the Piano Roll grid; drag bars to adjust per-note velocity (`drawVelocityLane()` + `updateVelocityAt()` writing `MidiNote::setVelocity()`).
-- [x] **MIDI CC Lanes:** Stacked CC/Pitch-Bend lane above velocity with 4 px splitter; combo + `Other…` for any CC 0–127; stepped polyline + midpoint reference; click/drag paint with snap; right-click removes; Undo via `Edit::getUndoManager()`; `IDs::pianoRollCC` on clip state.
-
----
-
-## Milestone 2 — DAW Essentials: Mixing (v0.1.0 Pre-Alpha → v0.1.1 hotfix)
-Implementing professional mixing workflows while preserving a clean, beginner-friendly UI through progressive disclosure.
-Keep the Console clean. Put the advanced technical tools in the Inspector.
-
-### Mixing Features (v0.1.0)
-- [x] Phase Invert & Mono/Stereo Summing: `setTrackPhase` / `setTrackMono` in `AudioEngineManager` drive the DSP; the Inspector exposes them as compact toggle pills (only when a track is selected) and the Mixer-strip context menu offers them as items.
-- [x] Channel Strip Filters (HPF/LPF): pre-fader HPF/LPF (`getTrackHPF/LPF`, `setTrackHPF/LPF`) shown as a collapsible "QUICK FILTERS" section in the Inspector above INSERTS. Double-click to reset to bypass (20 Hz / 20 kHz).
-- [x] **Gain Staging & Metering:** Clip flash on meters (`paintFader`); optional **K-14 reference scale** on the Master strip (context menu, persisted as `IDs::masterKMeter`) with a brighter tick at −14 dBFS and softer ticks at −20 / −17 / −11 / −8 dBFS.
-- [x] **Folder Track Nesting (Arranger):** + Folder flows through `syncFolderRouting()`; chevron on folder headers; drag reorder; drag into folder (middle band, upper portion = first child); drag header **left** past indent (−16 px) to detach to top level; highlight previews.
-- [x] **Folder Channel Strip (Console):** Folder strips in the Mixer; **submix** folders get +8 px width and a coloured outline from the folder colour; `Convert to Submix` / `Convert to Folder` in Mixer + Timeline menus (`setFolderSubmix`).
-- [x] **Hierarchical Signal Routing:** `AudioEngineManager::setFolderSubmix` / `isFolderSubmix` / `syncFolderRouting()` — opt-in submix folders (Volume+Pan + LevelMeter vs VCA-only organisational folders); called after add/group/load and menu toggles.
-- [x] **Cascading Mute / Solo:** Folder mute/solo propagates to children (engine + Tracktion folder semantics; verified in smoke test).
-- [x] Context Menu "Quick Send": `AudioEngineManager::addSendToNewBus()` creates a new bus and inserts an `AuxSendPlugin` on the source track; surfaced from track-header / Mixer-strip context menus.
-- [x] Inspector SENDS Wiring: Inspector "SENDS" section enumerates `AuxSendPlugin` instances on the selected track and exposes per-send level via `setAuxSendLevelDb` / `getAuxSendLevelDb` so users don't have to scan the Console.
-- [x] Insert Slot Sync: INSERTS list in the Inspector is driven by the live track plugin list, so any plugin added via the Console (drag-drop or context menu) appears immediately in the Inspector and vice versa.
-- [x] Insert Logic: Serial DSP processing follows the Tracktion plugin chain ordering; the Inspector supports click-to-edit (opens plugin editor) and right-click to remove. **Insert bypass** (`BYP` pill / compact bypass dot) and **drag-to-reorder** are implemented in the Inspector INSERTS list, Plugin Manager window, and Mixer insert rack.
-- [x] Plugin Preset Browser: Engine API `getPluginNumPrograms` / `getPluginProgramName` / `setPluginProgram` exposed; programs are accessible via the plugin window pop-out and the plugin context menu.
-- [x] **Mix Snapshots (bonus, not on original roadmap):** `saveMixSnapshot` / `recallMixSnapshot` / `getMixSnapshotNames` capture and restore mixer state; surfaced as a "Snapshots" submenu on the Mixer-strip context menu.
-
-### Hotfixes (v0.1.1 — May 2026)
-- [x] **Meter Post-Fader Gain:** Fixed meters showing pre-fader peak instead of post-fader; `Primitives.h::paintFader()` now applies fader gain to both current and max peak readings before display (`peak + faderGainDb`, `maxPeak + faderGainDb`).
-- [x] **Project Reload UI Refresh:** Fixed UI not refreshing when loading a new project without window resize; `MainComponent::editStateChanged()` now explicitly calls `mixer.repaint()` and `timeline.repaint()` alongside the existing `browser.repaint()`.
-- [x] **Typography Polish:** Global font scale increased (`kUiFontScale` 1.14 → 1.25) and targeted micro-label fixes across Transport captions, Console strip, Piano Roll, Arrangement, and Primitives layers for improved readability (7 UIComponents fixes + 2 Primitives fixes + tooltip coupling fix).
-
----
-
-## Milestone 3 — DAW Essentials: Recording & Monitoring (v0.2.0)
-*A reliable, low-latency recording experience.*
-
-- [x] **Input Monitoring:** `setTrackMonitorMode` / `getTrackMonitorMode` (Auto / On / Off) per track; the Inspector "MON" pill (next to Phase / Mono) cycles through the three modes and applies them on the next arm. Default Auto = monitor while armed, suspend during clip playback (Tracktion's smart-monitoring).
-- [x] **MIDI-Input Selector:** `getMidiInputDeviceNames()` enumerates Tracktion's `DeviceManager` MIDI inputs; the existing Inspector input dropdown now splits into "Audio Input" + "MIDI Controller" submenus so each track can be pinned to a specific physical/virtual MIDI device (or "All MIDI controllers"). System-level enable/disable still happens in the Audio Settings dialog (`AudioDeviceSelectorComponent`'s built-in MIDI section).
-- [x] **Latency Compensation:** Plugin delay compensation toggle (`setLatencyCompensationEnabled` / `isLatencyCompensationEnabled`) wired to a toolbar button.
-- [x] **Count-in / Pre-roll:** Configurable bar count-in (Off / 1 Bar / 2 Bars) via `setCountInMode` and the toolbar count-in button; the metronome click runs during count-in.
-- [x] **Metronome:** Dedicated metronome toggle on the Transport with volume control (`getMetronomeVolumeDb` / `setMetronomeVolumeDb`) and accent-on-downbeat option (`setMetronomeAccentEnabled`).
-- [x] **Punch In / Out:** `setPunchEnabled` uses the loop range as the punch region; record only overwrites the punched region. Toolbar punch button wired.
-- [x] **Multi-channel Input Routing:** `getInputDeviceNames` / `setTrackInputDevice` expose all wave input devices; Inspector input dropdown lets the user pick the source per track.
-- [x] **Record Buffer Safety:** `BufferInfo { sampleRate, blockSize, cpuUsage, oneBlockMs, driverIoMs }` is exposed; the transport status strip shows block size + one-buffer ms + driver round-trip so high-latency configs are visible at a glance.
-- [x] **Live recording waveform:** `Timeline::drawTrackRow` renders `RecordingThumbnailManager::Thumbnail` data while the take is in flight — the waveform now grows under the playhead instead of materialising only on stop.
-- [x] **Driver pack:** Build enables **ASIO** (Steinberg SDK bundled in-tree under GPLv3; small ASIO-compatible mark on splash, full notice in About), **WASAPI**, **DirectSound**, **CoreAudio**, **ALSA**, **JACK** and **WinRT MIDI** out of the box.
-- [x] **Reset Audio Settings safety net:** Audio Settings dialog has a button that wipes the saved `audioDeviceState` from `ApplicationProperties`, re-runs JUCE's `initialiseWithDefaultDevices`, and re-applies the safe defaults — no reinstall required.
-
----
-
-## Milestone 4 — DAW Essentials: Project & Workflow (v0.3.0)
-*Professional session management.*
-
-- [x] **Full Project Save / Load:** Complete round-trip serialisation of all tracks, clips, plugin state, automation, and mixer settings to a single `.aerion` file (XML + referenced audio).
-- [x] **Audio File Management — Collect & Save:** Copy all referenced audio into a project folder; detect and warn about missing files on open.
-- [x] **Bounce / Freeze:** Freeze state persistence (`IDs::frozen`, `IDs::preFreeze`, `IDs::freezeFile`), async render/unfreeze workflow, Inspector Freeze / Unfreeze state, Timeline track/clip badges, and context-menu actions.
-- [x] **Export — Mixdown:** `MixdownExportDialog` + `MixdownExportJob` render the master to WAV / AIFF / FLAC / OGG with configurable sample rate and channels, a true pre-rendered waveform preview (with clip detection), bounds selection (Selection / Loop / Full), tail length, format presets, and filename wildcards.
-- [x] **Export — Stems:** Export each track (or bus) individually as a rendered audio file. `sourceBox` lists all audio tracks; selecting one renders only that track to file with master plugins disabled.
-- [x] **Tempo Map:** AudioEngine wrappers plus interactive Timeline Tempo Lane with visible BPM nodes, double-click insert, drag to move/change BPM, and right-click delete for non-root nodes.
-- [x] **Time Signature Changes:** Per-bar time signature changes can be inserted from the Transport at the playhead bar or from the Timeline ruler; visible signature flags can be selected, dragged by bar, edited via preset menu, and removed.
-- [x] **Per-track Input + Monitor Persistence:** Inspector audio input, MIDI controller pin, and monitor mode now persist on each track `ValueTree` via `IDs::trackInputDeviceIdx`, `IDs::midiInputDevice`, and `IDs::monitorMode`, with migration from legacy RuntimeState XML.
-- [x] **Keyboard Shortcut System:** `AerionKeymap` + `KeyboardShortcutsPanel` provide editable bindings per action, live conflict detection with reassign/cancel prompt, import/export of `.aerionkeys` files, reset-to-defaults, and persistence via `appProperties`. `MainComponent` and `PianoRollEditor` dispatch through `AerionKeymap::matches()` so every rebindable action picks up custom bindings.
-- [x] **Recent Projects List:** Menu → Open Recent with up to 10 entries.
-- [x] **Crash Recovery:** Auto-save every N minutes to a recovery folder; prompt to restore on next launch.
-- [x] **Hotkey implementation:** All catalog actions (File new/open/save, Edit undo/redo, Transport play-stop/record/go-to-start, Clip nudge/trim/delete, Audio crossfade, Track mute/solo/arm, Piano Roll select-all/copy/cut/paste/duplicate/delete/nudge/transpose/quantize/clear-selection) now flow through the `AerionKeymap` dispatch layer.
-- [x] **UX Redesign — Icon System (Milestone 4 Polish):** Inspector ARM/MUTE/SOLO icons, Toolbar XF icon, Timeline M/S/R/A track buttons, SVG Transport icons, and Mixer-side M/S icons now render via the shared `drawTrackIconBtn`. *Superseded in M5 (September 2026): track toggles are letter buttons again (`paintLetterButton`), and the remaining icons render through `UI/Icons.h`.*
-
----
-
-## Milestone 5 — DAW Essentials: Polish & Stability (v0.4.0)
-*Ship-ready quality. **Complete (October 6, 2026).** CI covers Windows + macOS; release packaging is a separate workflow; both are manual (`workflow_dispatch`) only.*
-
-- [x] **Performance Optimization:** Fast and responsive on older machines without a dedicated GPU. Targets: every input answered within one 60 Hz frame (≤ 16.7 ms paint), steady 60 fps playhead and meters, no message-thread stalls over 50 ms after startup, idle UI CPU under 2 %. Baseline and progress in [`PERFORMANCE.md`](./PERFORMANCE.md).
-  - [x] Splash / deferred device init, repaint scoping, tooltip/toolbar cadence
-  - [x] Measurement: `AerionBench` for Timeline and Mixer with both renderers, clip-drag scenario, `--verify` pixel checks; message-thread watchdog in profiling builds
-  - [x] Timeline culling and clip-drag partial repaint (drag: 19–33 ms → 0.08–2.5 ms per mouse move)
-  - [x] Mixer meters-only repaint during playback (5.7–7.3 ms → 2.4–3.3 ms per tick)
-  - [x] Graphics engine setting (**View → Graphics Engine**: Auto / Hardware Accelerated / Software). Auto uses the software renderer up to 2560 × 1600 displays; Direct2D costs 10× more for small repaints
-  - [x] One display-synced UI clock (`VBlankAttachment`) replacing the separate component timers: playhead at display rate, meters at 30 Hz with a decay tail, no idle repaints, event-driven tooltip poll
-  - [x] Cached chrome: background and header gradients drawn as solid bands in software, SVG icons and the fader cap drawn from cached rasters
-  - [x] Timeline layers: the Timeline renders into a renderer-matched cached layer with the playhead on an overlay above it (playhead move 13.7 → 1.5 ms Direct2D, 1.2 → 0.1 ms software); full repaints made cheaper with nine-slice clip frames and opaque whole-pixel waveforms (19–33 ms → 7.6–14.7 ms)
-  - [x] Scroll by copying cached pixels: a scroll moves the Timeline's cached lane pixels and draws only the strip scrolled into view (software renderer: 13.5 ms full repaint → 5.0 ms sideways, 4.0 ms down per wheel step), also when several wheel steps arrive before one paint. `AerionBench --verify` compares each scroll with a full repaint
-  - [x] Audio device startup: stays on the message thread (Tracktion and ASIO require it) but now runs behind the splash, which waits for it, instead of freezing the fade or the fresh main window
-  - [x] Lightweight UI for low-end machines (View → Lightweight UI; Auto on ≤ 2 cores or < 6 GB RAM): flat fills, square clip bodies, 20 Hz meters, 30 Hz playhead
-  - [x] Split `UIComponents.h` (9,000+ lines) into one header per view under `Source/Views/`; `UIComponents.h` is now an umbrella include. Code moved unchanged; moving method bodies into `.cpp` files (for build times) is a later step
-  - [x] Audio side: `AerionBench --audio` plays a reference project (32 tracks with EQ, compressor, send and automation, two reverb buses) through the playback graph without audio hardware. Tracktion's multi-threaded graph was already on and is kept (3.5 % mean / 4.6 % p99 of a 128-sample block, against 8.4 / 11.2 % with one thread); pooled memory was slower and stays off; no heap allocations on the audio thread; graph rebuild 1.4 ms. Aerion now honours Tracktion's request for high process priority during playback. Numbers in [`PERFORMANCE.md`](./PERFORMANCE.md#audio)
-- [x] **High-DPI / UI Scaling:** **View → UI Size** (Auto / 100–200 %) scales the whole interface on top of Windows scaling; Auto picks 125 % on 1440p and 150 % on 4K at 100 % Windows scaling, applied before the splash and live from the menu (`UI/UiScale.h`). Scaled displays keep the cached-pixel speed-ups: clip frames, waveform tiles and icons are rendered at physical resolution and copied at whole physical pixels, and scroll by copying works scaled. `AerionBench --scale=<factor>` measures and verifies any scale; CI verifies 125 %. Numbers in [`PERFORMANCE.md`](./PERFORMANCE.md).
-- [x] **Resizable Track Heights:** Drag a track's bottom edge in the header column to resize it (56–400 px; all selected tracks when the dragged one is selected), double-click the edge to reset, or pick Small / Normal / Large / Huge from the track's context menu. Clips, waveforms, comp lanes and recording previews follow the height; below the default 80 px the header hides the FX badge. The height is saved per track with the project (`IDs::laneHeight` on the track state) and marks the project unsaved without going on the undo stack.
-- [x] **Icon & Logo Rendering:** Icons fitted to their viewBox instead of their drawn content (no more oversized or edge-touching glyphs), tinted per state, transport icons follow active state, labels no longer overlap icons; letter buttons for track toggles; redrawn metronome icon; in-app logo without SVG filters so it shows on dark backgrounds.
-- [x] **Edit Teardown Crash:** Track meters and thumbnails are released before the Edit is destroyed or replaced (quit, open project, new project); previously a meter holding the last `LevelMeterPlugin` reference could crash.
-- [x] **Plugin Crash Protection:** A crashing third-party plugin must not take the session down. First step: catch plugin faults, disable the plugin and tell the user; then evaluate out-of-process plugin hosting.
-  - [x] Windows: a plugin that crashes while processing audio (invalid memory access, division by zero, an escaped C++ exception) is caught (`PluginFaultMonitor`), silenced for that block, bypassed, and reported in a dialog; the session keeps playing. Needs a small Tracktion patch (`Patches/tracktion/`) and `/EHa`, which releases the lock JUCE holds around the plugin
-  - [x] Windows: crashes while loading a plugin, saving or restoring its settings, or opening its editor are caught too (`PluginFaultMonitor::call`, second Tracktion patch `0002-external-plugin-call-hook.patch`). The plugin is switched off for the rest of the session and never called again, so saving keeps the settings it had when last saved; the dialog names the step that crashed
-  - [x] Plugin scanning runs in a child process (Tracktion's out-of-process scanner), so a plugin that crashes while being scanned is skipped and logged instead of taking the app down
-  - Crashes inside an already-open editor's drawing or mouse handling, and all plugin crashes on macOS, need out-of-process plugin hosting: [deferred](#deferred-from-milestone-5)
-- [x] **Unsaved-Changes Tracking:** A new, untouched project no longer counts as modified. Engine notifications that are not edits (device startup, plugin scan, load/new/save, failed freeze) use `broadcastStatusChange()`; the project counts as changed when an edit was broadcast **or** Tracktion's own undo-based tracking saw a change, which also covers direct edits such as Timeline clip drags. Checked by `AerionBench --verify`.
-- [x] **Save Prompts Act on the Right Button:** The Quit, New Project, Open Project, Open Recent and Crash Recovery prompts mixed up JUCE's button numbers (1, 2, 0 for three buttons): "Save & Quit" quit without saving, "Cancel" discarded the project, Crash Recovery restored on "Discard". All now use `UI/Dialogs.h` (Cancel last, Escape cancels); a test checks each button against JUCE's real alert window.
-- [x] **Workspace Layouts:** Named window layouts under **View → Workspace**. Three built-in presets (Editing, Mixing, Recording) plus "Save Current Layout…" for custom layouts and "Delete Layout". A layout captures inspector/browser collapse state, mixer dock/detach, the active bottom panel (Mixer / Piano Roll / Console), and the console height. Custom layouts and the last-active layout persist app-wide via `appProperties` and the active layout is restored on launch (`MainComponent::applyWorkspaceLayout` / `captureCurrentLayout` / `loadWorkspaceLayouts`).
-- [x] **Accessibility:** Screen-reader labels on all interactive controls; keyboard-navigable mixer. The painted controls of the Mixer, Transport, Toolbar, Inspector and Timeline track headers get invisible accessible stand-ins (`UI/Accessibility.h`) with a title, a role and a value; Tab reaches them, Space / Return press them, Up / Down, Page Up / Down and Home change sliders. In the Mixer, Left / Right move between strips, Ctrl + Left / Right pan and M / S / R act on the focused strip; F6 cycles the panes. `AerionBench --verify` checks every control is labelled and that the keyboard works the fader and mute button. Not covered yet: clips on the Timeline and notes in the Piano Roll.
-- [x] **Error Reporting:** The app log (`Logger::writeToLog`) shows in a **Console** bottom-panel tab and still goes to `aerion.log`; `DBG` output is not captured. A crash writes a report folder under `AerionDAW/Crashes` (`CrashReporter`): version, OS, reason, thread, stack trace, the crashed session's log (the next launch deletes `aerion.log`) and, on Windows, a minidump. The next launch says the app crashed and offers to show the report, before the Crash Recovery prompt. A test crashes a child process and checks the report. *Not covered: crashes the handler cannot run in (a corrupted heap may stop it writing), `std::terminate` / `abort` on Windows, and sending reports anywhere.*
-- [x] **CI pipeline (GitHub Actions):** `.github/workflows/build-test.yml` — Debug build of `AerionDaw` + `AerionTests` smoke tests, **manually triggered** (`workflow_dispatch`), on **both** a Windows MSVC/Ninja runner and a macOS Clang/Ninja runner.
-- [x] **Unit & Integration Tests (smoke):** `AerionTests` — `ProjectData` XML round-trip, track lookup, and `AerionKeymap` serialisation/conflict/import tests, `AudioEngineManager` smoke tests (tracks, mute/solo, tempo map, snapshots, transport flags, unfreeze), graphics engine choice, plugin fault handling (crash caught, lock released, skip / report / re-enable), dialog button mapping and crash reports (including a real crash in a child process). `AerionBench --verify` runs in CI so repaint culling regressions fail the build.
-- [x] **Release packaging workflow:** `.github/workflows/package-release.yml` (`release-package`) — standalone manual (`workflow_dispatch`) workflow, decoupled from the smoke-test workflow, that builds the Windows NSIS installer and macOS DMG on demand and publishes them to a GitHub Release (tag/title/draft/pre-release/notes set via the workflow's run inputs). A `platforms` input (both / windows / macos) builds one platform alone; the release gets whichever installers built, and a later run with the same tag adds to it.
-- [x] **Windows self-signed code signing:** `AerionDawCpp/Tools/New-AerionSelfSignedCert.ps1` generates a no-admin-required self-signed certificate; `release-package` signs + timestamps the app and installer when `WINDOWS_CERT_PFX_BASE64` / `WINDOWS_CERT_PASSWORD` secrets are configured, and still packages unsigned otherwise. Does not clear the SmartScreen "unknown publisher" prompt — that needs a paid OV/EV certificate.
-- [x] **macOS Packaging:** DMG built by the release workflow. With the Apple secrets set, the app is signed with a Developer ID and the hardened runtime (`Packaging/macOS/AerionDaw.entitlements`) and the DMG is signed, notarized and stapled; without them it is ad-hoc signed. The app declares why it needs the microphone, which macOS requires before it lets an app record. Getting the certificate needs a paid Apple Developer account: [deferred](#deferred-from-milestone-5).
-- [x] **Windows Packaging:** NSIS installer (CPack, shortcuts, VC++ runtime), signed when the certificate secrets are set. Installers are named after the release tag (`AERION_PACKAGE_VERSION`). A paid OV/EV certificate to clear SmartScreen is [deferred](#deferred-from-milestone-5).
-- [x] **Plugin settings saved with the project:** saving now flushes each plugin's state into the project first; settings changed in a plugin's own window could be missing from saved projects, auto-save, exports and freezes.
-- [x] **Fader moves on automated tracks:** moving the volume or pan of a track whose automation drives it overrides the automation (a yellow "A" on the strip) until Re-enable Automation in the strip's context menu.
-
----
-
-### Deferred from Milestone 5
-
-These are not code work that can be finished in the repository, so they no longer hold M5 open.
-
-- [ ] **Production code signing (blocked on purchase):** a paid OV/EV certificate for Windows (clears SmartScreen's "unknown publisher") and an Apple Developer account for the Developer ID certificate and notarization. The workflow steps are in place and run as soon as the secrets are added (see the release section of [`CURSOR_DEVELOPMENT.md`](./CURSOR_DEVELOPMENT.md)).
-- [ ] **Out-of-process plugin hosting:** run each third-party plugin in its own process, with audio and MIDI passed through shared memory and its editor hosted across the process boundary. Needed for crashes in an open plugin editor and for any plugin crash on macOS, which cannot be recovered in-process. A large architectural change; schedule it as its own milestone item after M6.
+**v0.5.0 Alpha** (October 2026) is the first public release. Milestones 1–5 (editing, mixing, recording and monitoring, project workflow, polish and stability) are complete; what they delivered is summarised in the [README](../../README.md#shipped-milestones). This roadmap covers what comes next.
 
 ---
 
 ## Milestone 6 — DAW Essentials: Complete Core (v0.6.0)
 *Close the gaps every mainstream DAW already covers, so Aerion is complete before it adds differentiators. Several items build on capabilities Tracktion Engine already ships, so they are exposure and UI work rather than new DSP. Built-in (stock) instruments and effects are not part of Aerion: they will come as a separate product (decided October 7, 2026). Aerion hosts the user's plugins; new MIDI tracks start without an instrument.*
 
+- [ ] **Update Mechanism (first):** Aerion checks the GitHub releases for a newer version at startup (and on demand from Help → Check for Updates), shows what changed, downloads the installer for the platform, checks it, and runs it after Aerion closes. Alpha builds also see pre-releases; a setting turns the automatic check off. Comes first because it gets every later fix to alpha testers.
 - [ ] **Full Parameter Automation:** Automate any plugin or mixer parameter, not just volume and pan. Per-track lane chooser, multiple visible lanes, automation modes (Read / Write / Touch / Latch) that record from UI and controller moves, point thinning, and copy/paste of automation with clips.
 - [ ] **Audio Warping & Time-Stretch:** Audio clips follow tempo changes (auto-tempo), warp markers for manual timing correction, per-clip pitch and speed controls. SoundTouch is already compiled in (`TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH`); evaluate higher-quality stretchers (Rubber Band, élastique) and their licences.
 - [ ] **Sidechain Routing:** Sidechain inputs for hosted plugins that support them, set up from the Inspector and the Mixer strip context menu (for ducking, sidechain compression and gating).
@@ -259,6 +63,7 @@ These are not code work that can be finished in the repository, so they no longe
 - [ ] **MPE Editing:** Extend the Piano Roll to display and edit per-note pitch, pressure, slide/timbre, and pan where supported by MIDI data and hosted instruments.
 - [ ] **Sample / Loop Browser Intelligence:** Add tempo/key detection, favourites, tags, "find similar sounds", and one-click preview sync to the project tempo.
 - [ ] **Live Performance Mode:** Add a performance-focused workspace with large transport, launcher scenes, mixer macros, panic/stop-all, and hardware MIDI mapping.
+- [ ] **Out-of-process plugin hosting:** run each third-party plugin in its own process, with audio and MIDI passed through shared memory and its editor hosted across the process boundary. Needed for crashes in an open plugin editor and for any plugin crash on macOS, which cannot be recovered in-process. A large architectural change; schedule it as its own milestone item after M6.
 
 ---
 
@@ -286,30 +91,6 @@ These are long-horizon expansions after the DAW core, pro workflows, creative to
 
 ### Linux Support
 Adding support for Linux Systems (Flatpak)
-
-### Update Mechanism
-In software update module that will check the github repo for new releases and offers to update automatically
-
-### Expanded Platform
-- **Video Support:** Video playback track with frame-accurate sync for film scoring
-- **AI-Driven Synthesis:** Prompt-to-patch synthesis for built-in virtual instruments
-- **Score / Notation Editor:** Dorico-style notation view for MIDI clips, chord symbols, lyrics, and printable parts.
-- **Surround / Immersive Mixing:** 5.1 / 7.1 / Dolby Atmos-style routing, panners, ADM/BWF export, and monitor calibration.
-- **Scripting SDK:** Lua or JavaScript scripting API for actions, project manipulation, batch editing, and UI extensions.
-
----
-
-## Milestone 4 — Completion Sprint Closed (v0.3.0)
-
-All M4 completion-sprint items shipped:
-
-1. ✅ **Per-track Input + Monitor Persistence** — Inspector audio input, MIDI controller pin, and monitor mode persist on the track `ValueTree`; legacy RuntimeState XML migrated on load.
-2. ✅ **Time Signature Changes UI** — Transport edits insert/update at the playhead bar; Timeline ruler shows selectable/drag-editable signature flags with preset and remove actions.
-3. ✅ **Customisable Keyboard Shortcuts** — `Source/Keymap.h` defines `AerionKeymap` + `AerionActionCatalog`; the new `KeyboardShortcutsPanel` (now in `Views/KeyboardShortcutsDialog.h`) is an editable list with click-to-capture, conflict detection (offers reassign/cancel), reset-to-defaults, and import/export of `.aerionkeys` files; bindings persist via `appProperties` under key `keymap`.
-4. ✅ **Mixer M/S Icons** — `Mixer::drawSideButtonColumn` renders mute/solo via `Timeline::drawTrackIconBtn` using `BinaryData::aerion_mute_svg` / `aerion_Solo_svg`, matching Timeline and Inspector. *Superseded in M5: now letter buttons via `paintLetterButton`.*
-5. ✅ **Freeze/Tempo Polish Pass** — Tempo lane now shows a resize cursor and a brighter highlight on hover (`hoveredTempoNodeIndex`); non-root tempo nodes are clamped between their neighbours during drag so ordering can no longer flip; freeze/unfreeze guards (empty track, already-freezing, missing freeze WAV) verified.
-
-**Next:** M6 — Complete Core. M5 closed on October 6, 2026; its deferred items are listed under [Deferred from Milestone 5](#deferred-from-milestone-5).
 
 ---
 

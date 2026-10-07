@@ -4,11 +4,7 @@
 
 **Aerion DAW** is a native digital audio workstation built in **C++20** with **JUCE 8** and the **Tracktion Engine v3.2**. It targets serious home and project-studio production on **Windows 11** first, with **macOS** builds supported through CI and release packaging.
 
-<<<<<<< HEAD
-**Current version:** v0.5.0 Alpha, the first public release · **Active milestone:** [M6 — Complete Core](AerionDawCpp/Documentation/ROADMAP.md) (targeting v0.6.0) · **[User Manual](Aerion-DAW-Manual.html)**
-=======
-**Current version:** v0.5.0 Alpha · **Active milestone:** [M6 — Complete Core](AerionDawCpp/Documentation/ROADMAP.md)
->>>>>>> ded93e1b08530f7f8bb68715208b4d7c6f1cdc41
+**Current version:** v0.5.0 Alpha · **Active milestone:** [M6 — Complete Core](AerionDawCpp/Documentation/ROADMAP.md) · **[User Manual](Aerion-DAW-Manual.html)**
 
 [![Build & Smoke Tests](https://github.com/aethos-studio/Aerion-DAW/actions/workflows/build-test.yml/badge.svg)](https://github.com/aethos-studio/Aerion-DAW/actions/workflows/build-test.yml)
 
@@ -46,8 +42,8 @@ The long-term vision includes AI-assisted workflows and cloud project sync, but 
 - **Detachable mixer** window and per-track inspector
 - Phase invert, mono sum, HPF/LPF quick filters
 - Serial **insert** chain with bypass and drag-to-reorder
-- **Sends**, plugin presets, and mix **snapshots**
-- **VST3** hosting (Windows/Linux) and **AU** (macOS)
+- **Sends** to buses and mix **snapshots**
+- **VST3** plugin hosting (Windows and macOS) and **Audio Units** (macOS)
 
 ### Project and export
 
@@ -71,6 +67,22 @@ The long-term vision includes AI-assisted workflows and cloud project sync, but 
 
 ---
 
+## Shipped milestones
+
+**Milestone 1 — Editing (v0.0.1).** Trim, split, move and nudge clips; clip gain and fade handles; record takes and comp them; loop range and markers; snap to grid; in the Piano Roll, quantize, a velocity lane and MIDI CC / pitch-bend lanes.
+
+**Milestone 2 — Mixing (v0.1).** Phase invert, mono sum and high-pass / low-pass quick filters per track; clip indicators and a K-14 meter scale on the master; folder tracks that can be submix buses, with mute and solo passing down to their tracks; sends to new buses; an insert chain with bypass and drag-to-reorder; mix snapshots.
+
+**Milestone 3 — Recording & Monitoring (v0.2).** Monitor modes (Auto / On / Off); an audio input and a MIDI controller per track; plugin delay compensation; count-in, metronome with level and accented downbeat; punch in/out; a live waveform while recording; ASIO, WASAPI, DirectSound and Core Audio, with a one-click reset of the audio settings.
+
+**Milestone 4 — Project & Workflow (v0.3).** Projects saved as one `.aerion` file, Collect & Save, freeze; mixdown and stem export to WAV / AIFF / FLAC / OGG with a preview, presets and file-name wildcards; tempo map and time-signature changes on the ruler; customisable keyboard shortcuts; recent projects; auto-save and crash recovery.
+
+**Milestone 5 — Polish & Stability (v0.4).** A fast interface (every measured repaint fits a 60 Hz frame at 1080p) and a lean audio engine (4.6 % of a 128-sample block at the 99th percentile for 32 tracks); UI scaling up to 200 %; resizable tracks; plugin crash protection on Windows and out-of-process plugin scanning; screen-reader and keyboard access; a log console and local crash reports; workspace layouts; CI on Windows and macOS and signed-when-possible installers. Numbers in [`PERFORMANCE.md`](AerionDawCpp/Documentation/PERFORMANCE.md).
+
+What comes next is in the [roadmap](AerionDawCpp/Documentation/ROADMAP.md).
+
+---
+
 ## Recent progress (October 2026)
 
 **v0.5.0 Alpha** is the first public release:
@@ -79,24 +91,6 @@ The long-term vision includes AI-assisted workflows and cloud project sync, but 
 - **Razor tool** — with snap on, its guide line no longer leaves copies behind as the mouse moves
 - **Version** — the app and installers say 0.5.0 Alpha; the macOS installer is named `…-macOS.dmg`
 
-Milestone 5 closed on October 6, 2026 (v0.4.0):
-
-- **Plugin settings saved (data loss)** — settings changed in a plugin's own window could be missing from saved projects and auto-save; saving now writes each plugin's current state first
-- **Plugin crash protection** extended to loading, saving and restoring settings and opening editors, with out-of-process plugin scanning
-- **Accessibility** — painted controls are reachable by screen readers and the keyboard
-- **Audio performance** measured with `AerionBench --audio`: 4.6 % of a 128-sample block at the 99th percentile for a 32-track reference project, no allocations on the audio thread
-- **Release packaging** — installers named after the release tag; macOS signing and notarization ready to run once the certificate secrets are added
-
-Earlier Milestone 5 work:
-
-- **Save prompts fixed (data loss)** — the Quit, New Project, Open Project, Open Recent and Crash Recovery prompts acted on the wrong buttons ("Save & Quit" quit without saving, "Cancel" discarded the project). Each button now does what it says, and Escape cancels
-- **Plugin crash protection** (Windows) — a plugin that crashes while processing audio is caught, silenced, bypassed and reported, instead of taking the session down
-- **UI performance** — everything measured fits a 60 Hz frame at 1080p: the Timeline draws from a cached layer with the playhead on its own overlay, clip drags repaint only the clip, the Mixer repaints only meters during playback, and one display-synced clock drives all animation. **View → Graphics Engine** and **View → Lightweight UI** help on older machines. Numbers in [`PERFORMANCE.md`](AerionDawCpp/Documentation/PERFORMANCE.md)
-- **Unsaved-changes tracking** — a fresh project no longer counts as changed; clip drags and other direct edits now do
-- **Stability** — crashes on quit / open / new project and an unfreeze data-loss bug fixed
-- **Code layout** — the 9,000-line `UIComponents.h` is split into one header per view under `Source/Views/`
-- **Tooling** — `AerionBench` headless paint benchmark with pixel checks (`--verify`) at any display scale (`--scale`), and smoke tests for the engine, plugin fault handling and dialogs
-
 ---
 
 ## Known limits
@@ -104,7 +98,7 @@ Earlier Milestone 5 work:
 | Area | State |
 |---|---|
 | Performance | UI and audio targets met; numbers in [`PERFORMANCE.md`](AerionDawCpp/Documentation/PERFORMANCE.md) |
-| Plugin crash protection | Windows catches crashes while processing, loading, saving, restoring and opening editors. Crashes inside an open editor, and all plugin crashes on macOS, need out-of-process hosting (deferred) |
+| Plugin crash protection | Windows catches crashes while processing, loading, saving, restoring and opening editors. Crashes inside an open editor, and all plugin crashes on macOS, need out-of-process plugin hosting (planned for Milestone 8) |
 | Error reporting | Done: the app log shows in a **Console** bottom-panel tab; a crash writes a local report (stack, log, Windows minidump) that the next launch points to |
 | High-DPI / UI scaling | Done: **View → UI Size** (Auto / 100–200 %) scales the whole interface; the Timeline stays fast and sharp on scaled displays |
 | Track heights | Done: drag a track's bottom edge (or use Track Height in its context menu); saved per track |
@@ -113,7 +107,7 @@ Earlier Milestone 5 work:
 | Accessibility | Mixer, Transport, Toolbar, Inspector and track headers; Timeline clips and Piano Roll notes not yet |
 | AI / Cloud | `AIManager` is a mock; Google Drive client has placeholder OAuth credentials |
 
-See [`STATUS.md`](AerionDawCpp/Documentation/STATUS.md) and [`ROADMAP.md`](AerionDawCpp/Documentation/ROADMAP.md) for the full milestone breakdown.
+See [`ROADMAP.md`](AerionDawCpp/Documentation/ROADMAP.md) for what's coming and [`STATUS.md`](AerionDawCpp/Documentation/STATUS.md) for the detailed status.
 
 ---
 
