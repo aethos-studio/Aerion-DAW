@@ -83,3 +83,6 @@ node_modules/
 
 # Release notes are pasted into the GitHub release, not tracked
 RELEASE_NOTES.md
+
+# Internal roadmap: ideas proved out in concept before the official ROADMAP.md
+AerionDawCpp/Documentation/ROADMAP_INTERNAL.md
