@@ -1,7 +1,7 @@
-# Aerion DAW Project Status — October 6, 2026 (v0.4.0 Pre-Alpha)
+# Aerion DAW Project Status — October 7, 2026 (v0.5.0 Alpha)
 
 ## Overview
-Aerion DAW has closed **Milestone 5: Polish & Stability (v0.4.0)** on October 6, 2026. Milestones 1–5 — Editing, Mixing, Recording & Monitoring, Project & Workflow, and Polish & Stability — are complete. The last M5 session fixed a data-loss bug (plugin settings changed in a plugin's own window were not always saved), extended plugin crash protection on Windows to loading, saving and restoring a plugin's settings and opening its editor, moved plugin scanning into a child process, made the painted controls reachable by screen readers and the keyboard, measured the audio side (`AerionBench --audio`, all targets met), and finished the release workflow (installers named after the tag, macOS signing and notarization ready for when the certificates exist). Two items moved out of M5 because they are not code work in the repository: production code-signing certificates (blocked on purchase) and out-of-process plugin hosting (a large architectural change, scheduled after M6). The current focus is **Milestone 6: Complete Core (v0.5.0)**. CI builds and smoke-tests on **both Windows and macOS**; release packaging is a separate workflow; both are **manual (`workflow_dispatch`) only**.
+**v0.5.0 Alpha is the first public release** (October 7, 2026): the Milestone 5 app plus the first Milestone 6 work and a user manual (`Aerion-DAW-Manual.html`, also under Help → User Manual). Milestone targets from M6 on moved up one minor version (M6 is now v0.6.0). Aerion DAW closed **Milestone 5: Polish & Stability (v0.4.0)** on October 6, 2026. Milestones 1–5 — Editing, Mixing, Recording & Monitoring, Project & Workflow, and Polish & Stability — are complete. The last M5 session fixed a data-loss bug (plugin settings changed in a plugin's own window were not always saved), extended plugin crash protection on Windows to loading, saving and restoring a plugin's settings and opening its editor, moved plugin scanning into a child process, made the painted controls reachable by screen readers and the keyboard, measured the audio side (`AerionBench --audio`, all targets met), and finished the release workflow (installers named after the tag, macOS signing and notarization ready for when the certificates exist). Two items moved out of M5 because they are not code work in the repository: production code-signing certificates (blocked on purchase) and out-of-process plugin hosting (a large architectural change, scheduled after M6). The current focus is **Milestone 6: Complete Core (v0.6.0)**. CI builds and smoke-tests on **both Windows and macOS**; release packaging is a separate workflow; both are **manual (`workflow_dispatch`) only**.
 
 ## Milestone Progress
 
@@ -12,7 +12,7 @@ Aerion DAW has closed **Milestone 5: Polish & Stability (v0.4.0)** on October 6,
 | M3: DAW Essentials — Recording & Monitoring (v0.2.0) | **Complete** — Metronome, Count-In, Punch In/Out, PDC, multi-channel input routing, buffer safety readout, live recording waveform, full driver pack (ASIO/WASAPI/DirectSound/CoreAudio/ALSA/JACK/WinRT MIDI), Reset Audio Settings, per-track monitor modes, per-track MIDI controller selector |
 | M4: DAW Essentials — Project & Workflow (v0.3.0) | **Complete** — Save/Load (`.aerion`), Collect & Save, Bounce/Freeze, Mixdown + Stems export, Tempo Map, Time Signature changes, per-track input/monitor persistence, customisable keyboard shortcuts (`AerionKeymap`), Recent Projects, Auto-save / Crash Recovery, icon system |
 | M5: DAW Essentials — Polish & Stability (v0.4.0) | **Complete** (October 6, 2026) — performance (UI and audio), plugin crash protection (Windows), accessibility, error reporting, UI scaling, packaging; paid signing and out-of-process hosting deferred |
-| M6: DAW Essentials — Complete Core (v0.5.0) | **Next** — stock instruments and effects, full parameter automation, time-stretch, sidechain, MIDI learn and control surfaces, clip processing, templates, loudness metering, CLAP spike |
+| M6: DAW Essentials — Complete Core (v0.6.0) | **In progress** — first part shipped in v0.5.0 (stock devices in the engine, 4OSC on new MIDI tracks, generic device editor); still to come: stock instruments and effects, full parameter automation, time-stretch, sidechain, MIDI learn and control surfaces, clip processing, templates, loudness metering, CLAP spike |
 | M7–M9 + Future USPs | Not started — `AIManager` is still a 2-second mock; ONNX Runtime declared in CMake but intentionally not linked |
 
 ---
@@ -38,7 +38,7 @@ What already exists versus what remains, verified against the source tree:
 | Workspace Layouts | **Done** | **View → Workspace** submenu: built-in Editing / Mixing / Recording presets + save/delete custom layouts. Captures inspector/browser collapse, mixer dock/detach, bottom panel, and console height; custom layouts + last-active layout persist via `appProperties` and restore on launch. |
 | Accessibility | **Done** | `UI/Accessibility.h` proxies give the painted controls of the Mixer, Transport, Toolbar, Inspector and Timeline track headers a title, role and value; Tab, Space / Return, arrows, Page Up / Down and Home work them. Mixer: Left / Right between strips, Ctrl + Left / Right pan, M / S / R on the focused strip. F6 cycles panes. Checked by `AerionBench --verify`. Timeline clips and Piano Roll notes not yet covered. |
 | Error Reporting / Console panel | **Done** | The app log (`Logger::writeToLog`) shows in the **Console** bottom-panel tab and still goes to `aerion.log`; `DBG` output is not captured. `CrashReporter` writes a report folder per crash under `AerionDAW/Crashes` (reason, thread, stack, the session's log, a minidump on Windows); the next launch points to it before Crash Recovery. Reports stay local; `std::terminate` / `abort` on Windows are not caught. |
-| App version / title bar | **Done** | CMake `project` version **0.4.0** (installers take the release tag's version, `AERION_PACKAGE_VERSION`); menu bar + window title use `Theme::windowTitle()` (`<ProjectName> — Aerion DAW`); About dialog reads `ProjectInfo::versionString`. |
+| App version / title bar | **Done** | CMake `project` version **0.5.0**, release stage **Alpha** (`AERION_RELEASE_STAGE`, shown in the About dialog and the installer title; installers take the release tag's version, `AERION_PACKAGE_VERSION`, and are named `…-Windows.exe` / `…-macOS.dmg`); menu bar + window title use `Theme::windowTitle()` (`<ProjectName> — Aerion DAW`); About dialog reads `ProjectInfo::versionString`. |
 
 ---
 
@@ -46,6 +46,12 @@ What already exists versus what remains, verified against the source tree:
 
 ### October 2026
 
+- **v0.5.0 Alpha (October 7), first public release:**
+  - **User manual:** `Aerion-DAW-Manual.html` at the repository root, one self-contained page (fonts and logos embedded). It is built into the app; **Help → User Manual** writes it next to the settings (`UserManual.h`) and opens it in the default browser.
+  - **Stock devices and generic editor:** the engine offers ten Tracktion built-ins; new MIDI tracks get 4OSC and a level meter; built-in devices open in a knob-per-parameter editor (`UI/DeviceEditor.h`). The EQ behind the quick filters no longer mistakes a user's EQ for its own.
+  - **Razor tool:** with snap on, the hairline left copies in the Timeline's cached layer; fixed, with an `AerionBench --verify` check.
+  - **CI on Node 24:** checkout v7, upload-artifact v7, download-artifact v8; MSVC set up by a pwsh step instead of `ilammy/msvc-dev-cmd`.
+  - **Version:** 0.5.0 Alpha in the app, About dialog and installers; the macOS installer is named `…-macOS.dmg`.
 - **Milestone 5 closed (October 6, v0.4.0):**
   - **Plugin settings saved with the project (data loss):** Tracktion writes a plugin's settings into the project only when the Edit is flushed, and saving did not flush it, so settings changed in a plugin's own window could be missing from saved projects and auto-save. Saving, mixdown export and freeze now flush first.
   - **Plugin crash protection beyond audio processing (Windows):** crashes while loading a plugin, saving or restoring its settings, or opening its editor are caught; the plugin is switched off for the session and the dialog names the step. Plugin scanning runs in a child process, so a plugin that crashes the scanner is skipped and logged.
@@ -118,7 +124,7 @@ What already exists versus what remains, verified against the source tree:
 
 Mirrors [`ROADMAP.md`](./ROADMAP.md) so the two documents agree.
 
-**M6 — Complete Core (v0.5.0)**, in this order: stock instruments and effects, full parameter automation, audio warping and time-stretch, sidechain routing, MIDI learn and control surfaces, clip processing, templates, analysis metering, CLAP spike.
+**M6 — Complete Core (v0.6.0)**, in this order: stock instruments and effects, full parameter automation, audio warping and time-stretch, sidechain routing, MIDI learn and control surfaces, clip processing, templates, analysis metering, CLAP spike.
 
 **Deferred from M5:**
 
@@ -129,7 +135,7 @@ Mirrors [`ROADMAP.md`](./ROADMAP.md) so the two documents agree.
 
 - **Track faders reported not moving** (October 4, 2026). Not reproduced. One cause that fits is now fixed: on a track whose volume automation drives the fader, a move was undone by the curve; it now overrides the automation. Whether the report's tracks had automation is unknown; if it happens again, note whether the track has a volume or pan curve.
 - **`release-package` could not create the GitHub Release** (HTTP 403 on v0.3.6, although the job's token had `contents: write`, the repository has no rulesets and earlier runs worked). Cause not found. If it recurs, add a `RELEASE_TOKEN` secret; the step uses it instead of `GITHUB_TOKEN`. The installers are attached to the run as artifacts either way.
-- **v0.4.0 not yet tagged:** `build-test` passed on Windows and macOS for the M5 close-out (run 37452642483, October 6, 2026). Run `release-package` with tag `v0.4.0` to publish the installers.
+- **v0.5.0 Alpha not yet tagged:** run `build-test`, then `release-package` with tag `v0.5.0-alpha` (as a pre-release) to publish the installers. v0.4.0 was never published; 0.5.0 Alpha is the first public release.
 
 ## Trademarks
 

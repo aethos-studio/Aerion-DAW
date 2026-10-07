@@ -13,9 +13,9 @@ A milestone is done when its items are verified: benchmark targets for performan
 
 ---
 
-## Current State (v0.4.0 Pre-Alpha — October 2026)
+## Current State (v0.5.0 Alpha — October 2026)
 
-**Milestones 1–5 are complete.** Active development is **Milestone 6 (Complete Core, v0.5.0)**, which closes the remaining gaps to a modern DAW baseline. The app version is **v0.4.0** (CMake `project` version); release installers are named after the tag they are built for. Two items left M5 for reasons outside the code: see [Deferred from Milestone 5](#deferred-from-milestone-5).
+**Milestones 1–5 are complete.** **v0.5.0 Alpha** is the first public release: the Milestone 5 app plus the first Milestone 6 work and the user manual. Active development is **Milestone 6 (Complete Core, v0.6.0)**, which closes the remaining gaps to a modern DAW baseline. The app version is **v0.5.0** (CMake `project` version, with the release stage `AERION_RELEASE_STAGE` = Alpha); release installers are named after the tag they are built for. Milestone targets from M6 on moved up one minor version when 0.5.0 became the public alpha. Two items left M5 for reasons outside the code: see [Deferred from Milestone 5](#deferred-from-milestone-5).
 
 All items below are fully implemented and working in the current build (unless marked as partial).
 
@@ -216,10 +216,10 @@ These are not code work that can be finished in the repository, so they no longe
 
 ---
 
-## Milestone 6 — DAW Essentials: Complete Core (v0.5.0)
+## Milestone 6 — DAW Essentials: Complete Core (v0.6.0)
 *Close the gaps every mainstream DAW already covers, so Aerion is complete before it adds differentiators. Several items build on capabilities Tracktion Engine already ships, so they are exposure and UI work rather than new DSP.*
 
-- [ ] **Stock Instruments & Effects:** Expose Tracktion's built-in devices as Aerion devices with styled editors: EQ, Compressor / Limiter, Reverb, Delay, Chorus, Phaser, Pitch Shift, the 4OSC synth and the Sampler. Add a "Stock" category to the Browser and put a default instrument on new MIDI tracks, so a MIDI track makes sound without third-party plugins.
+- [ ] **Stock Instruments & Effects:** Expose Tracktion's built-in devices as Aerion devices with styled editors: EQ, Compressor / Limiter, Reverb, Delay, Chorus, Phaser, Pitch Shift, the 4OSC synth and the Sampler. Add a "Stock" category to the Browser and put a default instrument on new MIDI tracks, so a MIDI track makes sound without third-party plugins. *Partial (v0.5.0): the engine offers all ten stock devices and they show in the insert lists; new MIDI tracks get 4OSC; built-in devices open in a generic knob editor. Still to do: the Browser / picker section, custom EQ and Compressor editors, and a settings toggle for the default instrument.*
 - [ ] **Full Parameter Automation:** Automate any plugin or mixer parameter, not just volume and pan. Per-track lane chooser, multiple visible lanes, automation modes (Read / Write / Touch / Latch) that record from UI and controller moves, point thinning, and copy/paste of automation with clips.
 - [ ] **Audio Warping & Time-Stretch:** Audio clips follow tempo changes (auto-tempo), warp markers for manual timing correction, per-clip pitch and speed controls. SoundTouch is already compiled in (`TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH`); evaluate higher-quality stretchers (Rubber Band, élastique) and their licences.
 - [ ] **Sidechain Routing:** Sidechain inputs for stock and hosted plugins that support them, set up from the Inspector and the Mixer strip context menu (for ducking, sidechain compression and gating).
@@ -232,7 +232,7 @@ These are not code work that can be finished in the repository, so they no longe
 
 ---
 
-## Milestone 7 — Pro Composition & Audio Editing (v0.6.0)
+## Milestone 7 — Pro Composition & Audio Editing (v0.7.0)
 *Close pro-composition DAW gaps for songwriters, composers, and vocal producers.*
 
 *Custom keyboard shortcuts shipped in Milestone 4 — see `AerionKeymap` / `KeyboardShortcutsPanel`.*
@@ -248,7 +248,7 @@ These are not code work that can be finished in the repository, so they no longe
 
 ---
 
-## Milestone 8 — Creative Production & Performance (v0.7.0)
+## Milestone 8 — Creative Production & Performance (v0.8.0)
 *Close the Ableton / Bitwig / FL Studio gaps for loop-based writing, modulation, and beat production.*
 
 - [ ] **Clip Launcher:** Add a non-linear scene/clip grid beside the Arranger. Clips should launch in sync, support follow actions later, and record performances back into the Timeline.
@@ -263,7 +263,7 @@ These are not code work that can be finished in the repository, so they no longe
 
 ---
 
-## Milestone 9 — AI, Cloud & Collaboration Differentiators (v0.8.0+)
+## Milestone 9 — AI, Cloud & Collaboration Differentiators (v0.9.0+)
 *Make Aerion feel distinct instead of just feature-complete.*
 
 *If AI becomes Aerion's headline feature, ONNX Runtime Integration and Real Audio-to-MIDI can be pulled forward to start right after Milestone 6; today the only AI piece is the `AIManager` mock.*

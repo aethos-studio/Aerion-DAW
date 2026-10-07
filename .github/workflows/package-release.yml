@@ -4,7 +4,7 @@ name: release-package
 # installer and the macOS DMG. Smoke tests live in their own workflow
 # (build-test.yml); run those first if you want a pre-release check.
 #
-# Installers are named after the tag (v0.4.0-beta1 -> AerionDAW-0.4.0-beta1-*).
+# Installers are named after the tag (v0.5.0-alpha -> AerionDAW-0.5.0-alpha-Windows.exe / -macOS.dmg).
 # Optional secrets:
 #   WINDOWS_CERT_PFX_BASE64, WINDOWS_CERT_PASSWORD   sign the Windows app and installer
 #   APPLE_DEVELOPER_ID_P12_BASE64, APPLE_DEVELOPER_ID_P12_PASSWORD
@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Release tag (e.g. v0.4.0). Created automatically if it does not already exist.'
+        description: 'Release tag (e.g. v0.5.0-alpha). Created automatically if it does not already exist.'
         required: true
       release_name:
         description: 'Release title (defaults to the tag name if left blank).'

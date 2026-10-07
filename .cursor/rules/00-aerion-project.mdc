@@ -39,7 +39,7 @@ Do not bypass the ValueTree for persistent UI state. Do not put audio-thread wor
 
 ## Milestone context
 
-Current focus: **Milestone 6 (Complete Core, v0.5.0)**; Milestones 1–5 are complete. Read `AerionDawCpp/Documentation/STATUS.md` and `ROADMAP.md` before large features.
+Current version: **v0.5.0 Alpha**, the first public release. Current focus: **Milestone 6 (Complete Core, v0.6.0)**; Milestones 1–5 are complete. The user manual is `Aerion-DAW-Manual.html` at the repository root: update it when user-facing behaviour changes. Read `AerionDawCpp/Documentation/STATUS.md` and `ROADMAP.md` before large features.
 
 ## When unsure
 

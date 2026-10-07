@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
-project(AerionDaw VERSION 0.4.0)
+project(AerionDaw VERSION 0.5.0)
+
+# Release stage shown next to the version (About dialog, installer title).
+set(AERION_RELEASE_STAGE "Alpha" CACHE STRING "Release stage shown next to the version, e.g. Alpha, Beta; empty for none")
 
 # Fetch Tracktion Engine (includes JUCE)
 include(FetchContent)
@@ -160,6 +163,7 @@ target_compile_features(AerionDaw PRIVATE cxx_std_20)
 target_compile_definitions(AerionDaw PRIVATE
     JUCE_PLUGINHOST_VST3=1
     $<$<PLATFORM_ID:Darwin>:JUCE_PLUGINHOST_AU=1>
+    AERION_RELEASE_STAGE="${AERION_RELEASE_STAGE}"
 )
 
 # --- Paint / hot-path profiling (opt-in) ---------------------------------------
@@ -426,7 +430,7 @@ endif()
 # --- Packaging ----------------------------------------------------------------
 # Shared CPack metadata for both NSIS (Windows) and DragNDrop (macOS). The
 # version comes from `project(... VERSION)` above. A release build passes the
-# release tag's version (e.g. 0.4.0-beta1) as AERION_PACKAGE_VERSION so the
+# release tag's version (e.g. 0.5.0-alpha) as AERION_PACKAGE_VERSION so the
 # installers carry it.
 set(AERION_PACKAGE_VERSION "" CACHE STRING
     "Version shown in installer names and titles (the release tag without its leading v); empty uses the project version")
@@ -440,9 +444,14 @@ set(CPACK_PACKAGE_VERSION          "${AERION_PACKAGE_VERSION}")
 set(CPACK_PACKAGE_VERSION_MAJOR    "${PROJECT_VERSION_MAJOR}")
 set(CPACK_PACKAGE_VERSION_MINOR    "${PROJECT_VERSION_MINOR}")
 set(CPACK_PACKAGE_VERSION_PATCH    "${PROJECT_VERSION_PATCH}")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Aerion DAW - Pre-Alpha (v${AERION_PACKAGE_VERSION})")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Aerion DAW ${AERION_RELEASE_STAGE} (v${AERION_PACKAGE_VERSION})")
 set(CPACK_PACKAGE_INSTALL_DIRECTORY   "Aerion DAW")
-set(CPACK_PACKAGE_FILE_NAME           "AerionDAW-${AERION_PACKAGE_VERSION}-${CMAKE_SYSTEM_NAME}")
+if (APPLE)
+    set(AERION_PACKAGE_PLATFORM "macOS")
+else()
+    set(AERION_PACKAGE_PLATFORM "${CMAKE_SYSTEM_NAME}")
+endif()
+set(CPACK_PACKAGE_FILE_NAME           "AerionDAW-${AERION_PACKAGE_VERSION}-${AERION_PACKAGE_PLATFORM}")
 set(CPACK_PACKAGE_HOMEPAGE_URL        "https://aethos.studio")
 
 # Whitelist only the AerionDaw sub-project for the installer payload. By

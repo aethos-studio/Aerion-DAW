@@ -4,7 +4,7 @@
 
 **Aerion DAW** is a native digital audio workstation built in **C++20** with **JUCE 8** and the **Tracktion Engine v3.2**. It targets serious home and project-studio production on **Windows 11** first, with **macOS** builds supported through CI and release packaging.
 
-**Current version:** v0.4.0 Pre-Alpha · **Active milestone:** [M6 — Complete Core](AerionDawCpp/Documentation/ROADMAP.md) (targeting v0.5.0)
+**Current version:** v0.5.0 Alpha, the first public release · **Active milestone:** [M6 — Complete Core](AerionDawCpp/Documentation/ROADMAP.md) (targeting v0.6.0) · **[User Manual](Aerion-DAW-Manual.html)**
 
 [![Build & Smoke Tests](https://github.com/aethos-studio/Aerion-DAW/actions/workflows/build-test.yml/badge.svg)](https://github.com/aethos-studio/Aerion-DAW/actions/workflows/build-test.yml)
 
@@ -12,7 +12,7 @@
 
 ## What Aerion is today
 
-Aerion is a **working pre-alpha DAW**, not a demo shell. You can record, edit, mix, and export a complete song session on Windows today. Milestones 1–5 — editing, mixing, recording, project workflow, and polish & stability — are complete. Milestone 6 fills the remaining gaps to a modern DAW baseline: stock instruments and effects, full automation, time-stretch and sidechain.
+Aerion is a **working alpha DAW**, not a demo shell. You can record, edit, mix, and export a complete song session on Windows today. Milestones 1–5 — editing, mixing, recording, project workflow, and polish & stability — are complete. Milestone 6 fills the remaining gaps to a modern DAW baseline: stock instruments and effects, full automation, time-stretch and sidechain.
 
 The long-term vision includes AI-assisted workflows and cloud project sync, but those are **scaffolding only** right now. The current focus is making the core DAW fast, stable, and trustworthy.
 
@@ -68,6 +68,13 @@ The long-term vision includes AI-assisted workflows and cloud project sync, but 
 ---
 
 ## Recent progress (October 2026)
+
+**v0.5.0 Alpha** is the first public release:
+
+- **User manual** — [`Aerion-DAW-Manual.html`](Aerion-DAW-Manual.html), one self-contained page covering the whole app; **Help → User Manual** opens it in your browser
+- **New MIDI tracks make sound** — they come with Tracktion's 4OSC synth, and built-in devices open in a generic editor with a knob per parameter
+- **Razor tool** — with snap on, its guide line no longer leaves copies behind as the mouse moves
+- **Version** — the app and installers say 0.5.0 Alpha; the macOS installer is named `…-macOS.dmg`
 
 Milestone 5 closed on October 6, 2026 (v0.4.0):
 

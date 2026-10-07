@@ -4,6 +4,11 @@
 
 #include "ViewShared.h"
 
+// The app target sets this from CMake (AERION_RELEASE_STAGE, e.g. "Alpha").
+#ifndef AERION_RELEASE_STAGE
+ #define AERION_RELEASE_STAGE ""
+#endif
+
 //==============================================================================
 // "About Aerion DAW" dialog. Hosts the vertical Aerion logo, version + credits,
 // and (when ASIO is compiled in) the official Steinberg "ASIO compatible" logo
@@ -66,7 +71,9 @@ public:
         g.setColour (juce::Colour (0xff63b3ed));
         {
             auto versionRow = b.removeFromTop (18.0f);
+            const juce::String stage (AERION_RELEASE_STAGE);
             g.drawText ("v" + juce::String (ProjectInfo::versionString)
+                            + (stage.isNotEmpty() ? " " + stage.toUpperCase() : juce::String())
                             + juce::String::fromUTF8 (u8"   \u2014   AETHOS STUDIO LTD."),
                         versionRow.toNearestInt(),
                         juce::Justification::centred, false);

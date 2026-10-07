@@ -289,7 +289,7 @@ Local Debug presets are fine for day-to-day work; run Release + tests before ope
 
 ## Release packaging and signing
 
-`release-package` (`.github/workflows/package-release.yml`, run from the Actions tab) builds the Windows NSIS installer and the macOS DMG and attaches them to a GitHub Release for the `tag_name` input. Installers are named after the tag without its `v` (`v0.4.0-beta1` → `AerionDAW-0.4.0-beta1-Windows.exe`), passed to CMake as `AERION_PACKAGE_VERSION`; local builds use the `project()` version.
+`release-package` (`.github/workflows/package-release.yml`, run from the Actions tab) builds the Windows NSIS installer and the macOS DMG and attaches them to a GitHub Release for the `tag_name` input. Installers are named after the tag without its `v` (`v0.5.0-alpha` → `AerionDAW-0.5.0-alpha-Windows.exe` and `AerionDAW-0.5.0-alpha-macOS.dmg`), passed to CMake as `AERION_PACKAGE_VERSION`; local builds use the `project()` version. The release stage (`AERION_RELEASE_STAGE`, default `Alpha`) appears in the About dialog and the installer title; change it in `CMakeLists.txt` when the stage changes.
 
 Signing is optional; each part runs only when its repository secrets exist:
 
