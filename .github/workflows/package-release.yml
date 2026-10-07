@@ -154,6 +154,7 @@ jobs:
           Write-Output "Signing with: $($cert.Subject), thumbprint $($cert.Thumbprint), valid until $($cert.NotAfter.ToString('yyyy-MM-dd')) (from $source)"
           if ($cert.NotAfter -lt (Get-Date)) { Write-Error "The certificate expired on $($cert.NotAfter)"; exit 1 }
           "SIGN_PFX=$pfx" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "SIGN_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "SIGN_FROM_KEEPER=$([int](Test-Path env:KEEPER_CERT_PW))" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       # Sign the built executable in place before CPack packages it, so the exe
@@ -168,7 +169,9 @@ jobs:
           $exe = (Get-ChildItem -Path build\AerionDaw_artefacts -Recurse -Filter "Aerion DAW.exe" | Select-Object -First 1).FullName
           if (-not $exe) { Write-Error "Built 'Aerion DAW.exe' not found"; exit 1 }
           & $signtool sign /f $env:SIGN_PFX /p $password /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "$exe"
-          & $signtool verify /pa "$exe"
+          if ($LASTEXITCODE -ne 0) { Write-Error "signtool could not sign the application"; exit 1 }
+          # Not `signtool verify /pa`: that also needs a trusted root, which a self-signed certificate lacks.
+          & "${{ github.workspace }}\AerionDawCpp\Tools\Test-AerionSignature.ps1" -Path $exe -Thumbprint $env:SIGN_THUMBPRINT
 
       - name: Install NSIS (for CPack)
         shell: pwsh
@@ -194,7 +197,8 @@ jobs:
           $password = if ($env:SIGN_FROM_KEEPER -eq '1') { $env:KEEPER_CERT_PW } else { $env:CERT_PW }
           $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1).FullName
           & $signtool sign /f $env:SIGN_PFX /p $password /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "${{ steps.find_installer.outputs.path }}"
-          & $signtool verify /pa "${{ steps.find_installer.outputs.path }}"
+          if ($LASTEXITCODE -ne 0) { Write-Error "signtool could not sign the installer"; exit 1 }
+          & "${{ github.workspace }}\AerionDawCpp\Tools\Test-AerionSignature.ps1" -Path "${{ steps.find_installer.outputs.path }}" -Thumbprint $env:SIGN_THUMBPRINT
 
       - name: Remove code-signing certificate
         if: ${{ always() }}
