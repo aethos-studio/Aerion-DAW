@@ -648,10 +648,12 @@ namespace
 
         bool isReady() const   { return editor != nullptr; }
 
-        /** Ctrl / Cmd + A, through the editor's own shortcut handling. */
+        /** Presses whatever key Select All Notes is bound to, through the
+            editor's own shortcut handling. Not a fixed Ctrl / Cmd + A: on
+            macOS Ctrl and Cmd are different keys, and the binding says which. */
         bool selectAll()
         {
-            return editor->keyPressed (juce::KeyPress ('a', juce::ModifierKeys::commandModifier, 0));
+            return editor->keyPressed (audioEngine.getKeymap().get ("pianoRoll.selectAll"));
         }
 
         AudioEngineManager& audioEngine;
@@ -1251,9 +1253,12 @@ int main (int argc, char* argv[])
         // row highlights are drawn too.
         {
             PianoRollScene scene (audioEngine, projectData, numNotes, numCC, width, pianoRollH);
-            if (! scene.isReady() || ! scene.selectAll())
+            const bool ready = scene.isReady();
+            if (! ready || ! scene.selectAll())
             {
-                std::cout << "  " << juce::String ("piano roll").paddedRight (' ', 28) << "FAILED to set up" << std::endl;
+                std::cout << "  " << juce::String ("piano roll").paddedRight (' ', 28)
+                          << (ready ? "FAILED: Select All Notes shortcut not handled" : "FAILED: could not create the MIDI clip")
+                          << std::endl;
                 ++failures;
             }
             else
