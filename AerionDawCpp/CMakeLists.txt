@@ -507,6 +507,16 @@ if (WIN32)
     set(CPACK_NSIS_MODIFY_PATH        ON)
     set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
 
+    # Wait for a running Aerion to close before replacing or deleting its
+    # files; the in-app updater starts the installer while Aerion shuts down.
+    # NSIS's !include does not find a path with forward slashes. CPack reads its
+    # config back as CMake code, so each backslash is doubled here, and it drops
+    # escaped double quotes, so the path is in single quotes.
+    set(_aerion_wait_nsh "${CMAKE_CURRENT_SOURCE_DIR}/Packaging/Windows/WaitForAerionToClose.nsh")
+    string(REPLACE "/" "\\\\" _aerion_wait_nsh "${_aerion_wait_nsh}")
+    set(CPACK_NSIS_EXTRA_PREINSTALL_COMMANDS "!include '${_aerion_wait_nsh}'")
+    set(CPACK_NSIS_EXTRA_UNINSTALL_COMMANDS  "!include '${_aerion_wait_nsh}'")
+
     # Start-menu + desktop shortcuts pointing at the installed exe.
     set(CPACK_NSIS_EXECUTABLES_DIRECTORY ".")
     set(CPACK_NSIS_MENU_LINKS         "Aerion DAW.exe" "Aerion DAW")
