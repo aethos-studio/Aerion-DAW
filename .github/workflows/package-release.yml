@@ -65,11 +65,19 @@ jobs:
       CERT_PW: ${{ secrets.WINDOWS_CERT_PASSWORD }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
+      # Same as ilammy/msvc-dev-cmd, which still runs on the deprecated Node 20.
+      - name: Set up MSVC (x64)
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * `
+                  -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw "No Visual Studio with the C++ x64 tools found" }
+          $vcvars = Join-Path $vs 'VC\Auxiliary\Build\vcvars64.bat'
+          cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') { "$($Matches[1])=$($Matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8 }
+          }
 
       - name: Pre-clone Tracktion Engine with HTTPS submodules
         shell: pwsh
@@ -136,7 +144,7 @@ jobs:
           & $signtool verify /pa "${{ steps.find_installer.outputs.path }}"
 
       - name: Upload NSIS installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: aerion-windows-installer
           path: ${{ steps.find_installer.outputs.path }}
@@ -158,7 +166,7 @@ jobs:
       APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Ninja
         run: brew install ninja
@@ -260,7 +268,7 @@ jobs:
         run: security delete-keychain "$SIGN_KEYCHAIN" || true
 
       - name: Upload DMG
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: aerion-macos-dmg
           path: ${{ steps.find_dmg.outputs.path }}
@@ -281,14 +289,14 @@ jobs:
     steps:
       - name: Download Windows installer
         if: ${{ needs.windows-installer.result == 'success' }}
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: aerion-windows-installer
           path: dist/windows
 
       - name: Download macOS DMG
         if: ${{ needs.macos-installer.result == 'success' }}
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: aerion-macos-dmg
           path: dist/macos

@@ -21,11 +21,19 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
+      # Same as ilammy/msvc-dev-cmd, which still runs on the deprecated Node 20.
+      - name: Set up MSVC (x64)
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * `
+                  -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw "No Visual Studio with the C++ x64 tools found" }
+          $vcvars = Join-Path $vs 'VC\Auxiliary\Build\vcvars64.bat'
+          cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') { "$($Matches[1])=$($Matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8 }
+          }
 
       - name: Show build tools
         shell: pwsh
@@ -80,7 +88,7 @@ jobs:
         run: .\build\AerionBench_artefacts\Debug\AerionBench.exe --verify --scale=1.25 --tracks=8 --clips=6 --frames=1
 
       - name: Upload Windows app artefact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: aerion-windows-debug-app
           path: build\AerionDaw_artefacts\**\Aerion DAW.exe
@@ -88,7 +96,7 @@ jobs:
 
       - name: Upload test logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: aerion-windows-test-logs
           path: build\Testing\Temporary\*.log
@@ -99,7 +107,7 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Ninja
         run: brew install ninja
@@ -145,7 +153,7 @@ jobs:
 
       - name: Upload test logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: aerion-macos-test-logs
           path: build/Testing/Temporary/*.log
