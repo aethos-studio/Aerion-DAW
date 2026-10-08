@@ -51,6 +51,7 @@ public:
 
     std::function<void()> onDetachRequested;
     std::function<void(tracktion::Track*, const juce::PluginDescription&)> onPluginDroppedOnStrip;
+    std::function<void(tracktion::Track*)> onStripSelected;
     bool detached = false;
 
     std::unique_ptr<juce::Drawable> faderKnobDrawable;
@@ -259,9 +260,7 @@ public:
             bool isMaster = (i == tracks.size());
             tracktion::Track* track = isMaster ? audioEngine.getMasterTrack() : tracks[i];
             juce::Colour tColor = isMaster ? Theme::meterRed : Theme::colourForTrack(i);
-            int stripW = kStripW;
-            if (! isMaster)
-                stripW += kInsertColW;
+            int stripW = kStripW + kInsertColW;
             if (auto* f = dynamic_cast<tracktion::FolderTrack*> (track))
                 if (audioEngine.isFolderSubmix (f))
                     stripW += kFolderSubmixExtraW;
@@ -361,12 +360,8 @@ public:
         rightCol.removeFromTop (juce::roundToInt (rightCol.getHeight() * kSideBtnTopFraction));
         stripBody.removeFromRight (2);
 
-        juce::Rectangle<int> insertCol;
-        if (! isMaster)
-        {
-            insertCol = stripBody.removeFromRight (kInsertColW);
-            stripBody.removeFromRight (2);
-        }
+        auto insertCol = stripBody.removeFromRight (kInsertColW);
+        stripBody.removeFromRight (2);
 
         const float pan      = audioEngine.getTrackPan (track);
         const float volumeDb = audioEngine.getTrackVolumeDb (track);
@@ -448,11 +443,11 @@ public:
         hit.paintedPan      = panPainted ? pan : previous->paintedPan;
         hit.paintedVolumeDb = (panPainted && faderPainted) ? volumeDb : previous->paintedVolumeDb;
 
-        if (! isMaster && insertCol.getWidth() > 0 && ! needsPaint (insertCol))
+        if (insertCol.getWidth() > 0 && ! needsPaint (insertCol))
         {
             hit.insertRowHits = previous->insertRowHits;
         }
-        else if (! isMaster && insertCol.getWidth() > 0)
+        else if (insertCol.getWidth() > 0)
         {
             auto externals = AudioEngineManager::getInsertDevices (track);
 
@@ -477,7 +472,7 @@ public:
         }
 
         // Plugin-drag hover highlight
-        if (! isMaster && pluginDragHoverTrack == track)
+        if (pluginDragHoverTrack == track)
         {
             g.setColour (Theme::accent.withAlpha (0.18f));
             g.fillRoundedRectangle (cb.toFloat(), 4.0f);
@@ -605,6 +600,7 @@ public:
             {
                 const bool km = (bool) projectData.getProjectTree().getProperty (IDs::masterKMeter, false);
                 m.addItem (22, "K-14 Reference Scale", true, km);
+                m.addItem (23, "Bypass All Master Plugins", ! AudioEngineManager::getInsertDevices (t).isEmpty());
                 m.addSeparator();
             }
 
@@ -646,6 +642,12 @@ public:
                         const bool cur = (bool) tree.getProperty (IDs::masterKMeter, false);
                         tree.setProperty (IDs::masterKMeter, ! cur, nullptr);
                     }
+                    else if (result == 23 && t == audioEngine.getMasterTrack())
+                    {
+                        for (auto* p : AudioEngineManager::getInsertDevices (t))
+                            audioEngine.setPluginBypassed (p, true);
+                        repaint();
+                    }
                     else if (result == 200)
                     {
                         // Show a quick dialog or just auto-name it
@@ -675,10 +677,16 @@ public:
                 for (auto& hit : stripHits)
                     if (hit.stripBounds.contains (e.getPosition()))
                     {
-                        showTrackContextMenu (hit.track, e.getScreenPosition());
+                        if (! handleInsertRowMouseDown (e, hit.insertRowHits, audioEngine, hit.track,
+                                                        insertDragState, [this] { repaint(); }))
+                            showTrackContextMenu (hit.track, e.getScreenPosition());
                         return;
                     }
             }
+
+            for (auto& hit : stripHits)
+                if (hit.stripBounds.contains (e.getPosition()) && onStripSelected)
+                    onStripSelected (hit.track);
 
             for (auto& hit : stripHits)
             {
@@ -1011,9 +1019,7 @@ private:
         {
             const bool isMaster = (i == tracks.size());
             auto* track = isMaster ? audioEngine.getMasterTrack() : tracks[i];
-            int stripW = kStripW;
-            if (! isMaster)
-                stripW += kInsertColW;
+            int stripW = kStripW + kInsertColW;
             if (auto* f = dynamic_cast<tracktion::FolderTrack*> (track))
                 if (audioEngine.isFolderSubmix (f))
                     stripW += kFolderSubmixExtraW;

@@ -481,6 +481,152 @@ public:
             file.deleteFile();
         }
 
+        // The master's inserts used to be unreachable once added.
+        beginTest ("a plugin on the master can be removed");
+        {
+            auto* master = engine.getEdit().getMasterTrack();
+            auto plugin = engine.getEdit().getPluginCache()
+                              .createNewPlugin (tracktion::ReverbPlugin::xmlTypeName, {});
+            master->pluginList.insertPlugin (plugin, master->pluginList.size(), nullptr);
+            expect (master->pluginList.indexOf (plugin.get()) >= 0);
+
+            engine.removePlugin (plugin.get());
+            expect (master->pluginList.indexOf (plugin.get()) < 0);
+            plugin = nullptr;
+        }
+
+        beginTest ("clip gain, reverse and normalise survive save and reload");
+        {
+            const auto file = writeTestWav ("aerion_clip_processing.wav", 1.0, 0.5f);
+            auto* track = engine.addAudioTrack();
+            auto* clip = engine.insertAudioClipOnTrack (track, file, 0.0);
+            expect (clip != nullptr);
+
+            if (clip != nullptr)
+            {
+                expectWithinAbsoluteError (engine.measureClipPeak (*clip), 0.5f, 0.01f);
+                expect (engine.normaliseClip (*clip));
+                const float expectedDb = AudioEngineManager::kNormaliseTargetDb - juce::Decibels::gainToDecibels (0.5f);
+                expectWithinAbsoluteError (clip->getGainDB(), expectedDb, 0.1f);
+
+                clip->setIsReversed (true);
+
+                auto project = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                   .getChildFile ("aerion_clip_processing.aerion");
+                engine.saveProject (project);
+                engine.createNewProject();
+                engine.loadProject (project);
+
+                auto* reloaded = engine.getAudioTracks().isEmpty() ? nullptr
+                               : dynamic_cast<tracktion::WaveAudioClip*> (engine.getAudioTracks().getFirst()->getClips().getFirst());
+                expect (reloaded != nullptr);
+                if (reloaded != nullptr)
+                {
+                    expectWithinAbsoluteError (reloaded->getGainDB(), expectedDb, 0.1f);
+                    expect (reloaded->getIsReversed());
+                }
+
+                engine.createNewProject();
+                project.deleteFile();
+            }
+            else
+            {
+                engine.deleteTrack (track);
+            }
+            file.deleteFile();
+        }
+
+        beginTest ("normalising a silent clip changes nothing");
+        {
+            const auto file = writeTestWav ("aerion_clip_silent.wav", 0.5);
+            auto* track = engine.addAudioTrack();
+            if (auto* clip = engine.insertAudioClipOnTrack (track, file, 0.0))
+            {
+                expect (! engine.normaliseClip (*clip));
+                expectWithinAbsoluteError (clip->getGainDB(), 0.0f, 0.001f);
+            }
+            engine.deleteTrack (track);
+            file.deleteFile();
+        }
+
+        beginTest ("a sidechain source is offered, set and saved with the project");
+        {
+            auto* target = engine.addAudioTrack();
+            auto* source = engine.addAudioTrack();
+            source->setName ("Kick");
+
+            auto plugin = engine.getEdit().getPluginCache()
+                              .createNewPlugin (tracktion::ReverbPlugin::xmlTypeName, {});
+            target->pluginList.insertPlugin (plugin, 0, nullptr);
+
+            auto candidates = engine.getSidechainSourceCandidates (*plugin);
+            expect (candidates.contains (source));
+            expect (! candidates.contains (target));
+
+            engine.setPluginSidechainSource (*plugin, source);
+            const auto sourceID = source->itemID;
+            expect (plugin->getSidechainSourceID() == sourceID);
+            plugin = nullptr;
+
+            auto project = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                               .getChildFile ("aerion_sidechain_test.aerion");
+            engine.saveProject (project);
+            engine.createNewProject();
+            engine.loadProject (project);
+
+            bool found = false;
+            for (auto* t : engine.getAudioTracks())
+                for (auto* p : t->pluginList)
+                    if (dynamic_cast<tracktion::ReverbPlugin*> (p) != nullptr)
+                        found = p->getSidechainSourceID() == sourceID;
+            expect (found);
+
+            if (auto* p = engine.getAudioTracks().isEmpty() ? nullptr : engine.getAudioTracks().getFirst()->pluginList.getPluginsOfType<tracktion::ReverbPlugin>().getFirst())
+            {
+                engine.setPluginSidechainSource (*p, nullptr);
+                expect (! p->getSidechainSourceID().isValid());
+            }
+
+            engine.createNewProject();
+            project.deleteFile();
+        }
+
+        beginTest ("a template keeps tracks and plugins, and drops clips unless asked");
+        {
+            const auto wav = writeTestWav ("aerion_template_clip.wav", 0.5, 0.25f);
+            auto* track = engine.addAudioTrack();
+            track->setName ("Vocals");
+            engine.insertAudioClipOnTrack (track, wav, 0.0);
+
+            const juce::String name = "Aerion smoke test template " + juce::String (juce::Random::getSystemRandom().nextInt());
+            const auto withClips = engine.saveProjectAsTemplate (name, nullptr, true);
+            expect (withClips.existsAsFile());
+            expect (engine.getProjectTemplates().contains (withClips));
+
+            engine.createNewProject();
+            engine.loadProject (withClips);
+            if (! engine.getAudioTracks().isEmpty())
+                expectEquals (engine.getAudioTracks().getFirst()->getClips().size(), 1);
+
+            // Same name again replaces it, this time without the clips.
+            const auto withoutClips = engine.saveProjectAsTemplate (name, nullptr, false);
+            expect (withoutClips == withClips);
+            engine.createNewProject();
+            engine.loadProject (withoutClips);
+            expectEquals (engine.getAudioTracks().size(), 1);
+            if (! engine.getAudioTracks().isEmpty())
+            {
+                expectEquals (engine.getAudioTracks().getFirst()->getName(), juce::String ("Vocals"));
+                expect (engine.getAudioTracks().getFirst()->getClips().isEmpty());
+            }
+
+            expect (engine.saveProjectAsTemplate ("   ", nullptr, false) == juce::File());
+
+            engine.createNewProject();
+            withoutClips.deleteFile();
+            wav.deleteFile();
+        }
+
         // Unsaved-changes tracking (hasUnsavedEdits / markEditSaved) is checked by
         // `AerionBench --verify` instead: Tracktion attaches its change listener
         // on the message loop after an Edit is created, and running the loop here
@@ -488,7 +634,7 @@ public:
     }
 
 private:
-    static juce::File writeTestWav (const juce::String& name, double seconds)
+    static juce::File writeTestWav (const juce::String& name, double seconds, float sineAmplitude = 0.0f)
     {
         auto file = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile (name);
         file.deleteFile();
@@ -497,6 +643,8 @@ private:
         const int numSamples = (int) (seconds * sampleRate);
         juce::AudioBuffer<float> buffer (1, numSamples);
         buffer.clear();
+        for (int i = 0; i < numSamples; ++i)
+            buffer.setSample (0, i, sineAmplitude * (float) std::sin (juce::MathConstants<double>::twoPi * 440.0 * i / sampleRate));
 
         juce::WavAudioFormat format;
         if (auto out = std::unique_ptr<juce::FileOutputStream> (file.createOutputStream()))

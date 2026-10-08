@@ -73,6 +73,9 @@ public:
     std::function<void(int)>          onLightweightUiChanged;
     std::function<void(int)>          onUiSizeChanged;   // 0 = Auto, else percent
     std::function<void(juce::File)>   onOpenRecent;
+    std::function<void(juce::File)>   onNewFromTemplate;
+    std::function<void()>             onSaveAsTemplate, onShowTemplatesFolder;
+    juce::Array<juce::File>           projectTemplates;
     std::function<void()>             onClearRecent;
     std::function<void()>             onCollectSaveAs;
     std::function<void()>             onShowKeyboardShortcuts;
@@ -205,7 +208,9 @@ public:
         juce::PopupMenu getMenuForIndex (int index, const juce::String&) override
         {
             if (bar.onBeforeMenuOpen) bar.onBeforeMenuOpen();
-            return bar.buildMenu (index);
+            auto menu = bar.buildMenu (index);
+            attachShortcuts (menu, index);
+            return menu;
         }
 
         void menuItemSelected (int itemId, int index) override   { bar.handleMenuResult (index, itemId); }
@@ -218,17 +223,82 @@ public:
             m.addItem ("About Aerion DAW", [] { AboutDialog::launch(); });
             m.addItem ("Check for Updates...", [this] { if (bar.onCheckForUpdates) bar.onCheckForUpdates(); });
             m.addSeparator();
-            m.addItem ("Settings...", [this] { if (bar.onSettings) bar.onSettings(); });
+            m.addItem ("Settings..." + bar.hint ("app.settings"), [this] { if (bar.onSettings) bar.onSettings(); });
+            attachShortcuts (m, -1);
             return m;
         }
 
+        /** Holds the keys macOS draws next to menu items (for tests). */
+        juce::ApplicationCommandManager& getShortcutCommands() noexcept   { return commands; }
+
     private:
         DAWMenuBar& bar;
+
+        // macOS draws a menu item's shortcut only when the item is tied to an
+        // ApplicationCommandManager that maps the item's ID to a key. Each
+        // marked item gets an app-wide command ID with the action's current key,
+        // and runs through an action so its menu-local ID still picks what it
+        // does. Pressing the key doesn't run it twice: JUCE gives key presses
+        // to the focused component first, and the menu only gets keys nothing
+        // in Aerion used.
+        juce::ApplicationCommandManager commands;
+        std::map<juce::String, juce::CommandID> commandIds;
+        static constexpr juce::CommandID kFirstCommandId = 0x7e000;
+
+        void attachShortcuts (juce::PopupMenu& menu, int menuIndex)
+        {
+            for (juce::PopupMenu::MenuItemIterator it (menu, true); it.next();)
+            {
+                auto& item = it.getItem();
+                const int marker = item.text.indexOfChar (kActionMarker);
+                if (marker < 0)
+                    continue;
+
+                const auto actionId = item.text.substring (marker + 1);
+                item.text = item.text.substring (0, marker);
+
+                const auto key = bar.keymap != nullptr ? bar.keymap->get (actionId) : juce::KeyPress();
+                if (! key.isValid())
+                    continue;
+
+                if (item.action == nullptr)
+                    item.action = [this, menuIndex, id = item.itemID] { bar.handleMenuResult (menuIndex, id); };
+
+                item.itemID = commandIdFor (actionId, key);
+                item.commandManager = &commands;
+            }
+        }
+
+        juce::CommandID commandIdFor (const juce::String& actionId, const juce::KeyPress& key)
+        {
+            auto [it, isNew] = commandIds.try_emplace (actionId, kFirstCommandId + (int) commandIds.size());
+            const auto id = it->second;
+
+            if (isNew)
+            {
+                juce::ApplicationCommandInfo info (id);
+                info.setInfo (actionId, actionId, "Menu", 0);
+                commands.registerCommand (info);
+            }
+
+            // The user may have rebound it since the menu last opened.
+            auto* keys = commands.getKeyMappings();
+            if (keys->getKeyPressesAssignedToCommand (id) != juce::Array<juce::KeyPress> { key })
+            {
+                keys->clearAllKeyPresses (id);
+                keys->addKeyPress (id, key);
+            }
+            return id;
+        }
     };
 
     /** True when the menus show in the macOS menu bar instead of this bar:
         they leave out what the application menu has, and shortcut text. */
     bool inMacMenuBar = false;
+
+    /** In the macOS menu bar, marks a menu item's action ID for SystemMenuBar,
+        which turns it into a native shortcut. */
+    static constexpr juce::juce_wchar kActionMarker = 0x1f;
 
 private:
     std::unique_ptr<juce::Drawable> logoDrawable;
@@ -330,18 +400,31 @@ private:
         return (i >= 0 && i < 9) ? i : -1;
     }
 
-    /** The shortcut after a menu item's name. Not in the macOS menu bar: it
-        shows text after a tab as part of the name, and draws shortcuts only
-        for items tied to an ApplicationCommandManager. */
+    /** The shortcut after a menu item's name. In the macOS menu bar, text after
+        a tab would show as part of the name, so the item carries its action ID
+        instead (see SystemMenuBar::attachShortcuts). */
     juce::String hint (const char* actionId) const
     {
-        return keymap != nullptr && ! inMacMenuBar ? keymap->menuHint (actionId) : juce::String();
+        if (keymap == nullptr)
+            return {};
+        return inMacMenuBar ? juce::String::charToString (kActionMarker) + actionId
+                            : keymap->menuHint (actionId);
     }
 
     juce::PopupMenu fileMenu()
     {
         juce::PopupMenu m;
         m.addItem (1, "New Project" + hint ("file.new"));
+
+        juce::PopupMenu templateSub;
+        for (int i = 0; i < juce::jmin (projectTemplates.size(), 97); ++i)
+            templateSub.addItem (300 + i, projectTemplates[i].getFileNameWithoutExtension());
+        if (projectTemplates.isEmpty())
+            templateSub.addItem (-1, "No templates yet: use Save as Template...", false);
+        templateSub.addSeparator();
+        templateSub.addItem (399, "Show Templates Folder");
+        m.addSubMenu ("New from Template", templateSub);
+
         m.addItem (2, "Open Project..." + hint ("file.open"));
 
         // Open Recent submenu
@@ -362,6 +445,7 @@ private:
         m.addItem (3, "Save Project" + hint ("file.save"));
         m.addItem (6, "Save Project As...");
         m.addItem (8, "Collect & Save As...");
+        m.addItem (9, "Save as Template...");
         m.addSeparator();
         m.addItem (4, "Import Audio File...");
         m.addItem (7, "Export Mixdown...");
@@ -389,6 +473,10 @@ private:
             if (f.existsAsFile()) onOpenRecent (f);
         }
         if (r == 299 && onClearRecent) onClearRecent();
+        if (r == 9 && onSaveAsTemplate) onSaveAsTemplate();
+        if (r >= 300 && r < 300 + projectTemplates.size() && onNewFromTemplate)
+            onNewFromTemplate (projectTemplates[r - 300]);
+        if (r == 399 && onShowTemplatesFolder) onShowTemplatesFolder();
     }
 
     juce::PopupMenu editMenu()

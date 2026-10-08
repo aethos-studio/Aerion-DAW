@@ -53,6 +53,8 @@ private:
     void focusNextPane();
 
     void doCreateNewProject();
+    void openTemplate (const juce::File& templateFile);
+    void saveProjectAsTemplate();
     void createNewProject();
     void doOpenProjectChooser();
     void openProject();
@@ -214,7 +216,7 @@ private:
     // Transport -> Follow Playback (also the toolbar button and F): the
     // Timeline pages to keep the playhead in view. Off by default; remembered
     // for the user, not the project.
-    static constexpr const char* kFollowPlaybackKey = "followPlayback";
+    static constexpr const char* kFollowPlaybackKey = kFollowPlaybackSettingKey;
     void setFollowPlayback (bool shouldFollow);
     double meterTailUntilSec = 0.0;
     juce::uint32 lastChoreMs = 0;

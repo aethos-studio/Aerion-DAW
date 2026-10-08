@@ -44,6 +44,7 @@ public:
     static constexpr int kVScrollW    = 12;
 
     std::function<void(tracktion::Track*)> onTrackSelected;
+    std::function<void(tracktion::Clip*)>  onClipSelected;
     std::function<void(juce::Array<tracktion::Track*>)> onSelectionChanged;
     std::function<void()> onAddTrack;
     std::function<void()> onAddMidiTrack;
@@ -131,7 +132,10 @@ public:
         if (selectedClipState.isValid())
             selectedClipState.removeListener (this);
 
+        const bool changed = clip != selectedClip;
         selectedClip = clip;
+        if (changed && onClipSelected)
+            onClipSelected (clip);
         selectedClipState = (clip != nullptr ? clip->state : juce::ValueTree());
         selectedClipRebindPending = false;
 
@@ -2118,13 +2122,23 @@ public:
                             auto& entry = waveformCache[wave->itemID.getRawID()];
                             const bool softwareCtx = isSoftwareContext (g);
                             const float scale = physicalScaleOf (g);
+                            // Capped so a heavily boosted clip still shows its shape.
+                            const float waveGain = recThumb != nullptr ? 1.0f
+                                                 : juce::jlimit (0.0f, 4.0f, juce::Decibels::decibelsToGain (wave->getGainDB()));
+                            const bool reversed = recThumb == nullptr && wave->getIsReversed();
+                            const double sourceLen = reversed ? tracktion::AudioFile (audioEngine.getEngine(), wave->getOriginalFile()).getLength()
+                                                              : 0.0;
                             if (entry.width != fullW || entry.height != h || entry.software != softwareCtx
                                 || ! juce::approximatelyEqual (entry.scale, scale)
                                 || ! juce::approximatelyEqual (entry.pxPerSec, pxPerSec)
                                 || ! juce::approximatelyEqual (entry.offset, offset)
                                 || ! juce::approximatelyEqual (entry.clipLen, clipLen)
+                                || ! juce::approximatelyEqual (entry.gain, waveGain)
+                                || entry.reversed != reversed
                                 || entry.samplesLoaded != samplesNow)
                             {
+                                entry.gain          = waveGain;
+                                entry.reversed      = reversed;
                                 entry.tiles.clear();
                                 entry.pxPerSec      = pxPerSec;
                                 entry.offset        = offset;
@@ -2174,10 +2188,16 @@ public:
                                         }
                                         else
                                         {
+                                            // A reversed clip's offset counts from the end of the
+                                            // source, so draw the mirrored source range flipped.
                                             auto& thumb = audioEngine.getThumbnailForClip (*wave, *this);
-                                            tracktion::TimeRange vRange (tracktion::TimePosition::fromSeconds (audioStart),
+                                            const double start = reversed ? sourceLen - audioStart - audioDuration : audioStart;
+                                            tracktion::TimeRange vRange (tracktion::TimePosition::fromSeconds (start),
                                                                          tracktion::TimeDuration::fromSeconds (audioDuration));
-                                            thumb.drawChannel (ig, { 0, 0, physW, physH }, vRange, 0, 1.0f);
+                                            juce::Graphics::ScopedSaveState flip (ig);
+                                            if (reversed)
+                                                ig.addTransform (juce::AffineTransform::scale (-1.0f, 1.0f).translated ((float) physW, 0.0f));
+                                            thumb.drawChannel (ig, { 0, 0, physW, physH }, vRange, 0, waveGain);
                                         }
                                     };
                                     const float thicken = (float) juce::jmax (1, juce::roundToInt (scale));
@@ -3182,6 +3202,15 @@ public:
             return;
         }
 
+        if (e.mods.isPopupMenu())
+            if (auto* wave = dynamic_cast<tracktion::WaveAudioClip*> (getClipAt (e.getPosition())))
+            {
+                setSelectedClip (wave);
+                dragMode = DragMode::none;
+                showAudioClipContextMenu (*wave, e.getScreenPosition());
+                return;
+            }
+
         setSelectedClip (getClipAt (e.getPosition()));
         if (selectedClip)
         {
@@ -3205,6 +3234,78 @@ public:
         {
             dragMode = DragMode::none;
         }
+    }
+
+    void showAudioClipContextMenu (tracktion::WaveAudioClip& clip, juce::Point<int> screenPos)
+    {
+        const bool editable = ! isClipTrackFrozenOrFreezing (audioEngine, &clip);
+        const float gainDb  = clip.getGainDB();
+
+        juce::PopupMenu gainMenu;
+        gainMenu.addItem (10, "+3 dB",  editable);
+        gainMenu.addItem (11, "+1 dB",  editable);
+        gainMenu.addItem (12, "-1 dB",  editable);
+        gainMenu.addItem (13, "-3 dB",  editable);
+        gainMenu.addSeparator();
+        gainMenu.addItem (14, "Set Gain...", editable);
+        gainMenu.addItem (15, "Reset to 0 dB", editable && gainDb != 0.0f);
+
+        juce::PopupMenu m;
+        m.addSectionHeader (clip.getName());
+        m.addSubMenu ("Clip Gain (" + juce::String (gainDb, 1) + " dB)", gainMenu, editable);
+        m.addItem (1, "Normalise", editable);
+        m.addItem (2, "Reverse", editable, clip.getIsReversed());
+
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ screenPos.x, screenPos.y, 1, 1 }),
+            [safe = juce::Component::SafePointer<Timeline> (this), id = clip.itemID] (int result)
+            {
+                if (safe == nullptr || result == 0)
+                    return;
+
+                auto* wave = dynamic_cast<tracktion::WaveAudioClip*> (tracktion::findClipForID (safe->audioEngine.getEdit(), id));
+                if (wave == nullptr || isClipTrackFrozenOrFreezing (safe->audioEngine, wave))
+                    return;
+
+                if (result == 1)
+                {
+                    if (! safe->audioEngine.normaliseClip (*wave))
+                        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Normalise",
+                                                                "This clip is silent, or its audio file can't be read.");
+                }
+                else if (result == 2)  wave->setIsReversed (! wave->getIsReversed());
+                else if (result == 10) wave->setGainDB (wave->getGainDB() + 3.0f);
+                else if (result == 11) wave->setGainDB (wave->getGainDB() + 1.0f);
+                else if (result == 12) wave->setGainDB (wave->getGainDB() - 1.0f);
+                else if (result == 13) wave->setGainDB (wave->getGainDB() - 3.0f);
+                else if (result == 15) wave->setGainDB (0.0f);
+                else if (result == 14) safe->askForClipGain (id);
+
+                safe->requestTimelineRefresh (false);
+            });
+    }
+
+    void askForClipGain (tracktion::EditItemID id)
+    {
+        auto* wave = dynamic_cast<tracktion::WaveAudioClip*> (tracktion::findClipForID (audioEngine.getEdit(), id));
+        if (wave == nullptr)
+            return;
+
+        auto* alert = new juce::AlertWindow ("Clip Gain", "Gain in dB (-100 to +24):", juce::AlertWindow::NoIcon);
+        alert->addTextEditor ("db", juce::String (wave->getGainDB(), 1));
+        alert->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        alert->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        alert->enterModalState (true, juce::ModalCallbackFunction::create (
+            [safe = juce::Component::SafePointer<Timeline> (this), alert, id] (int r)
+            {
+                std::unique_ptr<juce::AlertWindow> owned (alert);
+                if (safe == nullptr || r != 1)
+                    return;
+                if (auto* w = dynamic_cast<tracktion::WaveAudioClip*> (tracktion::findClipForID (safe->audioEngine.getEdit(), id)))
+                {
+                    w->setGainDB (owned->getTextEditorContents ("db").getFloatValue());
+                    safe->requestTimelineRefresh (false);
+                }
+            }), false);
     }
 
     void showTrackContextMenu (tracktion::Track* track, juce::Point<int> screenPos)
@@ -4245,6 +4346,8 @@ private:
         juce::int64   samplesLoaded = -1;
         bool          software      = false;   // image type matches the renderer
         float         scale         = 1.0f;    // tiles are in physical pixels at this scale
+        float         gain          = 1.0f;    // clip gain, as a vertical zoom
+        bool          reversed      = false;
     };
     std::map<uint64_t, WaveformCacheEntry> waveformCache;
     ClipFrameCache clipFrames;   // nine-slice clip bodies, see UI/ClipFrame.h

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(AerionDaw VERSION 0.5.0)
+project(AerionDaw VERSION 0.5.1)
 
 # Release stage shown next to the version (About dialog, installer title).
 set(AERION_RELEASE_STAGE "Alpha" CACHE STRING "Release stage shown next to the version, e.g. Alpha, Beta; empty for none")

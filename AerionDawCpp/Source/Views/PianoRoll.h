@@ -35,6 +35,64 @@ public:
 
     std::function<void()> onDetachRequested;
 
+    /** Transport › Follow Playback, shared with the Timeline. */
+    void setFollowPlayback (bool shouldFollow)
+    {
+        followPlayback = shouldFollow;
+        followPlayheadInView = true;
+    }
+
+    /** Called every display frame. Moves the playhead line and, with Follow
+        Playback on, pages the view the same way Timeline::followPlayhead does,
+        including leaving the user alone after they scroll the playhead away. */
+    void updatePlayhead (double seconds, bool playing)
+    {
+        const double beat = midiClip.getContentBeatAtTime (tracktion::TimePosition::fromSeconds (seconds)).inBeats();
+
+        const bool jumped = ! followWasPlaying
+                         || seconds < followLastSeconds - 0.001
+                         || seconds > followLastSeconds + 0.5;
+        const bool scrolledByUser = viewBeat != followViewBeat;
+        followWasPlaying  = playing;
+        followLastSeconds = seconds;
+        followViewBeat    = viewBeat;
+
+        const double content = contentBeats();
+
+        if (followPlayback && playing && beat >= 0.0 && beat <= content)
+        {
+            const auto ga = gridArea();
+            const float x = beatToX (beat);
+
+            if (x >= (float) ga.getX() && x < (float) ga.getRight())
+            {
+                followPlayheadInView = true;
+            }
+            else if (! jumped && (scrolledByUser || ! followPlayheadInView))
+            {
+                followPlayheadInView = false;
+            }
+            else
+            {
+                const double maxStart = juce::jmax (0.0, content - visibleBeats());
+                viewBeat = juce::jlimit (0.0, maxStart, beat - 0.05 * visibleBeats());
+                updateScrollRanges();
+                followViewBeat = viewBeat;
+                followPlayheadInView = true;
+                repaint();
+            }
+        }
+
+        playheadBeat = beat;
+        const int x = juce::roundToInt (beatToX (beat));
+        if (x != playheadX)
+        {
+            repaint (playheadStrip (playheadX));
+            playheadX = x;
+            repaint (playheadStrip (playheadX));
+        }
+    }
+
     PianoRollEditor (tracktion::MidiClip& clip, tracktion::Edit& edit,
                      ProjectData& pd, AudioEngineManager& ae)
         : midiClip (clip), edit (edit), projectData (pd), audioEngine (ae)
@@ -244,6 +302,13 @@ public:
         float endX = beatToX (clipLengthBeats());
         if (endX > (float) kKeyW && endX < (float) ga.getRight())
             g.fillRect (endX, (float) kGridTop, 2.0f, (float) (va.getBottom() - kGridTop));
+
+        playheadX = juce::roundToInt (beatToX (playheadBeat));
+        if (playheadX >= kKeyW && playheadX < ga.getRight())
+        {
+            g.setColour (Theme::textMain.withAlpha (0.85f));
+            g.fillRect ((float) playheadX, (float) kToolbarH, 1.5f, (float) (va.getBottom() - kToolbarH));
+        }
     }
 
     void resized() override
@@ -907,6 +972,19 @@ private:
     double viewBeat = 0.0;
     int    scrollY  = 0;
     double pxPerBeat = 80.0;
+
+    double playheadBeat = 0.0;
+    int    playheadX    = kKeyW;
+    bool   followPlayback       = false;
+    bool   followPlayheadInView = true;
+    bool   followWasPlaying     = false;
+    double followLastSeconds    = 0.0;
+    double followViewBeat       = 0.0;
+
+    juce::Rectangle<int> playheadStrip (int x) const
+    {
+        return { x - 1, kToolbarH, 4, juce::jmax (0, velocityArea().getBottom() - kToolbarH) };
+    }
 
     PRDragMode dragMode = PRDragMode::none;
     tracktion::MidiNote* draggingNote  = nullptr;
@@ -1594,10 +1672,12 @@ public:
                      ProjectData& pd, AudioEngineManager& ae)
         : DocumentWindow (clip.getName() + "   -   Piano Roll",
                           Theme::bgBase, DocumentWindow::allButtons, true),
-          clipState (clip.state)
+          clipState (clip.state), audioEngine (ae)
     {
         clipState.addListener (this);
         editor.reset (new PianoRollEditor (clip, edit, pd, ae));
+        followPlayback = isFollowPlaybackOn (ae);
+        editor->setFollowPlayback (followPlayback);
         setUsingNativeTitleBar (false);
         setResizable (true, false);
         setContentNonOwned (editor.get(), true);
@@ -1640,8 +1720,26 @@ private:
         });
     }
 
+    void onDisplayFrame()
+    {
+        if (editor == nullptr || ! isShowing())
+            return;
+
+        const bool follow = isFollowPlaybackOn (audioEngine);
+        if (follow != followPlayback)
+        {
+            followPlayback = follow;
+            editor->setFollowPlayback (follow);
+        }
+
+        editor->updatePlayhead (audioEngine.getTransportPosition(), audioEngine.isPlaying());
+    }
+
     juce::ValueTree clipState;
+    AudioEngineManager& audioEngine;
     std::unique_ptr<PianoRollEditor> editor;
     bool closing = false;
+    bool followPlayback = true;
+    juce::VBlankAttachment displayClock { this, [this] (double) { onDisplayFrame(); } };
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PianoRollWindow)
 };

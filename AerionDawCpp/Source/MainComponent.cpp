@@ -140,6 +140,30 @@ MainComponent::MainComponent()
 
     menuBar.recentProjects   = &audioEngine.getRecentProjects();
     menuBar.onNew      = [this] { createNewProject(); };
+    menuBar.onSaveAsTemplate      = [this] { saveProjectAsTemplate(); };
+    menuBar.onShowTemplatesFolder = [this]
+    {
+        auto folder = audioEngine.getTemplatesFolder();
+        folder.createDirectory();
+        folder.revealToUser();
+    };
+    menuBar.onNewFromTemplate = [this] (juce::File templateFile)
+    {
+        if (! projectHasUnsavedChanges()) { openTemplate (templateFile); return; }
+
+        Dialogs::askToSaveChanges ("New from Template", "Save changes to the current project?",
+            [this, templateFile] (Dialogs::SaveChoice choice)
+            {
+                if (choice == Dialogs::SaveChoice::cancel) return;
+                if (choice == Dialogs::SaveChoice::save)
+                {
+                    if (! currentProjectFile.existsAsFile()) { saveProjectAs(); return; }
+                    audioEngine.saveProject (currentProjectFile, &projectData);
+                    markProjectClean();
+                }
+                openTemplate (templateFile);
+            });
+    };
     menuBar.onOpen     = [this] { openProject(); };
     menuBar.onOpenRecent = [this] (juce::File f)
     {
@@ -200,6 +224,7 @@ MainComponent::MainComponent()
     // Mac users expect the menus at the top of the screen, with About, Check
     // for Updates and Settings in the application menu.
     menuBar.inMacMenuBar = true;
+    menuBar.keymap = &audioEngine.getKeymap();   // the application menu's Settings shortcut
     menuBar.setVisible (false);
     systemMenuBar = std::make_unique<DAWMenuBar::SystemMenuBar> (menuBar);
     const auto applicationMenu = systemMenuBar->applicationMenuItems();
@@ -412,7 +437,11 @@ MainComponent::MainComponent()
     menuBar.onAutoUpdateCheckChanged = [this] (bool on) { updater.setAutoCheckEnabled (on); };
     updater.onInstallRequested       = [this] { requestQuit(); };
 
-    menuBar.onBeforeMenuOpen = [this] { syncMenuBarState(); };
+    menuBar.onBeforeMenuOpen = [this]
+    {
+        syncMenuBarState();
+        menuBar.projectTemplates = audioEngine.getProjectTemplates();
+    };
 
     timeline.onAddTrack = [this]
     {
@@ -558,6 +587,17 @@ MainComponent::MainComponent()
         syncInspectorToTrack (track);
     };
 
+    timeline.onClipSelected = [this] (tracktion::Clip* clip)
+    {
+        inspector.setSelectedClip (clip);
+    };
+
+    mixer.onStripSelected = [this] (tracktion::Track* track)
+    {
+        if (track != inspector.selectedTrack)
+            syncInspectorToTrack (track);
+    };
+
     timeline.onSelectionChanged = [this] (juce::Array<tracktion::Track*> tracks)
     {
         audioEngine.setSelectedTracks (tracks);
@@ -680,6 +720,7 @@ MainComponent::MainComponent()
         embeddedClip = &clip;
         attachEmbeddedClipListener (clip);
         embeddedPianoRoll = std::make_unique<PianoRollEditor> (clip, audioEngine.getEdit(), projectData, audioEngine);
+        embeddedPianoRoll->setFollowPlayback (timeline.isFollowingPlayback());
         addAndMakeVisible (*embeddedPianoRoll);
 
         // Set up detach callback.
@@ -714,7 +755,7 @@ MainComponent::MainComponent()
         graphicsEngine.setChoice (GraphicsEngine::choiceFromInt (s->getIntValue (GraphicsEngine::settingsKey, 0)));
         applyLightweightUi (s->getIntValue (kLightweightUiKey, 0));
         uiSizeChoice = s->getIntValue (UiScale::settingsKey, 0);
-        setFollowPlayback (s->getBoolValue (kFollowPlaybackKey, false));
+        setFollowPlayback (s->getBoolValue (kFollowPlaybackKey, true));
     }
 
     // Restore the last-used workspace layout (built-in or custom) from settings.
@@ -954,6 +995,70 @@ void MainComponent::createNewProject()
                 saveProjectAs();
             }
         });
+}
+
+void MainComponent::openTemplate (const juce::File& templateFile)
+{
+    if (! templateFile.existsAsFile())
+        return;
+
+    closeEmbeddedPianoRoll();
+    timeline.clearSelectedClip();
+    detachFromObservedEditState();
+    audioEngine.loadProject (templateFile, &projectData);
+    attachToCurrentEditState();
+    aiManager.setEdit (audioEngine.getEdit());
+    currentProjectFile = juce::File();   // untitled, so Save asks where to put it
+    markProjectClean();
+    updateTitleBar();
+    syncToolbarFromEngine();
+    projectData.syncWithEngine (audioEngine.getEdit());
+    syncInspectorToTrack (nullptr);
+    syncMenuBarState();
+    mixer.repaint();
+    timeline.repaint();
+}
+
+void MainComponent::saveProjectAsTemplate()
+{
+    auto* alert = new juce::AlertWindow ("Save as Template",
+                                         "Name the template. It will appear under File > New from Template.",
+                                         juce::MessageBoxIconType::NoIcon);
+    alert->addTextEditor ("name", currentProjectFile.existsAsFile() ? currentProjectFile.getFileNameWithoutExtension()
+                                                                     : juce::String ("My Template"));
+    auto* includeClips = new juce::ToggleButton ("Include clips (otherwise tracks, plugins and routing only)");
+    includeClips->setSize (360, 24);
+    alert->addCustomComponent (includeClips);
+    alert->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    alert->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+
+    alert->enterModalState (true, juce::ModalCallbackFunction::create (
+        [safe = juce::Component::SafePointer<MainComponent> (this), alert, includeClips] (int result)
+        {
+            std::unique_ptr<juce::AlertWindow> ownedAlert (alert);
+            std::unique_ptr<juce::ToggleButton> ownedToggle (includeClips);
+            if (safe == nullptr || result != 1)
+                return;
+
+            const auto name = alert->getTextEditorContents ("name");
+            const auto existing = safe->audioEngine.getTemplatesFolder()
+                                      .getChildFile (juce::File::createLegalFileName (name.trim()) + ".aerion");
+            const bool withClips = includeClips->getToggleState();
+
+            auto save = [safe, name, withClips]
+            {
+                if (safe == nullptr) return;
+                if (safe->audioEngine.saveProjectAsTemplate (name, &safe->projectData, withClips) == juce::File())
+                    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Save as Template",
+                                                            "The template could not be saved. Try another name.");
+            };
+
+            if (! existing.existsAsFile()) { save(); return; }
+
+            Dialogs::confirm ("Save as Template", "A template called \"" + existing.getFileNameWithoutExtension()
+                                                     + "\" already exists. Replace it?",
+                              "Replace", "Cancel", [save] (bool replace) { if (replace) save(); });
+        }), false);
 }
 
 void MainComponent::updateTitleBar()
@@ -1381,6 +1486,8 @@ void MainComponent::exportMixdown()
 void MainComponent::setFollowPlayback (bool shouldFollow)
 {
     timeline.setFollowPlayback (shouldFollow);
+    if (embeddedPianoRoll != nullptr)
+        embeddedPianoRoll->setFollowPlayback (shouldFollow);
     toolbar.followPlayback = shouldFollow;
     toolbar.repaint();
 
@@ -1470,6 +1577,9 @@ void MainComponent::onDisplayFrame (double nowSec)
         // playhead at its new place.
         timeline.followPlayhead (pos, playing);
         playheadOverlay.update();
+
+        if (embeddedPianoRoll != nullptr && embeddedPianoRoll->isVisible())
+            embeddedPianoRoll->updatePlayhead (pos, playing);
     }
 
     if (nowSec - lastMeterFrameSec < meterIntervalSec * 0.9)

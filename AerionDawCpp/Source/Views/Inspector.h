@@ -27,6 +27,8 @@ public:
 
     ~Inspector() override
     {
+        if (clipState.isValid())
+            clipState.removeListener (this);
         cancelPendingUpdate();
         projectData.getProjectTree().removeListener (this);
         audioEngine.removeListener (this);
@@ -55,6 +57,21 @@ public:
     bool         solo       { false };
     tracktion::Track* selectedTrack = nullptr;
 
+    /** The Timeline's selected clip; audio clips get a CLIP section. */
+    void setSelectedClip (tracktion::Clip* clip)
+    {
+        if (clipState.isValid())
+            clipState.removeListener (this);
+
+        auto* wave = dynamic_cast<tracktion::WaveAudioClip*> (clip);
+        selectedClipID = wave != nullptr ? wave->itemID : tracktion::EditItemID();
+        clipState      = wave != nullptr ? wave->state  : juce::ValueTree();
+
+        if (clipState.isValid())
+            clipState.addListener (this);
+        repaint();
+    }
+
     std::unique_ptr<juce::Drawable> faderKnobDrawable;
 
     void paint (juce::Graphics& g) override
@@ -78,48 +95,24 @@ public:
         insertRowHits.clearQuick();
         sendRows.clearQuick();
 
+        // The master has no input, arm, monitoring, freeze, quick filters or sends.
+        const bool master = isMasterSelected();
+        if (master)
+            armBounds = inputRoutingBounds = monBounds = freezeBounds
+                      = hpfBounds = lpfBounds = filterAddBtn = {};
+
         // Track header
-        auto headerB = b.removeFromTop (70);
-        g.setColour (trackIndex >= 0 ? Theme::colourForTrack (trackIndex) : Theme::textMuted);
+        auto headerB = b.removeFromTop (master ? 26 : 70);
+        g.setColour (master ? Theme::meterRed
+                            : trackIndex >= 0 ? Theme::colourForTrack (trackIndex) : Theme::textMuted);
         g.fillEllipse ((float) headerB.getX(), (float) headerB.getY() + 4.0f, 12.0f, 12.0f);
         g.setColour (Theme::textMain);
         g.setFont (Theme::uiSize (15.0f).withStyle (juce::Font::bold));
-        g.drawText (trackName, headerB.withTrimmedLeft (20).removeFromTop (22), juce::Justification::topLeft);
+        g.drawText (master ? juce::String ("Master") : trackName,
+                    headerB.withTrimmedLeft (20).removeFromTop (22), juce::Justification::topLeft);
 
-        g.setColour (Theme::textMuted);
-        g.setFont (Theme::uiSize (11.0f));
-        g.drawText ("In",  headerB.getX(), headerB.getY() + 32, 40, 18, juce::Justification::left);
-        g.drawText ("Out", headerB.getX(), headerB.getY() + 50, 40, 18, juce::Justification::left);
-
-        // Input routing  -  clickable panel showing current device name. If a
-        // specific MIDI controller has been pinned to the track, append a
-        // " | MIDI: <name>" tag so users see both routings at a glance.
-        {
-            juce::String inputName = "Input L+R";
-            if (selectedTrack != nullptr)
-            {
-                int devIdx = audioEngine.getTrackInputDeviceIdx (selectedTrack);
-                auto names = audioEngine.getInputDeviceNames();
-                if (devIdx >= 0 && devIdx < names.size()) inputName = names[devIdx];
-                else if (!names.isEmpty())                 inputName = names[0];
-
-                int midiIdx = audioEngine.getTrackMidiInputDeviceIdx (selectedTrack);
-                if (midiIdx >= 0)
-                {
-                    auto midis = audioEngine.getMidiInputDeviceNames();
-                    if (midiIdx < midis.size())
-                        inputName += " | MIDI: " + midis[midiIdx];
-                }
-            }
-            inputRoutingBounds = juce::Rectangle<int> (headerB.getRight() - 100, headerB.getY() + 28, 100, 20);
-            Theme::drawRoundedPanel (g, inputRoutingBounds.toFloat(), Theme::surface);
-            g.setColour (Theme::textMain);
-            g.setFont (Theme::uiSize (10.5f));
-            g.drawText (inputName, inputRoutingBounds.reduced (4, 0), juce::Justification::centredRight);
-        }
-        g.setColour (Theme::textMain);
-        g.setFont (Theme::uiSize (11.0f));
-        g.drawText ("Main", headerB.getRight() - 100, headerB.getY() + 50, 100, 18, juce::Justification::right);
+        if (! master)
+            paintRoutingHeader (g, headerB);
 
         // State buttons  -  compact single-letter controls
         b.removeFromTop (8);
@@ -128,8 +121,11 @@ public:
         muteBounds = pills.removeFromLeft (24); paintLetterButton (g, muteBounds, "M", muted, Theme::meterYellow);
         pills.removeFromLeft (4);
         soloBounds = pills.removeFromLeft (24); paintLetterButton (g, soloBounds, "S", solo,  Theme::accent);
-        pills.removeFromLeft (4);
-        armBounds  = pills.removeFromLeft (24); paintLetterButton (g, armBounds,  "R", armed, Theme::recordRed);
+        if (! master)
+        {
+            pills.removeFromLeft (4);
+            armBounds = pills.removeFromLeft (24); paintLetterButton (g, armBounds, "R", armed, Theme::recordRed);
+        }
 
         // Phase and Mono  -  keep text pills (no icons for these)
         if (selectedTrack != nullptr)
@@ -143,7 +139,10 @@ public:
             monoBounds = pills.removeFromLeft (24);
             bool monoOn = audioEngine.getTrackMono (selectedTrack);
             drawPill (g, monoBounds, "M", monoOn, Theme::active);
+        }
 
+        if (selectedTrack != nullptr && ! master)
+        {
             // Input-monitoring override: cycles Auto -> On -> Off. The label
             // mirrors the current state so the user sees what's active without
             // hovering for a tooltip.
@@ -176,7 +175,7 @@ public:
         b.removeFromTop (16);
 
         // Quick Filters (Phase 1)
-        if (selectedTrack != nullptr)
+        if (selectedTrack != nullptr && ! master)
         {
             auto filterSection = b.removeFromTop (filtersExpanded ? 80 : 20);
             juce::Rectangle<int> dummy;
@@ -212,15 +211,29 @@ public:
                 if (auto* a = dynamic_cast<tracktion::AuxSendPlugin*> (p))
                     sends.add (a);
 
+        // Selected audio clip
+        if (auto* wave = getSelectedWaveClip())
+        {
+            drawClipSection (g, b.removeFromTop (76), *wave);
+            b.removeFromTop (10);
+        }
+        else
+        {
+            clipGainBounds = clipReverseBounds = clipNormaliseBounds = {};
+        }
+
         // Inserts
         const int insertsH = juce::jmax (60, 40 + externals.size() * 38);
         drawInsertSection (g, b.removeFromTop (insertsH), externals);
         b.removeFromTop (10);
 
         // Sends
-        const int sendsH = juce::jmax (60, 40 + sends.size() * 36);
-        drawSendSection (g, b.removeFromTop (sendsH), sends, 0.4f);
-        b.removeFromTop (20);
+        if (! master)
+        {
+            const int sendsH = juce::jmax (60, 40 + sends.size() * 36);
+            drawSendSection (g, b.removeFromTop (sendsH), sends, 0.4f);
+            b.removeFromTop (20);
+        }
 
         // AI DSP Workflow at bottom (still scaffolded  -  buttons are visual only).
         g.setColour (Theme::recordRed.withAlpha (0.3f));
@@ -253,6 +266,28 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override
     {
+        if (auto* wave = getSelectedWaveClip())
+        {
+            const auto pos = e.getPosition();
+            const bool onClipControl = clipGainBounds.contains (pos) || clipReverseBounds.contains (pos)
+                                    || clipNormaliseBounds.contains (pos);
+
+            if (onClipControl && isClipTrackFrozenOrFreezing (audioEngine, wave))
+            {
+                showFrozenTrackInsertAlert();
+                return;
+            }
+            if (clipGainBounds.contains (pos))      { setClipGainFromX (e.x); return; }
+            if (clipReverseBounds.contains (pos))   { wave->setIsReversed (! wave->getIsReversed()); return; }
+            if (clipNormaliseBounds.contains (pos))
+            {
+                if (! audioEngine.normaliseClip (*wave))
+                    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "Normalise",
+                                                            "This clip is silent, or its audio file can't be read.");
+                return;
+            }
+        }
+
         // ARM / MUTE / SOLO pills
         if (armBounds.contains (e.getPosition()) && selectedTrack != nullptr)
         {
@@ -323,9 +358,9 @@ public:
         // Fader interaction
         if (faderArea.contains (e.getPosition()))
         {
-            if (auto* audio = dynamic_cast<tracktion::AudioTrack*> (selectedTrack))
+            if (dynamic_cast<tracktion::AudioTrack*> (selectedTrack) != nullptr || isMasterSelected())
             {
-                ::setFaderFromY (audioEngine, audio, faderArea, e.y);
+                ::setFaderFromY (audioEngine, selectedTrack, faderArea, e.y);
                 return;
             }
         }
@@ -376,7 +411,7 @@ public:
         }
 
         // Quick Filters Section Header (collapse/expand)
-        if (selectedTrack != nullptr)
+        if (selectedTrack != nullptr && ! isMasterSelected())
         {
             auto headerRect = juce::Rectangle<int> (12, filterAddBtn.getY(), getWidth() - 24, 18);
             if (headerRect.contains (e.getPosition()))
@@ -417,6 +452,14 @@ public:
 
     void mouseDoubleClick (const juce::MouseEvent& e) override
     {
+        if (clipGainBounds.contains (e.getPosition()))
+        {
+            if (auto* wave = getSelectedWaveClip())
+                if (! isClipTrackFrozenOrFreezing (audioEngine, wave))
+                    wave->setGainDB (0.0f);
+            return;
+        }
+
         if (faderArea.contains (e.getPosition()))
         {
             audioEngine.setTrackVolumeDb (selectedTrack, 0.0f);
@@ -435,6 +478,14 @@ public:
     {
         if (handleInsertRowMouseDrag (e, insertRowHits, insertDragState, [this] { repaint(); }))
             return;
+
+        if (clipGainBounds.contains (e.getMouseDownPosition()))
+        {
+            if (auto* wave = getSelectedWaveClip())
+                if (! isClipTrackFrozenOrFreezing (audioEngine, wave))
+                    setClipGainFromX (e.x);
+            return;
+        }
 
         if (faderArea.contains (e.getPosition()) || (e.getMouseDownX() >= faderArea.getX() && e.getMouseDownX() < faderArea.getRight()))
         {
@@ -484,6 +535,67 @@ private:
     juce::Rectangle<int> monBounds, freezeBounds;
     bool filtersExpanded = true;
 
+    tracktion::EditItemID selectedClipID;
+    juce::ValueTree clipState;
+    juce::Rectangle<int> clipGainBounds, clipReverseBounds, clipNormaliseBounds;
+    static constexpr float kClipGainMinDb = -24.0f, kClipGainMaxDb = 24.0f;
+
+    tracktion::WaveAudioClip* getSelectedWaveClip() const
+    {
+        if (! selectedClipID.isValid())
+            return nullptr;
+        return dynamic_cast<tracktion::WaveAudioClip*> (tracktion::findClipForID (audioEngine.getEdit(), selectedClipID));
+    }
+
+    void setClipGainFromX (int x)
+    {
+        if (auto* wave = getSelectedWaveClip())
+        {
+            const float norm = juce::jlimit (0.0f, 1.0f, (float) (x - clipGainBounds.getX()) / (float) juce::jmax (1, clipGainBounds.getWidth()));
+            wave->setGainDB (juce::jmap (norm, kClipGainMinDb, kClipGainMaxDb));
+        }
+    }
+
+    void drawClipSection (juce::Graphics& g, juce::Rectangle<int> b, tracktion::WaveAudioClip& wave)
+    {
+        g.setColour (Theme::textMuted);
+        g.setFont (Theme::uiSize (10.0f).withStyle (juce::Font::bold));
+        g.drawText ("CLIP", b.removeFromTop (18), juce::Justification::left);
+
+        g.setColour (Theme::textMain);
+        g.setFont (Theme::uiSize (11.0f));
+        g.drawText (wave.getName(), b.removeFromTop (18), juce::Justification::centredLeft, true);
+        b.removeFromTop (4);
+
+        auto gainRow = b.removeFromTop (18);
+        g.setColour (Theme::textMuted);
+        g.setFont (Theme::uiSize (10.0f));
+        g.drawText ("Gain", gainRow.removeFromLeft (30), juce::Justification::centredLeft);
+        auto valueArea = gainRow.removeFromRight (56);
+        clipGainBounds = gainRow.reduced (0, 3);
+
+        const float gainDb = wave.getGainDB();
+        g.setColour (juce::Colours::black.withAlpha (0.3f));
+        g.fillRoundedRectangle (clipGainBounds.toFloat(), 2.0f);
+        g.setColour (Theme::border);
+        g.drawRoundedRectangle (clipGainBounds.toFloat(), 2.0f, 1.0f);
+        const float norm = juce::jlimit (0.0f, 1.0f, juce::jmap (gainDb, kClipGainMinDb, kClipGainMaxDb, 0.0f, 1.0f));
+        const float zeroX = (float) clipGainBounds.getX() + 0.5f * (float) clipGainBounds.getWidth();
+        const float valX  = (float) clipGainBounds.getX() + norm * (float) clipGainBounds.getWidth();
+        g.setColour (Theme::active.withAlpha (0.5f));
+        g.fillRect (juce::jmin (zeroX, valX), (float) clipGainBounds.getY(), std::abs (valX - zeroX), (float) clipGainBounds.getHeight());
+        g.setColour (Theme::textMain);
+        g.drawText (juce::String (gainDb, 1) + " dB", valueArea, juce::Justification::centredRight);
+
+        b.removeFromTop (6);
+        auto buttons = b.removeFromTop (20);
+        clipReverseBounds = buttons.removeFromLeft (64);
+        drawPill (g, clipReverseBounds, "REVERSE", wave.getIsReversed(), Theme::active);
+        buttons.removeFromLeft (6);
+        clipNormaliseBounds = buttons.removeFromLeft (72);
+        drawPill (g, clipNormaliseBounds, "NORMALISE", false, Theme::active);
+    }
+
     // Screen-reader / keyboard controls over the painted ones, rebuilt after a
     // paint that changed the layout or the selected track.
     Accessibility::ProxyPool proxies { *this };
@@ -495,7 +607,8 @@ private:
         h = h * 1000003 + trackName.hashCode();
 
         for (auto r : { faderArea, muteBounds, soloBounds, armBounds, phaseBounds, monoBounds,
-                        monBounds, freezeBounds, inputRoutingBounds, hpfBounds, lpfBounds })
+                        monBounds, freezeBounds, inputRoutingBounds, hpfBounds, lpfBounds,
+                        clipGainBounds, clipReverseBounds, clipNormaliseBounds })
             h = ((((h * 1000003 + r.getX()) * 1000003 + r.getY()) * 1000003 + r.getWidth()) * 1000003) + r.getHeight();
 
         return h;
@@ -563,10 +676,79 @@ private:
                                         [this, t] (double v) { audioEngine.setTrackLPF (t, (float) v); repaint(); }, hz));
         }
 
+        if (getSelectedWaveClip() != nullptr)
+        {
+            Accessibility::Control gain;
+            gain.id = "clipGain";
+            gain.title = "Clip gain";
+            gain.role = Accessibility::Role::slider;
+            gain.bounds = clipGainBounds;
+            gain.range = { kClipGainMinDb, kClipGainMaxDb };
+            gain.step = 0.5; gain.fineStep = 0.1; gain.bigStep = 3.0; gain.resetValue = 0.0;
+            gain.getValue = [this] { auto* w = getSelectedWaveClip(); return w != nullptr ? (double) w->getGainDB() : 0.0; };
+            gain.setValue = [this] (double v) { if (auto* w = getSelectedWaveClip()) w->setGainDB ((float) v); };
+            gain.valueText = [] (double v) { return juce::String (v, 1) + " dB"; };
+            controls.push_back (gain);
+
+            for (auto [id, title, r] : { std::tuple { "clipReverse", "Reverse clip", clipReverseBounds },
+                                         std::tuple { "clipNormalise", "Normalise clip", clipNormaliseBounds } })
+            {
+                Accessibility::Control c;
+                c.id = id;
+                c.title = title;
+                c.role = Accessibility::Role::button;
+                c.bounds = r;
+                c.press = [this, centre = r.getCentre()] { Accessibility::clickAt (*this, centre); };
+                controls.push_back (c);
+            }
+        }
+
         controls.erase (std::remove_if (controls.begin(), controls.end(),
                                         [] (const Accessibility::Control& c) { return c.bounds.isEmpty(); }),
                         controls.end());
         proxies.sync (std::move (controls));
+    }
+
+    bool isMasterSelected() const
+    {
+        return selectedTrack != nullptr && selectedTrack->isMasterTrack();
+    }
+
+    void paintRoutingHeader (juce::Graphics& g, juce::Rectangle<int> headerB)
+    {
+        g.setColour (Theme::textMuted);
+        g.setFont (Theme::uiSize (11.0f));
+        g.drawText ("In",  headerB.getX(), headerB.getY() + 32, 40, 18, juce::Justification::left);
+        g.drawText ("Out", headerB.getX(), headerB.getY() + 50, 40, 18, juce::Justification::left);
+
+        // Input routing  -  clickable panel showing current device name. If a
+        // specific MIDI controller has been pinned to the track, append a
+        // " | MIDI: <name>" tag so users see both routings at a glance.
+        juce::String inputName = "Input L+R";
+        if (selectedTrack != nullptr)
+        {
+            int devIdx = audioEngine.getTrackInputDeviceIdx (selectedTrack);
+            auto names = audioEngine.getInputDeviceNames();
+            if (devIdx >= 0 && devIdx < names.size()) inputName = names[devIdx];
+            else if (!names.isEmpty())                 inputName = names[0];
+
+            int midiIdx = audioEngine.getTrackMidiInputDeviceIdx (selectedTrack);
+            if (midiIdx >= 0)
+            {
+                auto midis = audioEngine.getMidiInputDeviceNames();
+                if (midiIdx < midis.size())
+                    inputName += " | MIDI: " + midis[midiIdx];
+            }
+        }
+        inputRoutingBounds = juce::Rectangle<int> (headerB.getRight() - 100, headerB.getY() + 28, 100, 20);
+        Theme::drawRoundedPanel (g, inputRoutingBounds.toFloat(), Theme::surface);
+        g.setColour (Theme::textMain);
+        g.setFont (Theme::uiSize (10.5f));
+        g.drawText (inputName, inputRoutingBounds.reduced (4, 0), juce::Justification::centredRight);
+
+        g.setColour (Theme::textMain);
+        g.setFont (Theme::uiSize (11.0f));
+        g.drawText ("Main", headerB.getRight() - 100, headerB.getY() + 50, 100, 18, juce::Justification::right);
     }
 
     void drawFilterSlider (juce::Graphics& g, juce::Rectangle<int> r, float value, float min, float max)

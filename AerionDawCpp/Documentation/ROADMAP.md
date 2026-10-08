@@ -15,7 +15,7 @@ A milestone is done when its items are verified: benchmark targets for performan
 
 ## Where Aerion is now
 
-**v0.5.0 Alpha** (October 2026) is the first public release, with the in-app update check, Follow Playback and a Mac-native menu bar, shortcuts and trackpad gestures. Milestones 1–5 (editing, mixing, recording and monitoring, project workflow, polish and stability) are complete; what they delivered is summarised in the [README](../../README.md#shipped-milestones). This roadmap covers what comes next.
+**v0.5.0 Alpha** (October 2026) is the first public release, with the in-app update check, Follow Playback and a Mac-native menu bar, shortcuts and trackpad gestures. Milestones 1–5 (editing, mixing, recording and monitoring, project workflow, polish and stability) are complete; what they delivered is summarised in the [README](../../README.md#shipped-milestones). **v0.5.1** adds the first Milestone 6 items: sidechain routing, clip gain / normalise / reverse, and project templates. This roadmap covers what comes next.
 
 ---
 
@@ -25,11 +25,11 @@ A milestone is done when its items are verified: benchmark targets for performan
 - [ ] **Update Mechanism (first; ships in v0.5.0, done once a real update from 0.5.0 to a later release has gone through):** Aerion checks the GitHub releases for a newer version at startup (and on demand from Help → Check for Updates), shows what changed, downloads the installer for the platform, checks it, and runs it after Aerion closes. Alpha builds also see pre-releases; a setting turns the automatic check off. Comes first because it gets every later fix to alpha testers.
 - [ ] **Full Parameter Automation:** Automate any plugin or mixer parameter, not just volume and pan. Per-track lane chooser, multiple visible lanes, automation modes (Read / Write / Touch / Latch) that record from UI and controller moves, point thinning, and copy/paste of automation with clips.
 - [ ] **Audio Warping & Time-Stretch:** Audio clips follow tempo changes (auto-tempo), warp markers for manual timing correction, per-clip pitch and speed controls. SoundTouch is already compiled in (`TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH`); evaluate higher-quality stretchers (Rubber Band, élastique) and their licences.
-- [ ] **Sidechain Routing:** Sidechain inputs for hosted plugins that support them, set up from the Inspector and the Mixer strip context menu (for ducking, sidechain compression and gating).
+- [x] **Sidechain Routing (v0.5.1):** Sidechain inputs for hosted plugins that support them, set up from the insert slot's context menu in the Inspector and the Mixer (for ducking, sidechain compression and gating).
 - [ ] **MIDI Learn & Controller Mapping:** Map hardware knobs, faders and buttons to any parameter by moving the control; mappings saved per project, with user-level defaults.
 - [ ] **Control Surface Support:** Mackie Control (MCU) and HUI transport and mixer control, building on Tracktion's control surface support.
-- [ ] **Audio Clip Processing:** Reverse, normalise, clip gain envelope, and pitch/speed per clip; non-destructive where possible, with rendered results kept in the project folder.
-- [ ] **Project & Track Templates:** Save and start from project templates (tracks, routing, devices, layout) and insert track templates (a track or folder with its devices and sends).
+- [ ] **Audio Clip Processing:** Reverse, normalise, clip gain envelope, and pitch/speed per clip; non-destructive where possible, with rendered results kept in the project folder. *Clip gain, normalise and reverse shipped in v0.5.1; the gain envelope and pitch/speed come with time-stretch.*
+- [ ] **Project & Track Templates:** Save and start from project templates (tracks, routing, devices, layout) and insert track templates (a track or folder with its devices and sends). *Project templates shipped in v0.5.1; track templates are still to do.*
 - [ ] **Analysis Metering:** Loudness meter on the master (integrated / short-term / momentary LUFS and true peak), spectrum analyser, and phase correlation meter; loudness targets for common delivery platforms.
 - [ ] **CLAP Plugin Hosting — Feasibility Spike:** Check how JUCE 8 and Tracktion Engine support CLAP hosting today, then implement it if the support is solid enough.
 

@@ -20,6 +20,15 @@
 
 enum class EditTool { select, razor, comp };
 
+// User setting for Transport › Follow Playback, on unless the user turned it off.
+inline constexpr const char* kFollowPlaybackSettingKey = "followPlayback";
+
+inline bool isFollowPlaybackOn (AudioEngineManager& audioEngine)
+{
+    auto* s = audioEngine.getUserSettings();
+    return s == nullptr || s->getBoolValue (kFollowPlaybackSettingKey, true);
+}
+
 //==============================================================================
 // (Fader primitives + LookAndFeel extracted to UI/)
 
@@ -126,6 +135,11 @@ inline void showFrozenTrackInsertAlert()
                                             "Cannot modify plugins on frozen tracks or tracks that are currently freezing.");
 }
 
+inline bool hasSidechainSource (tracktion::Plugin& plug)
+{
+    return plug.getSidechainSourceID().isValid();
+}
+
 inline InsertRowHitAreas paintInsertRow (juce::Graphics& g, juce::Rectangle<int> row,
                                          tracktion::Plugin& plug, AudioEngineManager& audioEngine,
                                          float alpha = 1.0f)
@@ -148,6 +162,15 @@ inline InsertRowHitAreas paintInsertRow (juce::Graphics& g, juce::Rectangle<int>
 
     hit.bypassBtn = row.removeFromRight (34).reduced (4, 5);
     drawPill (g, hit.bypassBtn, "BYP", bypassed, Theme::meterYellow);
+
+    if (hasSidechainSource (plug))
+    {
+        auto sc = row.removeFromRight (26).reduced (2, 7);
+        g.setColour (Theme::accent.withMultipliedAlpha (alpha));
+        g.drawRoundedRectangle (sc.toFloat(), 3.0f, 1.0f);
+        g.setFont (Theme::uiSize (8.5f).withStyle (juce::Font::bold));
+        g.drawText ("SC", sc, juce::Justification::centred, false);
+    }
 
     hit.labelArea = row.reduced (4, 0);
     g.setColour ((bypassed ? Theme::textMuted : Theme::textMain).withMultipliedAlpha (alpha));
@@ -182,7 +205,8 @@ inline InsertRowHitAreas paintCompactInsertSlot (juce::Graphics& g, juce::Rectan
 
     hit.labelArea = row.reduced (1, 2);
 
-    g.setColour (bypassed ? Theme::textMuted : Theme::textMain);
+    // Too narrow for an "SC" tag: a sidechained plugin's letter is drawn in the accent colour.
+    g.setColour (bypassed ? Theme::textMuted : hasSidechainSource (plug) ? Theme::accent : Theme::textMain);
     g.setFont (Theme::uiSize (8.5f).withStyle (juce::Font::bold));
     g.drawText (plug.getName().substring (0, 1).toUpperCase(), hit.labelArea, juce::Justification::centred);
 
@@ -226,9 +250,24 @@ inline void showInsertContextMenu (AudioEngineManager& audioEngine, tracktion::T
     if (plugin == nullptr || track == nullptr)
         return;
 
+    constexpr int kSidechainNone = 50, kSidechainBase = 100;
+    const auto sidechainSources = audioEngine.getSidechainSourceCandidates (*plugin);
+
     juce::PopupMenu m;
     m.addItem (1, "Open Editor");
     m.addItem (2, "Bypass", true, ! plugin->isEnabled());
+
+    if (plugin->canSidechain())
+    {
+        const auto current = plugin->getSidechainSourceID();
+        juce::PopupMenu sc;
+        sc.addItem (kSidechainNone, "None", true, ! current.isValid());
+        sc.addSeparator();
+        for (int i = 0; i < sidechainSources.size(); ++i)
+            sc.addItem (kSidechainBase + i, sidechainSources[i]->getName(), true,
+                        sidechainSources[i]->itemID == current);
+        m.addSubMenu ("Sidechain Source", sc);
+    }
     m.addSeparator();
     m.addItem (4, "Move Up", plugin != nullptr);
     m.addItem (5, "Move Down", plugin != nullptr);
@@ -236,10 +275,20 @@ inline void showInsertContextMenu (AudioEngineManager& audioEngine, tracktion::T
     m.addItem (3, "Remove Plugin");
 
     m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ screenPos.x, screenPos.y, 1, 1 }),
-                     [&audioEngine, track, plugin, onChanged] (int chosen)
+                     [&audioEngine, track, plugin, onChanged, sidechainSources] (int chosen)
                      {
                          if (chosen <= 0 || plugin == nullptr)
                              return;
+
+                         if (chosen == kSidechainNone || chosen >= kSidechainBase)
+                         {
+                             const int idx = chosen - kSidechainBase;
+                             audioEngine.setPluginSidechainSource (*plugin, juce::isPositiveAndBelow (idx, sidechainSources.size())
+                                                                                ? sidechainSources[idx] : nullptr);
+                             if (onChanged)
+                                 onChanged();
+                             return;
+                         }
 
                          if (isInsertTrackFrozen (audioEngine, track))
                          {

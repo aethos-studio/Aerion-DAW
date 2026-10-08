@@ -4,7 +4,7 @@
 
 **Aerion DAW** is a native digital audio workstation built in **C++20** with **JUCE 8** and the **Tracktion Engine v3.2**. It targets serious home and project-studio production on **Windows 11** first, with **macOS** builds supported through CI and release packaging.
 
-**Current version:** v0.5.0 Alpha · **Active milestone:** [M6 — Complete Core](AerionDawCpp/Documentation/ROADMAP.md) · **[User Manual](Aerion-DAW-Manual.html)**
+**Current version:** v0.5.1 Alpha · **Active milestone:** [M6 — Complete Core](AerionDawCpp/Documentation/ROADMAP.md) · **[User Manual](Aerion-DAW-Manual.html)**
 
 [![Build & Smoke Tests](https://github.com/aethos-studio/Aerion-DAW/actions/workflows/build-test.yml/badge.svg)](https://github.com/aethos-studio/Aerion-DAW/actions/workflows/build-test.yml)
 
@@ -12,7 +12,7 @@
 
 ## What Aerion is today
 
-Aerion is a **working alpha DAW**, not a demo shell. You can record, edit, mix, and export a complete song session on Windows today. Milestones 1–5 — editing, mixing, recording, project workflow, and polish & stability — are complete. Milestone 6 fills the remaining gaps to a modern DAW baseline: full automation, time-stretch, sidechain and controller mapping. Aerion works with your own instrument and effect plugins; it doesn't ship built-in ones.
+Aerion is a **working alpha DAW**, not a demo shell. You can record, edit, mix, and export a complete song session on Windows today. Milestones 1–5 — editing, mixing, recording, project workflow, and polish & stability — are complete. Milestone 6 fills the remaining gaps to a modern DAW baseline; sidechain routing, clip gain / normalise / reverse and project templates shipped in v0.5.1, and full automation, time-stretch and controller mapping are next. Aerion works with your own instrument and effect plugins; it doesn't ship built-in ones.
 
 The long-term vision includes AI-assisted workflows and cloud project sync, but those are **scaffolding only** right now. The current focus is making the core DAW fast, stable, and trustworthy.
 
@@ -25,6 +25,8 @@ The long-term vision includes AI-assisted workflows and cloud project sync, but 
 - Multi-track **audio**, **MIDI**, and **folder** tracks with free reordering and submix folders
 - **Position-aware drag-and-drop**: ghost previews, grid snap, consecutive multi-file import
 - Clip trim, split, move, nudge, fades, comps, loop regions, and markers
+- Non-destructive **clip gain**, **normalise** and **reverse**
+- **Follow Playback** (on by default) in the timeline and piano roll
 - **Piano roll** with note editing, velocity lane, MIDI CC / pitch-bend lanes, quantize, and snap
 - **Tempo map** and **time signature** changes on the timeline ruler
 - **Automation** lanes for volume and pan
@@ -41,7 +43,8 @@ The long-term vision includes AI-assisted workflows and cloud project sync, but 
 - Real-time level meters, faders, pan, mute, and solo
 - **Detachable mixer** window and per-track inspector
 - Phase invert, mono sum, HPF/LPF quick filters
-- Serial **insert** chain with bypass and drag-to-reorder
+- Serial **insert** chain with bypass and drag-to-reorder, on tracks, folders and the master
+- **Sidechain** input for plugins that have one, fed from any audio track
 - **Sends** to buses and mix **snapshots**
 - **VST3** plugin hosting (Windows and macOS) and **Audio Units** (macOS)
 
@@ -49,6 +52,7 @@ The long-term vision includes AI-assisted workflows and cloud project sync, but 
 
 - Save and load **`.aerion`** project files with full round-trip state
 - Collect & save, auto-save, and crash recovery
+- **Project templates** (with or without clips)
 - **Plugin crash protection** (Windows): a plugin that crashes while processing audio, loading, saving or restoring its settings, or opening its editor is caught and switched off, and the session keeps going; plugin scanning runs in a separate process
 - **Accessibility**: screen-reader labels and keyboard control for the Mixer, Transport, Toolbar, Inspector and track headers (F6 moves between panes)
 - **Freeze / bounce** tracks; mixdown and **stems** export to WAV / AIFF / FLAC / OGG
@@ -85,6 +89,16 @@ What comes next is in the [roadmap](AerionDawCpp/Documentation/ROADMAP.md).
 
 ## Recent progress (October 2026)
 
+**v0.5.1 Alpha** is the first update through the in-app updater. It adds:
+
+- **Follow Playback on by default**, and a following playhead in the piano roll
+- **Master bus inserts** shown and editable in the mixer and Inspector (they could be added but not removed in v0.5.0), plus **Bypass All Master Plugins**
+- **Clip gain, normalise and reverse** from the clip's right-click menu and a new Clip section in the Inspector
+- **Sidechain routing** from a plugin's right-click menu
+- **Project templates** — File → Save as Template… / New from Template
+- **Plugin scan at every start**, in the background and shown on the splash; only new or changed plugins are loaded
+- **Shortcuts in the macOS menu bar**, following the user's keymap
+
 **v0.5.0 Alpha** is the first public release. The last days before it added:
 
 - **Updates from inside Aerion** — Aerion checks GitHub for a newer release, shows what changed, downloads the installer, checks its checksum and installs it; **Help → Check for Updates** checks on demand
@@ -105,7 +119,7 @@ What comes next is in the [roadmap](AerionDawCpp/Documentation/ROADMAP.md).
 | Error reporting | Done: the app log shows in a **Console** bottom-panel tab; a crash writes a local report (stack, log, Windows minidump) that the next launch points to |
 | High-DPI / UI scaling | Done: **View → UI Size** (Auto / 100–200 %) scales the whole interface; the Timeline stays fast and sharp on scaled displays |
 | Track heights | Done: drag a track's bottom edge (or use Track Height in its context menu); saved per track |
-| Tests | Smoke tests for `ProjectData`, `AerionKeymap`, `AudioEngineManager` (incl. plugin settings and track heights through save and load, automation override), graphics engine choice, UI size, plugin fault handling (processing and saving) and dialogs; `AerionBench --verify` (pixel checks, fader drags, accessibility) runs in CI at 100 % and 125 % UI size and passed on Windows and macOS for v0.4.0; `AerionBench --audio` measures the audio side |
+| Tests | Smoke tests for `ProjectData`, `AerionKeymap`, `AudioEngineManager` (incl. plugin settings, track heights, clip gain / reverse and sidechain sources through save and load, normalise, templates, master inserts, automation override), graphics engine choice, UI size, plugin fault handling (processing and saving) and dialogs; `AerionBench --verify` (pixel checks, fader drags, accessibility) runs in CI at 100 % and 125 % UI size and passed on Windows and macOS for v0.4.0; `AerionBench --audio` measures the audio side |
 | Packaging | Windows NSIS and macOS DMG; production signing and notarization wait on paid certificates (the workflow runs them once the secrets are added) |
 | Accessibility | Mixer, Transport, Toolbar, Inspector and track headers; Timeline clips and Piano Roll notes not yet |
 | AI / Cloud | `AIManager` is a mock; Google Drive client has placeholder OAuth credentials |

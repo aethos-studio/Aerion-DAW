@@ -142,8 +142,21 @@ public:
     tracktion::AudioTrack* importAudioFileAtPosition (const juce::File& file,
                                                       double startTimeSecs);
 
+    // Project templates: ordinary .aerion files in the Templates folder, opened as untitled.
+    juce::File getTemplatesFolder();
+    juce::Array<juce::File> getProjectTemplates();
+    /** Saves the current project as a template; returns its file, or {} for an unusable name. */
+    juce::File saveProjectAsTemplate (const juce::String& name, class ProjectData* projectData, bool includeClips);
+
     // Waveform Rendering
     tracktion::SmartThumbnail& getThumbnailForClip (tracktion::WaveAudioClip& clip, juce::Component& componentToRepaint);
+
+    // Clip processing (non-destructive: clip gain and Tracktion's reverse render)
+    static constexpr float kNormaliseTargetDb = -0.1f;
+    /** Peak level (linear) of the part of the source the clip plays, or -1 if it can't be read. */
+    float measureClipPeak (tracktion::WaveAudioClip& clip);
+    /** Sets the clip gain so the clip peaks at kNormaliseTargetDb. False if the clip is silent or unreadable. */
+    bool normaliseClip (tracktion::WaveAudioClip& clip);
 
     // Bounce / Freeze
     void freezeTrack (tracktion::AudioTrack* track);
@@ -201,6 +214,11 @@ public:
     bool hasPluginFaulted (tracktion::Plugin* plugin) const;
     PluginFaultMonitor& getPluginFaultMonitor() { return *pluginFaults; }
     void setPluginBypassed (tracktion::Plugin* plugin, bool bypassed);
+
+    /** Audio tracks that can feed `plugin`'s sidechain input (all but its own track). */
+    juce::Array<tracktion::AudioTrack*> getSidechainSourceCandidates (tracktion::Plugin& plugin);
+    /** Feeds `source` into the plugin's sidechain input; nullptr disconnects it. */
+    void setPluginSidechainSource (tracktion::Plugin& plugin, tracktion::AudioTrack* source);
     void moveInsertDevice (tracktion::Track* track, tracktion::Plugin* plugin, int newInsertIndex);
     tracktion::Plugin* getPluginFor (juce::ValueTree& v);
     

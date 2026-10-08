@@ -1362,6 +1362,53 @@ int main (int argc, char* argv[])
             bar.onUndo = [&] { undone = true; };
             systemMenus.menuItemSelected (1, 1);   // Edit > Undo
             check ("mac menus: click runs action", undone, undone ? "Edit > Undo ran" : "nothing ran");
+
+            // Native shortcuts: an item with a bound key is tied to the command
+            // manager, whose mapping for the item's ID is the keymap's key, and
+            // still runs its own command through its action.
+            auto findItem = [] (juce::PopupMenu& m, const juce::String& text) -> juce::PopupMenu::Item*
+            {
+                for (juce::PopupMenu::MenuItemIterator it (m, true); it.next();)
+                    if (it.getItem().text == text)
+                        return &it.getItem();
+                return nullptr;
+            };
+            auto keyShown = [&] (juce::PopupMenu::Item* item)
+            {
+                if (item == nullptr || item->commandManager == nullptr)
+                    return juce::KeyPress();
+                return item->commandManager->getKeyMappings()->getKeyPressesAssignedToCommand (item->itemID).getFirst();
+            };
+
+            auto& keymap = audioEngine.getKeymap();
+            auto fileMenu = systemMenus.getMenuForIndex (0, names[0]);
+            auto editMenu = systemMenus.getMenuForIndex (1, names[1]);
+            auto transportMenu = systemMenus.getMenuForIndex (6, names[6]);
+            const bool saveOk  = keyShown (findItem (fileMenu, "Save Project")) == keymap.get ("file.save");
+            const bool redoOk  = keyShown (findItem (editMenu, "Redo")) == keymap.get ("edit.redo");
+            const bool followOk = keyShown (findItem (transportMenu, "Follow Playback")) == keymap.get ("transport.follow");
+            const bool noMarker = ! all.joinIntoString ("").containsChar (DAWMenuBar::kActionMarker);
+            check ("mac menus: native shortcuts", saveOk && redoOk && followOk && noMarker,
+                   juce::String ("save ") + (saveOk ? "ok" : "missing") + ", redo " + (redoOk ? "ok" : "missing")
+                       + ", follow " + (followOk ? "ok" : "missing") + (noMarker ? "" : ", marker left in text"));
+
+            // Rebinding shows the new key the next time the menu opens.
+            const auto originalSave = keymap.get ("file.save");
+            keymap.set ("file.save", juce::KeyPress ('s', juce::ModifierKeys::commandModifier | juce::ModifierKeys::altModifier, 0));
+            auto reopened = systemMenus.getMenuForIndex (0, names[0]);
+            const bool rebound = keyShown (findItem (reopened, "Save Project")) == keymap.get ("file.save");
+            keymap.set ("file.save", originalSave);
+            check ("mac menus: rebinding updates", rebound, rebound ? "new key shown" : "old key shown");
+
+            bool redone = false;
+            bar.onRedo = [&] { redone = true; };
+            if (auto* redo = findItem (editMenu, "Redo"); redo != nullptr && redo->action != nullptr)
+                redo->action();
+            check ("mac menus: shortcut item runs", redone, redone ? "Edit > Redo ran" : "nothing ran");
+
+            auto appMenu = systemMenus.applicationMenuItems();
+            const bool settingsOk = keyShown (findItem (appMenu, "Settings...")) == keymap.get ("app.settings");
+            check ("mac application menu: Settings key", settingsOk, settingsOk ? "shown" : "missing");
         }
 
         // A hidden window must follow the graphics engine choice both ways.

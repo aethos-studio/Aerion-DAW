@@ -99,6 +99,18 @@ public:
                                       + juce::String (juce::Time::getMillisecondCounterHiRes() - constructStart, 1)
                                       + " ms");
 
+            // The startup plugin scan runs in the background; the splash shows its
+            // progress while it is up but never waits for it.
+            if (auto* mc = dynamic_cast<MainComponent*> (mainWindow->getContentComponent()))
+                mc->getAudioEngine().onScanProgress = [this] (juce::String pluginName)
+                {
+                    if (splashWindow == nullptr)
+                        return;
+                    if (juce::File::isAbsolutePath (pluginName))
+                        pluginName = juce::File (pluginName).getFileNameWithoutExtension();
+                    splashWindow->setStatus ("Scanning plugins: " + pluginName);
+                };
+
             // Show the main window *behind* the splash first so there is no
             // visible "gap" between splash closing and the DAW appearing.
             mainWindow->centreWithSize (mainWindow->getWidth(), mainWindow->getHeight());

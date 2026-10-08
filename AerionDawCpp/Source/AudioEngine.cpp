@@ -1268,6 +1268,31 @@ bool AudioEngineManager::isExternalPluginBypassed (te::Plugin* plugin) const
     return plugin != nullptr && ! plugin->isEnabled();
 }
 
+juce::Array<te::AudioTrack*> AudioEngineManager::getSidechainSourceCandidates (te::Plugin& plugin)
+{
+    juce::Array<te::AudioTrack*> out;
+    for (auto* at : te::getAudioTracks (plugin.edit))
+        if (at != plugin.getOwnerTrack())
+            out.add (at);
+    return out;
+}
+
+void AudioEngineManager::setPluginSidechainSource (te::Plugin& plugin, te::AudioTrack* source)
+{
+    if (source == nullptr)
+    {
+        plugin.setSidechainSourceID ({});
+        return;
+    }
+
+    plugin.setSidechainSourceID (source->itemID);
+
+    // Without wires the plugin gets its default routing and ignores the source:
+    // main input to channels 1-2, sidechain to the plugin's extra inputs.
+    if (plugin.getNumWires() == 0)
+        plugin.guessSidechainRouting();
+}
+
 void AudioEngineManager::setPluginBypassed (te::Plugin* plugin, bool bypassed)
 {
     if (plugin == nullptr)
@@ -1835,6 +1860,52 @@ void AudioEngineManager::saveProject (const juce::File& file, class ProjectData*
     root->writeTo (file);
 }
 
+juce::File AudioEngineManager::getTemplatesFolder()
+{
+    return engine.getPropertyStorage().getAppPrefsFolder().getChildFile ("Templates");
+}
+
+juce::Array<juce::File> AudioEngineManager::getProjectTemplates()
+{
+    auto files = getTemplatesFolder().findChildFiles (juce::File::findFiles, false, "*.aerion");
+    files.sort();
+    return files;
+}
+
+juce::File AudioEngineManager::saveProjectAsTemplate (const juce::String& name, ProjectData* projectData, bool includeClips)
+{
+    const auto safeName = juce::File::createLegalFileName (name.trim());
+    if (safeName.isEmpty() || ! getTemplatesFolder().createDirectory())
+        return {};
+
+    const auto file = getTemplatesFolder().getChildFile (safeName + ".aerion");
+    saveProject (file, projectData);
+
+    if (! includeClips)
+    {
+        if (auto xml = juce::XmlDocument::parse (file))
+        {
+            static const juce::StringArray clipTags { "AUDIOCLIP", "MIDICLIP", "STEPCLIP", "EDITCLIP",
+                                                      "CHORDCLIP", "ARRANGERCLIP", "CONTAINERCLIP" };
+            std::function<void (juce::XmlElement&)> strip = [&] (juce::XmlElement& e)
+            {
+                for (int i = e.getNumChildElements(); --i >= 0;)
+                {
+                    auto* child = e.getChildElement (i);
+                    if (clipTags.contains (child->getTagName()))
+                        e.removeChildElement (child, true);
+                    else
+                        strip (*child);
+                }
+            };
+            strip (*xml);
+            xml->writeTo (file);
+        }
+    }
+
+    return file;
+}
+
 void AudioEngineManager::loadProject (const juce::File& file, class ProjectData* projectData)
 {
     if (!file.existsAsFile()) return;
@@ -2081,13 +2152,62 @@ void AudioEngineManager::applyRestoredRuntimeStateToEdit()
     }
 }
 
+float AudioEngineManager::measureClipPeak (te::WaveAudioClip& clip)
+{
+    const auto file = clip.getOriginalFile();
+    std::unique_ptr<juce::AudioFormatReader> reader (te::AudioFileUtils::createReaderFor (engine, file));
+    if (reader == nullptr || reader->sampleRate <= 0.0)
+        return -1.0f;
+
+    // The used source range, in original-file seconds. A reversed clip's offset
+    // counts from the end of the source.
+    // A looping clip may play any part of the source, so it uses all of it.
+    const double sourceLen = (double) reader->lengthInSamples / reader->sampleRate;
+    double span  = clip.getPosition().getLength().inSeconds() * clip.getSpeedRatio();
+    double start = clip.getPosition().getOffset().inSeconds() * clip.getSpeedRatio();
+    if (clip.getIsReversed())
+        start = sourceLen - start - span;
+    if (clip.isLooping())
+    {
+        start = 0.0;
+        span  = sourceLen;
+    }
+
+    const auto startSample = (juce::int64) (juce::jlimit (0.0, sourceLen, start) * reader->sampleRate);
+    const auto numSamples  = juce::jmin (reader->lengthInSamples - startSample, (juce::int64) (span * reader->sampleRate));
+
+    if (numSamples <= 0)
+        return -1.0f;
+
+    const int numChannels = (int) reader->numChannels;
+    std::vector<juce::Range<float>> levels ((size_t) numChannels);
+    reader->readMaxLevels (startSample, numSamples, levels.data(), numChannels);
+
+    float peak = 0.0f;
+    for (auto& r : levels)
+        peak = juce::jmax (peak, std::abs (r.getStart()), std::abs (r.getEnd()));
+    return peak;
+}
+
+bool AudioEngineManager::normaliseClip (te::WaveAudioClip& clip)
+{
+    const float peak = measureClipPeak (clip);
+    if (peak <= 0.0f)
+        return false;
+
+    clip.setGainDB (kNormaliseTargetDb - juce::Decibels::gainToDecibels (peak));
+    return true;
+}
+
 te::SmartThumbnail& AudioEngineManager::getThumbnailForClip (te::WaveAudioClip& clip, juce::Component& comp)
 {
     auto it = thumbnails.find (clip.itemID.getRawID());
     if (it != thumbnails.end())
         return *it->second;
 
-    auto thumb = std::make_unique<te::SmartThumbnail> (engine, clip.getAudioFile(), comp, edit.get());
+    // Always the original file: a reversed clip plays a rendered copy, and the
+    // Timeline mirrors the original instead (it exists before the render does).
+    auto thumb = std::make_unique<te::SmartThumbnail> (engine, te::AudioFile (engine, clip.getOriginalFile()), comp, edit.get());
     auto& ref = *thumb;
     thumbnails[clip.itemID.getRawID()] = std::move (thumb);
     return ref;
@@ -2535,10 +2655,12 @@ bool AudioEngineManager::shouldRunStartupScan()
     if (! cacheFile.existsAsFile())
         return true; // First run.
 
+    // On by default: the scan runs in the background and only loads plugin
+    // files that are new or changed since the last scan, so it doesn't slow startup.
     if (auto* settings = appProperties.getUserSettings())
-        return settings->getBoolValue ("pluginScanOnStartup", false);
+        return settings->getBoolValue ("pluginScanOnStartup", true);
 
-    return false;
+    return true;
 }
 
 void AudioEngineManager::cancelScan()
