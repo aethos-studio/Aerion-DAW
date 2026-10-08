@@ -159,6 +159,7 @@ private:
     ProjectData projectData;
 
     DAWMenuBar menuBar;
+    std::unique_ptr<DAWMenuBar::SystemMenuBar> systemMenuBar;   // macOS: the menus at the top of the screen
     DAWToolbar toolbar;
     Inspector  inspector { audioEngine, projectData };
     Browser    browser   { audioEngine };

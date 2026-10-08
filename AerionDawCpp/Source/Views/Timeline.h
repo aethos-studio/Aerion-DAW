@@ -3932,35 +3932,45 @@ public:
 
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override
     {
-        bool inRuler = (e.y < kRulerH && e.x >= kHeaderWidth);
-        bool ctrlDown = e.mods.isCtrlDown();
-        bool shiftDown = e.mods.isShiftDown();
-
-        if (inRuler || ctrlDown)
+        // Zoom over the ruler, or with Ctrl held (Cmd on macOS).
+        if ((e.y < kRulerH && e.x >= kHeaderWidth) || e.mods.isCommandDown())
         {
-            double mouseTime = xToTime ((float)e.x);
-            double zoomFactor = 1.0 + wheel.deltaY * 0.1;
-            pxPerSec = juce::jlimit (1.0, 2000.0, pxPerSec * zoomFactor);
-            zoomSlider.setValue (pxPerSec, juce::dontSendNotification);
+            zoomAround ((float) e.x, 1.0 + wheel.deltaY * 0.1);
+            return;
+        }
 
-            scrollPx = pixelsForStartTime (mouseTime - (e.x - kHeaderWidth) / pxPerSec);
+        // Sideways: a trackpad's sideways swipe, or Shift with a mouse wheel
+        // (macOS sends that as sideways itself). Up and down: the track list.
+        // A trackpad swipe can carry both; each moves the view separately, so
+        // both can reuse cached pixels.
+        const float sideways = wheel.deltaX + (e.mods.isShiftDown() ? wheel.deltaY : 0.0f);
+        const float vertical = e.mods.isShiftDown() ? 0.0f : wheel.deltaY;
 
-            // Now, not on the async refresh: a scroll arriving first must not
-            // reuse pixels drawn at the old zoom.
-            repaint();
-            requestTimelineRefresh (true);
-        }
-        else if (shiftDown)
-        {
-            scrollTo (pixelsForStartTime (getStartTime() - wheel.deltaY * (100.0 / pxPerSec)), scrollY);
-            updateScrollBar();
-        }
-        else
-        {
-            // Default vertical scroll through the track list.
-            scrollTo (scrollPx, clampScrollY (scrollY - (int) (wheel.deltaY * 60.0)));
-            updateScrollBar();
-        }
+        if (sideways != 0.0f)
+            scrollTo (pixelsForStartTime (getStartTime() - sideways * (100.0 / pxPerSec)), scrollY);
+        if (vertical != 0.0f)
+            scrollTo (scrollPx, clampScrollY (scrollY - (int) (vertical * 60.0f)));
+        updateScrollBar();
+    }
+
+    /** A trackpad pinch (macOS, Windows precision touchpads) zooms around the pointer. */
+    void mouseMagnify (const juce::MouseEvent& e, float scaleFactor) override
+    {
+        zoomAround ((float) e.x, scaleFactor);
+    }
+
+    /** Zooms by `factor`, keeping the time under `x` where it is. */
+    void zoomAround (float x, double factor)
+    {
+        const double timeAtX = xToTime (x);
+        pxPerSec = juce::jlimit (1.0, 2000.0, pxPerSec * factor);
+        zoomSlider.setValue (pxPerSec, juce::dontSendNotification);
+        scrollPx = pixelsForStartTime (timeAtX - (x - kHeaderWidth) / pxPerSec);
+
+        // Now, not on the async refresh: a scroll arriving first must not
+        // reuse pixels drawn at the old zoom.
+        repaint();
+        requestTimelineRefresh (true);
     }
 
     void valueTreePropertyChanged (juce::ValueTree& v, const juce::Identifier& i) override

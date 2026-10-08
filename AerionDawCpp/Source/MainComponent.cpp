@@ -196,6 +196,16 @@ MainComponent::MainComponent()
     menuBar.onExportMixdown = [this] { exportMixdown(); };
     menuBar.onSettings = [this] { showAudioSettings(); };
 
+   #if JUCE_MAC
+    // Mac users expect the menus at the top of the screen, with About, Check
+    // for Updates and Settings in the application menu.
+    menuBar.inMacMenuBar = true;
+    menuBar.setVisible (false);
+    systemMenuBar = std::make_unique<DAWMenuBar::SystemMenuBar> (menuBar);
+    const auto applicationMenu = systemMenuBar->applicationMenuItems();
+    juce::MenuBarModel::setMacMainMenu (systemMenuBar.get(), &applicationMenu);
+   #endif
+
     menuBar.onUndo = [this] { audioEngine.undo(); };
     menuBar.onRedo = [this] { audioEngine.redo(); };
 
@@ -725,6 +735,9 @@ MainComponent::MainComponent()
 
 MainComponent::~MainComponent()
 {
+   #if JUCE_MAC
+    juce::MenuBarModel::setMacMainMenu (nullptr);
+   #endif
     stopTimer();
     closeEmbeddedPianoRoll();
     detachFromObservedEditState();
@@ -749,6 +762,7 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component* orig
     }
 
     if (km.matches ("view.nextPane", key)) { focusNextPane(); return true; }
+    if (km.matches ("app.settings", key))  { showAudioSettings(); return true; }
 
     if (km.matches ("edit.undo", key)) { audioEngine.undo(); return true; }
     if (km.matches ("edit.redo", key)) { audioEngine.redo(); return true; }
@@ -1527,7 +1541,8 @@ void MainComponent::resized()
 {
     auto bounds = getLocalBounds();
 
-    menuBar.setBounds  (bounds.removeFromTop (28));
+    // On macOS the menus are in the system menu bar (see the constructor).
+    menuBar.setBounds  (bounds.removeFromTop (menuBar.inMacMenuBar ? 0 : 28));
     toolbar.setBounds  (bounds.removeFromTop (40));
     transport.setBounds(bounds.removeFromBottom (60));
 

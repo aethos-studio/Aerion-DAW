@@ -188,7 +188,13 @@ public:
                               DocumentWindow::allButtons)
         {
             const auto startMs = juce::Time::getMillisecondCounterHiRes();
+            // macOS: the system title bar, with its window buttons and full
+            // screen. Windows: Aerion's own, in its colours.
+           #if JUCE_MAC
+            setUsingNativeTitleBar (true);
+           #else
             setUsingNativeTitleBar (false);
+           #endif
             setContentOwned (new MainComponent(), true);
             juce::Logger::writeToLog ("Startup: MainComponent attached in "
                                       + juce::String (juce::Time::getMillisecondCounterHiRes() - startMs, 1)

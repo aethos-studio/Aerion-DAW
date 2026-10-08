@@ -842,16 +842,34 @@ public:
 
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
     {
-        if (e.mods.isCtrlDown())
+        // Zoom with Ctrl held (Cmd on macOS). Otherwise sideways for a
+        // trackpad's sideways swipe or Shift with a wheel, and up and down.
+        if (e.mods.isCommandDown())
         {
-            pxPerBeat = juce::jlimit (20.0, 400.0, pxPerBeat * (1.0 + w.deltaY * 0.15));
-            zoomSlider.setValue (pxPerBeat, juce::dontSendNotification);
+            zoomBy (1.0 + w.deltaY * 0.15);
+            return;
         }
-        else if (e.mods.isShiftDown())
-            viewBeat = juce::jmax (0.0, viewBeat - w.deltaY * 2.0);
-        else
-            scrollY = juce::jlimit (0, juce::jmax (0, 128 * kRowH - gridArea().getHeight()),
-                                    scrollY - (int)(w.deltaY * 40.0));
+
+        const float sideways = w.deltaX + (e.mods.isShiftDown() ? w.deltaY : 0.0f);
+        const float vertical = e.mods.isShiftDown() ? 0.0f : w.deltaY;
+
+        viewBeat = juce::jmax (0.0, viewBeat - sideways * 2.0);
+        scrollY = juce::jlimit (0, juce::jmax (0, 128 * kRowH - gridArea().getHeight()),
+                                scrollY - (int) (vertical * 40.0f));
+        updateScrollRanges();
+        repaint();
+    }
+
+    /** A trackpad pinch zooms in time. */
+    void mouseMagnify (const juce::MouseEvent&, float scaleFactor) override
+    {
+        zoomBy (scaleFactor);
+    }
+
+    void zoomBy (double factor)
+    {
+        pxPerBeat = juce::jlimit (20.0, 400.0, pxPerBeat * factor);
+        zoomSlider.setValue (pxPerBeat, juce::dontSendNotification);
         updateScrollRanges();
         repaint();
     }

@@ -99,7 +99,7 @@ public:
                 juce::RectanglePlacement (juce::RectanglePlacement::xLeft | juce::RectanglePlacement::yMid), 1.0f);
         }
 
-        static const juce::StringArray kItems { "File", "Edit", "Song", "Track", "Event", "Audio", "Transport", "View", "Help" };
+        const auto& kItems = menuNames();
         g.setFont (Theme::uiSize (12.0f));
         int x = 50;
         for (int i = 0; i < kItems.size(); ++i)
@@ -145,6 +145,91 @@ public:
         openMenu (idx);
     }
 
+    //==========================================================================
+    // The menus, shared by this bar and the macOS menu bar.
+
+    static const juce::StringArray& menuNames()
+    {
+        static const juce::StringArray names { "File", "Edit", "Song", "Track", "Event", "Audio", "Transport", "View", "Help" };
+        return names;
+    }
+
+    juce::PopupMenu buildMenu (int index)
+    {
+        switch (index)
+        {
+            case 0: return fileMenu();
+            case 1: return editMenu();
+            case 2: return songMenu();
+            case 3: return trackMenu();
+            case 4: return eventMenu();
+            case 5: return audioMenu();
+            case 6: return transportMenu();
+            case 7: return viewMenu();
+            case 8: return helpMenu();
+            default: return {};
+        }
+    }
+
+    /** Runs the item `result` (its id; 0 = nothing chosen) of menu `index`. */
+    void handleMenuResult (int index, int result)
+    {
+        if (result == 0)
+            return;
+
+        switch (index)
+        {
+            case 0: fileMenuResult (result);      break;
+            case 1: editMenuResult (result);      break;
+            case 2: songMenuResult (result);      break;
+            case 3: trackMenuResult (result);     break;
+            case 4: eventMenuResult (result);     break;
+            case 5: audioMenuResult (result);     break;
+            case 6: transportMenuResult (result); break;
+            case 7: viewMenuResult (result);      break;
+            case 8: helpMenuResult (result);      break;
+            default: break;
+        }
+    }
+
+    /** The menus as a MenuBarModel, for the macOS menu bar at the top of the
+        screen. macOS asks for a menu each time it opens, so ticks and enabled
+        states are current. Compiled everywhere, used only on macOS. */
+    class SystemMenuBar : public juce::MenuBarModel
+    {
+    public:
+        explicit SystemMenuBar (DAWMenuBar& b) : bar (b) {}
+
+        juce::StringArray getMenuBarNames() override   { return menuNames(); }
+
+        juce::PopupMenu getMenuForIndex (int index, const juce::String&) override
+        {
+            if (bar.onBeforeMenuOpen) bar.onBeforeMenuOpen();
+            return bar.buildMenu (index);
+        }
+
+        void menuItemSelected (int itemId, int index) override   { bar.handleMenuResult (index, itemId); }
+
+        /** The items macOS shows first in the application ("Aerion DAW") menu,
+            above Services, Hide and Quit, which macOS adds itself. */
+        juce::PopupMenu applicationMenuItems()
+        {
+            juce::PopupMenu m;
+            m.addItem ("About Aerion DAW", [] { AboutDialog::launch(); });
+            m.addItem ("Check for Updates...", [this] { if (bar.onCheckForUpdates) bar.onCheckForUpdates(); });
+            m.addSeparator();
+            m.addItem ("Settings...", [this] { if (bar.onSettings) bar.onSettings(); });
+            return m;
+        }
+
+    private:
+        DAWMenuBar& bar;
+    };
+
+    /** True when the menus show in the macOS menu bar instead of this bar:
+        they leave out what the application menu has, and shortcut text. */
+    bool inMacMenuBar = false;
+
 private:
     std::unique_ptr<juce::Drawable> logoDrawable;
     int hoveredMenu = -1;
@@ -169,19 +254,7 @@ private:
         // menus when it moves onto another title.
         startTimerHz (30);
 
-        switch (idx)
-        {
-            case 0: showFileMenu();      break;
-            case 1: showEditMenu();      break;
-            case 2: showSongMenu();      break;
-            case 3: showTrackMenu();     break;
-            case 4: showEventMenu();     break;
-            case 5: showAudioMenu();     break;
-            case 6: showTransportMenu(); break;
-            case 7: showViewMenu();      break;
-            case 8: showHelpMenu();      break;
-            default: break;
-        }
+        showMenu (buildMenu (idx), [this, idx] (int r) { handleMenuResult (idx, r); });
     }
 
     void closeOpenMenu()
@@ -215,7 +288,7 @@ private:
     }
 
     /** Shows a title's menu below it; onResult gets the chosen item id, or 0. */
-    void showMenu (juce::PopupMenu& m, std::function<void (int)> onResult)
+    void showMenu (juce::PopupMenu m, std::function<void (int)> onResult)
     {
         const int generation = menuGeneration;
         m.showMenuAsync (anchoredMenuOptions(), [this, generation, onResult = std::move (onResult)] (int r)
@@ -257,12 +330,15 @@ private:
         return (i >= 0 && i < 9) ? i : -1;
     }
 
+    /** The shortcut after a menu item's name. Not in the macOS menu bar: it
+        shows text after a tab as part of the name, and draws shortcuts only
+        for items tied to an ApplicationCommandManager. */
     juce::String hint (const char* actionId) const
     {
-        return keymap != nullptr ? keymap->menuHint (actionId) : juce::String();
+        return keymap != nullptr && ! inMacMenuBar ? keymap->menuHint (actionId) : juce::String();
     }
 
-    void showFileMenu()
+    juce::PopupMenu fileMenu()
     {
         juce::PopupMenu m;
         m.addItem (1, "New Project" + hint ("file.new"));
@@ -289,38 +365,47 @@ private:
         m.addSeparator();
         m.addItem (4, "Import Audio File...");
         m.addItem (7, "Export Mixdown...");
-        m.addSeparator();
-        m.addItem (5, "Audio Settings...");
-        showMenu (m, [this] (int r) {
-            if (r == 1 && onNew)      onNew();
-            if (r == 2 && onOpen)     onOpen();
-            if (r == 3 && onSave)     onSave();
-            if (r == 6 && onSaveAs)   onSaveAs();
-            if (r == 8 && onCollectSaveAs) onCollectSaveAs();
-            if (r == 4 && onImport)   onImport();
-            if (r == 7 && onExportMixdown) onExportMixdown();
-            if (r == 5 && onSettings) onSettings();
-            if (r >= 200 && r < 299 && onOpenRecent && recentProjects != nullptr)
-            {
-                auto f = recentProjects->getFile (r - 200);
-                if (f.existsAsFile()) onOpenRecent (f);
-            }
-            if (r == 299 && onClearRecent) onClearRecent();
-        });
+        if (! inMacMenuBar)   // on macOS: Aerion > Settings...
+        {
+            m.addSeparator();
+            m.addItem (5, "Audio Settings..." + hint ("app.settings"));
+        }
+        return m;
     }
 
-    void showEditMenu()
+    void fileMenuResult (int r)
+    {
+        if (r == 1 && onNew)      onNew();
+        if (r == 2 && onOpen)     onOpen();
+        if (r == 3 && onSave)     onSave();
+        if (r == 6 && onSaveAs)   onSaveAs();
+        if (r == 8 && onCollectSaveAs) onCollectSaveAs();
+        if (r == 4 && onImport)   onImport();
+        if (r == 7 && onExportMixdown) onExportMixdown();
+        if (r == 5 && onSettings) onSettings();
+        if (r >= 200 && r < 299 && onOpenRecent && recentProjects != nullptr)
+        {
+            auto f = recentProjects->getFile (r - 200);
+            if (f.existsAsFile()) onOpenRecent (f);
+        }
+        if (r == 299 && onClearRecent) onClearRecent();
+    }
+
+    juce::PopupMenu editMenu()
     {
         juce::PopupMenu m;
         m.addItem (1, "Undo" + hint ("edit.undo"));
         m.addItem (2, "Redo" + hint ("edit.redo"));
-        showMenu (m, [this] (int r) {
-            if (r == 1 && onUndo) onUndo();
-            if (r == 2 && onRedo) onRedo();
-        });
+        return m;
     }
 
-    void showSongMenu()
+    void editMenuResult (int r)
+    {
+        if (r == 1 && onUndo) onUndo();
+        if (r == 2 && onRedo) onRedo();
+    }
+
+    juce::PopupMenu songMenu()
     {
         juce::PopupMenu snapSub;
         const std::pair<const char*, double> snaps[] = {
@@ -342,19 +427,22 @@ private:
         m.addSubMenu ("Snap Interval", snapSub);
         m.addSeparator();
         m.addSubMenu ("Count-In", countInSub);
-        showMenu (m, [this] (int r) {
-            if (r == 1  && onToggleMetronome)       onToggleMetronome();
-            if (r == 2  && onShowMetronomeSettings)  onShowMetronomeSettings();
-            if (r == 3  && onToggleSnap)             onToggleSnap();
-            const double snapVals[] = { 1.0, 0.5, 0.25, 0.125, 0.0625 };
-            if (r >= 10 && r <= 14 && onSnapIntervalChanged) onSnapIntervalChanged (snapVals[r - 10]);
-            if (r == 20 && onCountInChanged) onCountInChanged (0);
-            if (r == 21 && onCountInChanged) onCountInChanged (1);
-            if (r == 22 && onCountInChanged) onCountInChanged (2);
-        });
+        return m;
     }
 
-    void showTrackMenu()
+    void songMenuResult (int r)
+    {
+        if (r == 1  && onToggleMetronome)       onToggleMetronome();
+        if (r == 2  && onShowMetronomeSettings)  onShowMetronomeSettings();
+        if (r == 3  && onToggleSnap)             onToggleSnap();
+        const double snapVals[] = { 1.0, 0.5, 0.25, 0.125, 0.0625 };
+        if (r >= 10 && r <= 14 && onSnapIntervalChanged) onSnapIntervalChanged (snapVals[r - 10]);
+        if (r == 20 && onCountInChanged) onCountInChanged (0);
+        if (r == 21 && onCountInChanged) onCountInChanged (1);
+        if (r == 22 && onCountInChanged) onCountInChanged (2);
+    }
+
+    juce::PopupMenu trackMenu()
     {
         juce::PopupMenu m;
         m.addItem (1, "Add Audio Track");
@@ -366,18 +454,21 @@ private:
         m.addItem (5, "Arm",  hasSelectedTrack, trackArmed);
         m.addItem (6, "Mute", hasSelectedTrack, trackMuted);
         m.addItem (7, "Solo", hasSelectedTrack, trackSolo);
-        showMenu (m, [this] (int r) {
-            if (r == 1 && onAddAudioTrack)   onAddAudioTrack();
-            if (r == 2 && onAddMidiTrack)    onAddMidiTrack();
-            if (r == 3 && onAddFolderTrack)  onAddFolderTrack();
-            if (r == 4 && onDeleteTrack)     onDeleteTrack();
-            if (r == 5 && onToggleTrackArm)  onToggleTrackArm();
-            if (r == 6 && onToggleTrackMute) onToggleTrackMute();
-            if (r == 7 && onToggleTrackSolo) onToggleTrackSolo();
-        });
+        return m;
     }
 
-    void showEventMenu()
+    void trackMenuResult (int r)
+    {
+        if (r == 1 && onAddAudioTrack)   onAddAudioTrack();
+        if (r == 2 && onAddMidiTrack)    onAddMidiTrack();
+        if (r == 3 && onAddFolderTrack)  onAddFolderTrack();
+        if (r == 4 && onDeleteTrack)     onDeleteTrack();
+        if (r == 5 && onToggleTrackArm)  onToggleTrackArm();
+        if (r == 6 && onToggleTrackMute) onToggleTrackMute();
+        if (r == 7 && onToggleTrackSolo) onToggleTrackSolo();
+    }
+
+    juce::PopupMenu eventMenu()
     {
         juce::PopupMenu m;
         m.addItem (1, "Nudge Left",  hasSelectedClip, false);
@@ -387,19 +478,22 @@ private:
         m.addItem (4, "Trim Right",  hasSelectedClip, false);
         m.addSeparator();
         m.addItem (5, "Delete",      hasSelectedClip, false);
-        showMenu (m, [this] (int r) {
-            if (r == 1 && onNudgeLeft)   onNudgeLeft();
-            if (r == 2 && onNudgeRight)  onNudgeRight();
-            if (r == 3 && onTrimLeft)    onTrimLeft();
-            if (r == 4 && onTrimRight)   onTrimRight();
-            if (r == 5 && onDeleteEvent) onDeleteEvent();
-        });
+        return m;
     }
 
-    void showAudioMenu()
+    void eventMenuResult (int r)
+    {
+        if (r == 1 && onNudgeLeft)   onNudgeLeft();
+        if (r == 2 && onNudgeRight)  onNudgeRight();
+        if (r == 3 && onTrimLeft)    onTrimLeft();
+        if (r == 4 && onTrimRight)   onTrimRight();
+        if (r == 5 && onDeleteEvent) onDeleteEvent();
+    }
+
+    juce::PopupMenu audioMenu()
     {
         juce::PopupMenu m;
-        m.addItem (1, "Audio Settings...");
+        m.addItem (1, "Audio Settings..." + hint ("app.settings"));
         m.addSeparator();
         m.addItem (2, "Rescan Plugins");
         m.addSeparator();
@@ -410,17 +504,19 @@ private:
         for (auto ms : { 10, 25, 50, 80, 120, 200, 500 })
             xfadeLen.addItem (1000 + ms, juce::String (ms) + " ms", true, autoCrossfadeMaxMs == ms);
         m.addSubMenu ("Auto Crossfade Length", xfadeLen, autoCrossfadeOn);
-
-        showMenu (m, [this] (int r) {
-            if (r == 1 && onSettings)      onSettings();
-            if (r == 2 && onRescanPlugins) onRescanPlugins();
-            if (r == 3 && onTogglePdc)     onTogglePdc();
-            if (r == 4 && onToggleAutoCrossfade) onToggleAutoCrossfade();
-            if (r >= 1000 && onAutoCrossfadeMaxChanged) onAutoCrossfadeMaxChanged (r - 1000);
-        });
+        return m;
     }
 
-    void showTransportMenu()
+    void audioMenuResult (int r)
+    {
+        if (r == 1 && onSettings)      onSettings();
+        if (r == 2 && onRescanPlugins) onRescanPlugins();
+        if (r == 3 && onTogglePdc)     onTogglePdc();
+        if (r == 4 && onToggleAutoCrossfade) onToggleAutoCrossfade();
+        if (r >= 1000 && onAutoCrossfadeMaxChanged) onAutoCrossfadeMaxChanged (r - 1000);
+    }
+
+    juce::PopupMenu transportMenu()
     {
         juce::PopupMenu countInSub;
         countInSub.addItem (10, "Off",    true, countInBars == 0);
@@ -438,21 +534,24 @@ private:
         m.addItem (5, "Loop",         true, loopEnabled);
         m.addItem (6, "Punch In/Out", true, punchEnabled);
         m.addSubMenu ("Count-In", countInSub);
-        showMenu (m, [this] (int r) {
-            if (r == 1  && onPlay)           onPlay();
-            if (r == 2  && onStop)           onStop();
-            if (r == 3  && onRecord)         onRecord();
-            if (r == 4  && onGoToStart)      onGoToStart();
-            if (r == 5  && onToggleLoop)     onToggleLoop();
-            if (r == 6  && onTogglePunch)    onTogglePunch();
-            if (r == 7  && onToggleFollowPlayback) onToggleFollowPlayback();
-            if (r == 10 && onCountInChanged) onCountInChanged (0);
-            if (r == 11 && onCountInChanged) onCountInChanged (1);
-            if (r == 12 && onCountInChanged) onCountInChanged (2);
-        });
+        return m;
     }
 
-    void showViewMenu()
+    void transportMenuResult (int r)
+    {
+        if (r == 1  && onPlay)           onPlay();
+        if (r == 2  && onStop)           onStop();
+        if (r == 3  && onRecord)         onRecord();
+        if (r == 4  && onGoToStart)      onGoToStart();
+        if (r == 5  && onToggleLoop)     onToggleLoop();
+        if (r == 6  && onTogglePunch)    onTogglePunch();
+        if (r == 7  && onToggleFollowPlayback) onToggleFollowPlayback();
+        if (r == 10 && onCountInChanged) onCountInChanged (0);
+        if (r == 11 && onCountInChanged) onCountInChanged (1);
+        if (r == 12 && onCountInChanged) onCountInChanged (2);
+    }
+
+    juce::PopupMenu viewMenu()
     {
         juce::PopupMenu m;
         m.addItem (1, "Inspector", true, inspectorVisible);
@@ -511,50 +610,59 @@ private:
         for (int percent : UiScale::kSizes)
             sizeSub.addItem (700 + percent / 25, juce::String (percent) + " %", true, uiSizeChoice == percent);
         m.addSubMenu ("UI Size", sizeSub);
-
-        showMenu (m, [this] (int r) {
-            if (r >= 700 && r <= 708 && onUiSizeChanged)
-                onUiSizeChanged (r == 700 ? 0 : (r - 700) * 25);
-            if (r >= 500 && r <= 502 && onGraphicsEngineChanged)
-                onGraphicsEngineChanged (r - 500);
-            if (r >= 600 && r <= 602 && onLightweightUiChanged)
-                onLightweightUiChanged (r - 600);
-            if (r == 1 && onToggleInspector)   onToggleInspector();
-            if (r == 2 && onToggleBrowser)     onToggleBrowser();
-            if (r == 3 && onToggleMixerDetach) onToggleMixerDetach();
-            if (r >= 100 && r < 200 && onApplyWorkspace && (r - 100) < builtInWorkspaceNames.size())
-                onApplyWorkspace (builtInWorkspaceNames[r - 100]);
-            if (r >= 200 && r < 300 && onApplyWorkspace && (r - 200) < customWorkspaceNames.size())
-                onApplyWorkspace (customWorkspaceNames[r - 200]);
-            if (r == 300 && onSaveWorkspace)
-                onSaveWorkspace();
-            if (r >= 400 && r < 500 && onDeleteWorkspace && (r - 400) < customWorkspaceNames.size())
-                onDeleteWorkspace (customWorkspaceNames[r - 400]);
-        });
+        return m;
     }
 
-    void showHelpMenu()
+    void viewMenuResult (int r)
+    {
+        if (r >= 700 && r <= 708 && onUiSizeChanged)
+            onUiSizeChanged (r == 700 ? 0 : (r - 700) * 25);
+        if (r >= 500 && r <= 502 && onGraphicsEngineChanged)
+            onGraphicsEngineChanged (r - 500);
+        if (r >= 600 && r <= 602 && onLightweightUiChanged)
+            onLightweightUiChanged (r - 600);
+        if (r == 1 && onToggleInspector)   onToggleInspector();
+        if (r == 2 && onToggleBrowser)     onToggleBrowser();
+        if (r == 3 && onToggleMixerDetach) onToggleMixerDetach();
+        if (r >= 100 && r < 200 && onApplyWorkspace && (r - 100) < builtInWorkspaceNames.size())
+            onApplyWorkspace (builtInWorkspaceNames[r - 100]);
+        if (r >= 200 && r < 300 && onApplyWorkspace && (r - 200) < customWorkspaceNames.size())
+            onApplyWorkspace (customWorkspaceNames[r - 200]);
+        if (r == 300 && onSaveWorkspace)
+            onSaveWorkspace();
+        if (r >= 400 && r < 500 && onDeleteWorkspace && (r - 400) < customWorkspaceNames.size())
+            onDeleteWorkspace (customWorkspaceNames[r - 400]);
+    }
+
+    juce::PopupMenu helpMenu()
     {
         juce::PopupMenu m;
         m.addItem (3, "User Manual");
         m.addItem (1, "Keyboard Shortcuts...");
         m.addSeparator();
-        m.addItem (4, "Check for Updates...");
+        if (! inMacMenuBar)   // on macOS: Aerion > Check for Updates..., About Aerion DAW
+            m.addItem (4, "Check for Updates...");
         m.addItem (5, "Check for Updates Automatically", true, autoUpdateCheck);
-        m.addSeparator();
-        m.addItem (2, "About Aerion DAW");
-        showMenu (m, [this] (int r) {
-            if (r == 1 && onShowKeyboardShortcuts)
-                onShowKeyboardShortcuts();
-            if (r == 4 && onCheckForUpdates)
-                onCheckForUpdates();
-            if (r == 5 && onAutoUpdateCheckChanged)
-                onAutoUpdateCheckChanged (! autoUpdateCheck);
-            if (r == 2)
-                AboutDialog::launch();
-            if (r == 3 && ! UserManual::open())
-                juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "User Manual",
-                    "The manual could not be opened. It is saved at:\n" + UserManual::getFile().getFullPathName());
-        });
+        if (! inMacMenuBar)
+        {
+            m.addSeparator();
+            m.addItem (2, "About Aerion DAW");
+        }
+        return m;
+    }
+
+    void helpMenuResult (int r)
+    {
+        if (r == 1 && onShowKeyboardShortcuts)
+            onShowKeyboardShortcuts();
+        if (r == 4 && onCheckForUpdates)
+            onCheckForUpdates();
+        if (r == 5 && onAutoUpdateCheckChanged)
+            onAutoUpdateCheckChanged (! autoUpdateCheck);
+        if (r == 2)
+            AboutDialog::launch();
+        if (r == 3 && ! UserManual::open())
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "User Manual",
+                "The manual could not be opened. It is saved at:\n" + UserManual::getFile().getFullPathName());
     }
 };

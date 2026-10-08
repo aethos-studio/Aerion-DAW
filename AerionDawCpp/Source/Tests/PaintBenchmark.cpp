@@ -586,23 +586,28 @@ namespace
         return list;
     }
 
-    /** Sends one mouse-wheel event to `c`, as the mouse would. */
-    void wheel (juce::Component& c, float deltaY)
+    /** A mouse event at the middle of `c`, with `mods` held. */
+    juce::MouseEvent eventAtCentre (juce::Component& c, juce::ModifierKeys mods = {})
     {
         auto source = juce::Desktop::getInstance().getMainMouseSource();
         const auto now = juce::Time::getCurrentTime();
         const auto pos = c.getLocalBounds().getCentre().toFloat();
-        const juce::MouseEvent e (source, pos, {}, juce::MouseInputSource::defaultPressure,
-                                  juce::MouseInputSource::defaultOrientation, juce::MouseInputSource::defaultRotation,
-                                  juce::MouseInputSource::defaultTiltX, juce::MouseInputSource::defaultTiltY,
-                                  &c, &c, now, pos, now, 0, false);
+        return juce::MouseEvent (source, pos, mods, juce::MouseInputSource::defaultPressure,
+                                 juce::MouseInputSource::defaultOrientation, juce::MouseInputSource::defaultRotation,
+                                 juce::MouseInputSource::defaultTiltX, juce::MouseInputSource::defaultTiltY,
+                                 &c, &c, now, pos, now, 0, false);
+    }
+
+    /** Sends one mouse-wheel (or trackpad swipe) event to the middle of `c`. */
+    void wheel (juce::Component& c, float deltaY, float deltaX = 0.0f, juce::ModifierKeys mods = {})
+    {
         juce::MouseWheelDetails details;
-        details.deltaX = 0.0f;
+        details.deltaX = deltaX;
         details.deltaY = deltaY;
         details.isReversed = false;
         details.isSmooth = false;
         details.isInertial = false;
-        c.mouseWheelMove (e, details);
+        c.mouseWheelMove (eventAtCentre (c, mods), details);
     }
 
     /** A dense MIDI clip open in the Piano Roll: `numNotes` notes between C2
@@ -1268,6 +1273,95 @@ int main (int argc, char* argv[])
 
             timeline.followPlayhead (0.0, false);
             timeline.updateScrollBar();
+        }
+
+        // Trackpads: a sideways swipe scrolls sideways, Ctrl / Cmd with the
+        // wheel and a pinch zoom around the pointer. The zoom is put back.
+        {
+            auto check = [&] (const juce::String& name, bool ok, const juce::String& detail)
+            {
+                std::cout << "  " << name.paddedRight (' ', 32) << (ok ? "ok" : "FAILED") << " (" << detail << ")" << std::endl;
+                failures += ok ? 0 : 1;
+            };
+
+            timeline.scrollTo (0.0, 0);
+            wheel (timeline, 0.0f, -0.5f);   // two fingers moving left
+            check ("trackpad: sideways swipe", timeline.getStartTime() > 0.0 && timeline.getScrollY() == 0,
+                   "view at " + juce::String (timeline.getStartTime(), 2) + " s");
+
+            const float px = (float) timeline.getLocalBounds().getCentreX();
+            const double timeUnderPointer = timeline.xToTime (px);
+            const float widthOf10s = timeline.timeToX (10.0) - timeline.timeToX (0.0);
+            wheel (timeline, 0.5f, 0.0f, juce::ModifierKeys::commandModifier);
+            const float zoomed = timeline.timeToX (10.0) - timeline.timeToX (0.0);
+            check ("Ctrl / Cmd + wheel zooms", zoomed > widthOf10s * 1.04f
+                                                && std::abs (timeline.xToTime (px) - timeUnderPointer) < 0.05,
+                   juce::String (widthOf10s, 0) + " -> " + juce::String (zoomed, 0) + " px per 10 s");
+
+            timeline.mouseMagnify (eventAtCentre (timeline), 1.5f);
+            const float pinched = timeline.timeToX (10.0) - timeline.timeToX (0.0);
+            check ("trackpad: pinch zooms", std::abs (pinched / zoomed - 1.5f) < 0.02f,
+                   juce::String (zoomed, 0) + " -> " + juce::String (pinched, 0) + " px per 10 s");
+
+            timeline.mouseMagnify (eventAtCentre (timeline), 1.0f / (1.5f * 1.05f));
+            timeline.scrollTo (0.0, 0);
+            timeline.updateScrollBar();
+        }
+
+        // The menus as the macOS menu bar gets them (the model is compiled on
+        // every platform, so this runs here too).
+        {
+            auto check = [&] (const juce::String& name, bool ok, const juce::String& detail)
+            {
+                std::cout << "  " << name.paddedRight (' ', 32) << (ok ? "ok" : "FAILED") << " (" << detail << ")" << std::endl;
+                failures += ok ? 0 : 1;
+            };
+            auto texts = [] (const juce::PopupMenu& m)
+            {
+                juce::StringArray out;
+                for (juce::PopupMenu::MenuItemIterator it (m, true); it.next();)
+                    if (! it.getItem().isSeparator)
+                        out.add (it.getItem().text);
+                return out;
+            };
+
+            DAWMenuBar bar;
+            bar.keymap = &audioEngine.getKeymap();
+            DAWMenuBar::SystemMenuBar systemMenus (bar);
+
+            const auto windowsSave = texts (bar.buildMenu (0)).joinIntoString ("|");
+            check ("in-window menus show shortcuts", windowsSave.contains ("Save Project\t"), windowsSave.substring (0, 60));
+
+            bar.inMacMenuBar = true;
+            int refreshed = 0, items = 0, withTab = 0;
+            bar.onBeforeMenuOpen = [&] { ++refreshed; };
+            const auto names = systemMenus.getMenuBarNames();
+            juce::StringArray all;
+            for (int i = 0; i < names.size(); ++i)
+                for (auto& t : texts (systemMenus.getMenuForIndex (i, names[i])))
+                {
+                    ++items;
+                    withTab += t.containsChar ('\t') ? 1 : 0;
+                    all.add (t);
+                }
+            check ("mac menus: all menus, refreshed", names.size() == 9 && refreshed == 9 && items > 40,
+                   juce::String (names.size()) + " menus, " + juce::String (items) + " items");
+            check ("mac menus: no shortcut text", withTab == 0, juce::String (withTab) + " items with a tab");
+            // About and Check for Updates move to the application menu; File's
+            // Audio Settings too (Settings there), Audio's stays.
+            int audioSettings = 0;
+            for (auto& t : all) audioSettings += t == "Audio Settings..." ? 1 : 0;
+            check ("mac menus: app items moved", ! all.contains ("About Aerion DAW") && ! all.contains ("Check for Updates...")
+                                                  && audioSettings == 1 && all.contains ("Rescan Plugins"),
+                   "Audio Settings in " + juce::String (audioSettings) + " menu(s)");
+
+            const auto appItems = texts (systemMenus.applicationMenuItems()).joinIntoString (", ");
+            check ("mac application menu", appItems == "About Aerion DAW, Check for Updates..., Settings...", appItems);
+
+            bool undone = false;
+            bar.onUndo = [&] { undone = true; };
+            systemMenus.menuItemSelected (1, 1);   // Edit > Undo
+            check ("mac menus: click runs action", undone, undone ? "Edit > Undo ran" : "nothing ran");
         }
 
         // A hidden window must follow the graphics engine choice both ways.

@@ -73,6 +73,7 @@ struct AerionActionCatalog
         add ("audio.crossfade",        "Audio",      "Force Crossfade",      "X");
 
         add ("view.nextPane",          "View",       "Focus Next Pane",      "F6");
+        add ("app.settings",           "View",       "Audio Settings",       "command + ,");
 
         add ("track.mute",             "Track",      "Toggle Mute",          "M");
         add ("track.solo",             "Track",      "Toggle Solo",          "S");
