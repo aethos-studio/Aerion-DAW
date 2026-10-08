@@ -15,14 +15,14 @@ A milestone is done when its items are verified: benchmark targets for performan
 
 ## Where Aerion is now
 
-**v0.5.0 Alpha** (October 2026) is the first public release. Milestones 1–5 (editing, mixing, recording and monitoring, project workflow, polish and stability) are complete; what they delivered is summarised in the [README](../../README.md#shipped-milestones). This roadmap covers what comes next.
+**v0.5.1 Alpha** (October 2026) is the current release; it follows **v0.5.0 Alpha**, the first public release, with the in-app update check, Follow Playback and a Mac-native menu bar, shortcuts and trackpad gestures. Milestones 1–5 (editing, mixing, recording and monitoring, project workflow, polish and stability) are complete; what they delivered is summarised in the [README](../../README.md#shipped-milestones). This roadmap covers what comes next.
 
 ---
 
 ## Milestone 6 — DAW Essentials: Complete Core (v0.6.0)
 *Close the gaps every mainstream DAW already covers, so Aerion is complete before it adds differentiators. Several items build on capabilities Tracktion Engine already ships, so they are exposure and UI work rather than new DSP. Built-in (stock) instruments and effects are not part of Aerion: they will come as a separate product (decided October 7, 2026). Aerion hosts the user's plugins; new MIDI tracks start without an instrument.*
 
-- [ ] **Update Mechanism (first):** Aerion checks the GitHub releases for a newer version at startup (and on demand from Help → Check for Updates), shows what changed, downloads the installer for the platform, checks it, and runs it after Aerion closes. Alpha builds also see pre-releases; a setting turns the automatic check off. Comes first because it gets every later fix to alpha testers.
+- [ ] **Update Mechanism (first; ships in v0.5.1, done once a real update from 0.5.1 has gone through):** Aerion checks the GitHub releases for a newer version at startup (and on demand from Help → Check for Updates), shows what changed, downloads the installer for the platform, checks it, and runs it after Aerion closes. Alpha builds also see pre-releases; a setting turns the automatic check off. Comes first because it gets every later fix to alpha testers.
 - [ ] **Full Parameter Automation:** Automate any plugin or mixer parameter, not just volume and pan. Per-track lane chooser, multiple visible lanes, automation modes (Read / Write / Touch / Latch) that record from UI and controller moves, point thinning, and copy/paste of automation with clips.
 - [ ] **Audio Warping & Time-Stretch:** Audio clips follow tempo changes (auto-tempo), warp markers for manual timing correction, per-clip pitch and speed controls. SoundTouch is already compiled in (`TRACKTION_ENABLE_TIMESTRETCH_SOUNDTOUCH`); evaluate higher-quality stretchers (Rubber Band, élastique) and their licences.
 - [ ] **Sidechain Routing:** Sidechain inputs for hosted plugins that support them, set up from the Inspector and the Mixer strip context menu (for ducking, sidechain compression and gating).

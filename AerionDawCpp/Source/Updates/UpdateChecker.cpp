@@ -192,7 +192,18 @@ std::optional<Release> findUpdate (const juce::var& releases, const Version& cur
 
 Version currentVersion()
 {
-    static const auto version = Version::parse (AERION_BUILD_VERSION).value_or (Version {});
+    // AERION_PRETEND_VERSION=0.4.0 makes the update check act as that version
+    // would, to try the update window and download against real releases.
+    static const auto version = []
+    {
+        const auto pretend = juce::SystemStats::getEnvironmentVariable ("AERION_PRETEND_VERSION", {});
+        if (const auto v = Version::parse (pretend))
+        {
+            juce::Logger::writeToLog ("Updates: checking as version " + v->toString() + " (AERION_PRETEND_VERSION)");
+            return *v;
+        }
+        return Version::parse (AERION_BUILD_VERSION).value_or (Version {});
+    }();
     return version;
 }
 

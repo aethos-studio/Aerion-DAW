@@ -85,11 +85,14 @@ What comes next is in the [roadmap](AerionDawCpp/Documentation/ROADMAP.md).
 
 ## Recent progress (October 2026)
 
-**v0.5.0 Alpha** is the first public release:
+**v0.5.1 Alpha** is the first update after v0.5.0, the first public release:
 
-- **User manual** — [`Aerion-DAW-Manual.html`](Aerion-DAW-Manual.html), one self-contained page covering the whole app; **Help → User Manual** opens it in your browser
-- **Razor tool** — with snap on, its guide line no longer leaves copies behind as the mouse moves
-- **Version** — the app and installers say 0.5.0 Alpha; the macOS installer is named `…-macOS.dmg`
+- **Updates from inside Aerion** — Aerion checks GitHub for a newer release, shows what changed, downloads the installer, checks its checksum and installs it; **Help → Check for Updates** checks on demand
+- **Follow Playback** — **Transport → Follow Playback**, the toolbar button or **F** keeps the playhead in view while the song plays
+- **At home on a Mac** — menus in the menu bar at the top of the screen, Command shortcuts and the Mac Delete key, the native title bar, and trackpad gestures (two-finger scrolling and pinch zoom, also on Windows precision touchpads)
+- **Installer** — waits for a running Aerion to close instead of failing; the Windows installer is signed with a certificate kept in Keeper
+- **Piano Roll** — stays fast with thousands of notes selected (63 ms → 7 ms per repaint)
+- **User manual** — [`Aerion-DAW-Manual.html`](Aerion-DAW-Manual.html), built into the app; **Help → User Manual** opens it in your browser
 
 ---
 

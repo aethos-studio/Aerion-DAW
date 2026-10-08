@@ -306,6 +306,14 @@ Local Debug presets are fine for day-to-day work; run Release + tests before ope
 
 Installed copies find new releases through **Help → Check for Updates** (and a quiet check after startup), so tag names matter: the update check reads each release's tag as a semantic version (`v0.5.1`, `v0.6.0-alpha.1`; three numbers, an optional `-` suffix) and ignores tags it cannot read, drafts, and releases without a `.exe` (Windows) or `.dmg` (macOS) asset. Builds with a release stage, or of a pre-release tag, are also offered pre-releases; final builds only final releases. A build knows its own version from `AERION_PACKAGE_VERSION` (`AERION_BUILD_VERSION` in the code), so a new release must have a higher tag than the one before. The download is checked against the size and SHA-256 digest GitHub lists for the asset. Logic and tests: `Source/Updates/UpdateChecker.cpp`, `Source/Tests/UpdateTests.cpp`.
 
+To try the update window and download against the real releases without publishing anything, start any build with `AERION_PRETEND_VERSION` set to an older version; its update check then acts as that version would (the log says so):
+
+```powershell
+$env:AERION_PRETEND_VERSION = "0.4.0"; & '.\build\AerionDaw_artefacts\Release\Aerion DAW.exe'
+```
+
+`AerionTests --check-updates <version>` does the same check and download without the app.
+
 Signing is optional; each part runs only when its repository secrets exist:
 
 | Secrets | What they enable |
