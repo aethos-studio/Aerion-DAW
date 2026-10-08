@@ -26,7 +26,7 @@ public:
         heading.setColour (juce::Label::textColourId, Theme::textMain);
         addAndMakeVisible (heading);
 
-        subheading.setText ("You have " + Updates::currentVersion().toString()
+        subheading.setText ("You have " + Updates::versionText (Updates::currentVersion())
                                 + (release.preRelease ? ". This is a pre-release." : "."),
                             juce::dontSendNotification);
         subheading.setFont (Theme::uiSize (12.5f));

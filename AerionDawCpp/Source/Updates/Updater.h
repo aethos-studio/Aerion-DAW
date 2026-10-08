@@ -108,7 +108,7 @@ private:
 
     void handleResult (const Updates::CheckResult& result, bool report)
     {
-        const auto current = Updates::currentVersion().toString();
+        const auto current = Updates::versionText (Updates::currentVersion());
 
         if (result.error.isNotEmpty())
         {

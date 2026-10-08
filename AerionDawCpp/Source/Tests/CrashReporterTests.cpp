@@ -1,5 +1,6 @@
 #include <JuceHeader.h>
 #include "../CrashReporter.h"
+#include "../Updates/UpdateChecker.h"
 
 //==============================================================================
 // CrashReporter: a crash leaves a report with the session's log, and the next
@@ -49,7 +50,7 @@ public:
             expect (report.isDirectory());
 
             const auto text = report.getChildFile ("report.txt").loadFileAsString();
-            expect (text.contains ("Version: " + juce::String (ProjectInfo::versionString)));
+            expect (text.contains ("Version: " + Updates::buildVersionText()));
             expect (text.contains ("Reason: invalid memory access"));
             expect (text.contains ("Thread: message thread"));
             expect (text.contains ("1: somewhere else"));

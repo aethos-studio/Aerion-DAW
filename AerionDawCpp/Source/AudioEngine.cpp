@@ -1,4 +1,5 @@
 #include "AudioEngine.h"
+#include "ScannerProcesses.h"
 #include "ProjectData.h"
 #include "Export/MixdownExportJob.h"
 
@@ -480,9 +481,8 @@ AudioEngineManager::~AudioEngineManager()
         s->saveIfNeeded();
     }
 
-    // Join the plugin scan thread first so any in-flight callAsync that wins the
-    // WeakReference race finds null callbacks instead of a half-destructed engine.
-    cancelScan();
+    // Any in-flight callAsync from the scan thread that wins the WeakReference
+    // race must find null callbacks instead of a half-destructed engine.
     onScanProgress = nullptr;
     onScanFinished = nullptr;
 
@@ -502,6 +502,18 @@ AudioEngineManager::~AudioEngineManager()
     {
         s->setValue ("recentProjects", recentProjects.toString());
         s->saveIfNeeded();
+    }
+
+    // Everything that must be saved is saved. A scan that cannot be stopped in
+    // time (a plugin that is slow to load, scanned inside Aerion itself) must not
+    // keep Aerion open: the engine cannot be freed while it still runs, and
+    // waiting for it would hold up whatever follows, such as an installer.
+    if (! stopScanThread (kScanStopWaitMs))
+    {
+        juce::Logger::writeToLog ("Quit: a plugin scan is still running; ending Aerion without waiting for it");
+        if (onForcedQuit)
+            onForcedQuit();
+        std::_Exit (0);
     }
 
     engine.getDeviceManager().closeDevices();
@@ -2663,20 +2675,31 @@ bool AudioEngineManager::shouldRunStartupScan()
     return true;
 }
 
-void AudioEngineManager::cancelScan()
+bool AudioEngineManager::stopScanThread (int waitMs)
 {
-    if (scanThread != nullptr)
+    if (scanThread == nullptr)
+        return true;
+
+    // A scan that waits on its scanner child process sees this within about
+    // 10 ms (Tracktion's CustomScanner polls shouldExit()).
+    scanThread->signalThreadShouldExit();
+
+    if (! scanThread->stopThread (waitMs))
     {
-        scanThread->signalThreadShouldExit();
-        // NOTE: a plugin that hangs the scanner's child process can outlast
-        // this 2s bound. juce::Thread::stopThread returns regardless; the
-        // WeakReference captures used by the scan thread keep us safe if it
-        // leaks past us.
-        scanThread->stopThread (2000);
-        scanThread.reset();
+        // Still busy, perhaps waiting for a scanner child that is stuck in a
+        // plugin: end the child, which also lets the thread stop.
+        juce::Logger::writeToLog ("Plugin scan: still running after " + juce::String (waitMs)
+                                  + " ms; ending the scanner process");
+        ScannerProcesses::endChildren();
+
+        if (! scanThread->stopThread (kScanStopAfterKillMs))
+            return false;   // not destroyed: its destructor would wait for it
     }
-    scanInFlight.store (false);
+
+    scanThread.reset();
+    return true;
 }
+
 
 namespace
 {
@@ -2961,11 +2984,10 @@ void AudioEngineManager::scanPlugins()
         return;
     }
 
-    if (scanThread != nullptr)
+    if (! stopScanThread (kScanStopWaitMs))
     {
-        scanThread->signalThreadShouldExit();
-        scanThread->stopThread (2000);
-        scanThread.reset();
+        juce::Logger::writeToLog ("Plugin scan: the previous scan is still running; not starting another");
+        return;   // scanInFlight stays set: that scan is still in flight
     }
 
     auto t = std::make_unique<PluginScanThread> (*this, cacheFile);

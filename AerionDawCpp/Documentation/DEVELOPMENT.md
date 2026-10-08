@@ -1,8 +1,8 @@
-# Cursor development guide — Windows 11
+# Development guide — Windows 11
 
-This document is the human-readable companion to the Cursor project rules in `.cursor/rules/`. It captures environment setup, build workflows, and guardrails for developing Aerion DAW on **Windows 11** with **Visual Studio 2022** (MSVC).
+Environment setup, build workflows and release packaging for developing Aerion DAW on **Windows 11** with **Visual Studio 2022** (MSVC).
 
-> **Note:** A Fedora/Linux workflow existed on branch `cursor/fedora-cursor-dev-guidelines-b4a3` for a temporary Linux dev period. **Windows is the primary dev target again.** Linux/Flatpak support remains on the long-term roadmap (`ROADMAP.md` → Future USPs).
+> **Note:** Windows is the primary dev target. Linux/Flatpak support remains on the long-term roadmap (`ROADMAP.md` → Future USPs).
 
 ---
 
@@ -10,7 +10,7 @@ This document is the human-readable companion to the Cursor project rules in `.c
 
 ```powershell
 # Prerequisites: Visual Studio 2022 (Desktop C++), CMake 3.20+, Git
-# Open repo root in Cursor — CMake Tools picks up presets via CMakePresets.json
+# Open repo root in VS Code or Visual Studio — CMake Tools picks up presets via CMakePresets.json
 
 cmake --preset win-msvc-debug -S AerionDawCpp -B build
 cmake --build build --preset win-msvc-debug
@@ -19,29 +19,12 @@ cmake --build build --preset win-msvc-debug
 & "build\AerionDaw_artefacts\Debug\Aerion DAW.exe"
 ```
 
-Open the **repository root** in Cursor so `.cursor/rules/` loads automatically.
-
----
-
-## Cursor rules (guardrails)
-
-| Rule file | When it applies | Purpose |
-|-----------|-----------------|---------|
-| `00-aerion-project.mdc` | Always | MVC architecture, repo layout, milestone context, change discipline |
-| `10-cpp-and-ui.mdc` | When editing `AerionDawCpp/Source/**` | C++20, realtime safety, Theme tokens, plugin paths |
-| `20-windows-dev.mdc` | Always | Windows build commands, audio stack, IDE/CMake setup |
-
-Rules are version-controlled. Personal Cursor settings (chats, local indexes) stay gitignored under `.cursor/` except `rules/`.
-
-To invoke a rule manually in chat: `@20-windows-dev` (filename without `.mdc`).
-
 ---
 
 ## Repository layout
 
 ```text
-Aerion-DAW/                    ← open this folder in Cursor
-  .cursor/rules/               ← agent guardrails (tracked)
+Aerion-DAW/                    ← open this folder in your editor
   .vscode/                     ← CMake Tools defaults (tracked)
   CMakePresets.json            ← includes AerionDawCpp/CMakePresets.json
   README.md
@@ -216,7 +199,7 @@ cmake --preset win-msvc-debug -S AerionDawCpp -B build
 
 ---
 
-## IDE integration (Cursor / VS Code)
+## IDE integration (VS Code)
 
 Tracked settings in `.vscode/settings.json`:
 
@@ -271,22 +254,6 @@ cmake --build build --preset win-msvc-debug
 
 ---
 
-## Migrating back from Fedora / Linux
-
-If you previously used the Fedora dev branch:
-
-| Fedora | Windows |
-|--------|---------|
-| `fedora-ninja-debug` | `win-msvc-debug` |
-| `cmake --build build --preset fedora-ninja-debug` | `cmake --build build --preset win-msvc-debug` |
-| `./build/AerionDaw_artefacts/Debug/Aerion DAW` | `build\AerionDaw_artefacts\Debug\Aerion DAW.exe` |
-| `dnf install …` | Visual Studio Installer |
-| `.cursor/rules/20-fedora-linux-dev.mdc` | `.cursor/rules/20-windows-dev.mdc` |
-
-Delete any stale `build/` directory from a Linux configure before running Windows presets (different generator/artefacts).
-
----
-
 ## CI parity
 
 GitHub Actions (`.github/workflows/build-test.yml`) uses:
@@ -302,7 +269,9 @@ Local Debug presets are fine for day-to-day work; run Release + tests before ope
 
 ## Release packaging and signing
 
-`release-package` (`.github/workflows/package-release.yml`, run from the Actions tab) builds the Windows NSIS installer and the macOS DMG and attaches them to a GitHub Release for the `tag_name` input. Installers are named after the tag without its `v` (`v0.5.0-alpha` → `AerionDAW-0.5.0-alpha-Windows.exe` and `AerionDAW-0.5.0-alpha-macOS.dmg`), passed to CMake as `AERION_PACKAGE_VERSION`; local builds use the `project()` version. The release stage (`AERION_RELEASE_STAGE`, default `Alpha`) appears in the About dialog and the installer title; change it in `CMakeLists.txt` when the stage changes.
+`release-package` (`.github/workflows/package-release.yml`, run from the Actions tab) builds the Windows NSIS installer and the macOS DMG and attaches them to a GitHub Release for the `tag_name` input. Installers are named after the tag without its `v` (`v0.5.1-alpha` → `AerionDAW-0.5.1-alpha-Windows.exe` and `AerionDAW-0.5.1-alpha-macOS.dmg`), passed to CMake as `AERION_PACKAGE_VERSION`.
+
+**The tag is the app's one version.** `CMakeLists.txt` takes the numeric part (`0.5.1`) as the project version, which becomes the exe's file version and the macOS bundle version, and the whole tag goes into the app as `AERION_BUILD_VERSION`. The update check, the About dialog, update messages, crash reports and the log all read it through `Updates::buildVersionText()`, so they cannot disagree. A local build, with no tag, uses `AERION_DEFAULT_VERSION` at the top of `CMakeLists.txt`; bump it with each release so local builds match. The release stage (`AERION_RELEASE_STAGE`, default `Alpha`) is added to a final tag's version ("0.5.1 Alpha") and left out when the tag already has a pre-release label ("0.5.1-alpha.2"); change it in `CMakeLists.txt` when the stage changes.
 
 Installed copies find new releases through **Help → Check for Updates** (and a quiet check after startup), so tag names matter: the update check reads each release's tag as a semantic version (`v0.5.1`, `v0.6.0-alpha.1`; three numbers, an optional `-` suffix) and ignores tags it cannot read, drafts, and releases without a `.exe` (Windows) or `.dmg` (macOS) asset. Builds with a release stage, or of a pre-release tag, are also offered pre-releases; final builds only final releases. A build knows its own version from `AERION_PACKAGE_VERSION` (`AERION_BUILD_VERSION` in the code), so a new release must have a higher tag than the one before. The download is checked against the size and SHA-256 digest GitHub lists for the asset. Logic and tests: `Source/Updates/UpdateChecker.cpp`, `Source/Tests/UpdateTests.cpp`.
 

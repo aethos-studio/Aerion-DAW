@@ -182,7 +182,6 @@ public:
 
     // Plugins
     void scanPlugins();
-    void cancelScan();
     bool isScanningPlugins() const { return scanInFlight.load(); }
     bool shouldRunStartupScan();
     bool areAudioDevicesConnected() const { return audioDevicesConnected; }
@@ -196,6 +195,11 @@ public:
     // Public so the scan thread (defined in the .cpp anon namespace) can dispatch here
     // via a juce::WeakReference without needing access to private members.
     void notifyScanFinished (bool finishedNormally);
+
+    /** Called when quitting finds a plugin scan that cannot be stopped, just
+        before Aerion ends without waiting for it (Aerion starts a downloaded
+        installer here). */
+    std::function<void()> onForcedQuit;
 
     tracktion::Plugin::Ptr addPluginToTrack (tracktion::Track* track, const juce::PluginDescription& desc);
 
@@ -445,6 +449,14 @@ private:
 
     std::atomic<bool> scanInFlight { false };
     std::unique_ptr<juce::Thread> scanThread;
+
+    /** Stops the scan thread: asks it to, waits waitMs, then ends the scanner
+        child process and waits a little longer. False if it is still running,
+        in which case it is left alone (destroying a running juce::Thread waits
+        for it to finish). */
+    bool stopScanThread (int waitMs);
+    static constexpr int kScanStopWaitMs      = 2000;
+    static constexpr int kScanStopAfterKillMs = 500;
 
     // Per-track meter subscription. Holds a Plugin::Ptr to keep the
     // LevelMeterPlugin (and its measurer) alive for the lifetime of the

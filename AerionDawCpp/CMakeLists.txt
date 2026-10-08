@@ -1,5 +1,28 @@
 cmake_minimum_required(VERSION 3.20)
-project(AerionDaw VERSION 0.5.1)
+
+# One version for everything. A release build passes the release tag's version
+# (the tag without its leading v, e.g. 0.5.1 or 0.5.1-alpha.2) as
+# AERION_PACKAGE_VERSION. The update check, About dialog, crash reports,
+# installers, the exe's file version and the macOS bundle all follow it, so they
+# cannot disagree. A local build, with no tag, uses AERION_DEFAULT_VERSION.
+set(AERION_DEFAULT_VERSION 0.5.1)
+set(AERION_PACKAGE_VERSION "" CACHE STRING
+    "Version of a release build: the release tag without its leading v; empty for a local build (AERION_DEFAULT_VERSION)")
+if (AERION_PACKAGE_VERSION)
+    string(REGEX MATCH "^[0-9]+\\.[0-9]+\\.[0-9]+" AERION_VERSION_CORE "${AERION_PACKAGE_VERSION}")
+    if (NOT AERION_VERSION_CORE)
+        message(FATAL_ERROR "AERION_PACKAGE_VERSION must start with major.minor.patch (got '${AERION_PACKAGE_VERSION}')")
+    endif()
+else()
+    set(AERION_VERSION_CORE ${AERION_DEFAULT_VERSION})
+endif()
+
+# The numeric part (0.5.1) is the project version; a suffix such as -alpha.2
+# only lives in AERION_PACKAGE_VERSION, because file and bundle versions are numbers.
+project(AerionDaw VERSION ${AERION_VERSION_CORE})
+if (NOT AERION_PACKAGE_VERSION)
+    set(AERION_PACKAGE_VERSION "${PROJECT_VERSION}")
+endif()
 
 # Release stage shown next to the version (About dialog, installer title).
 set(AERION_RELEASE_STAGE "Alpha" CACHE STRING "Release stage shown next to the version, e.g. Alpha, Beta; empty for none")
@@ -123,6 +146,8 @@ target_sources(AerionDaw PRIVATE
     Source/PluginFaultGuard.cpp
     Source/CrashReporter.h
     Source/CrashReporter.cpp
+    Source/ScannerProcesses.h
+    Source/ScannerProcesses.cpp
     Source/Keymap.h
     Source/LogoComponent.h
     Source/GoogleDriveClient.h
@@ -342,6 +367,8 @@ if (AERION_BUILD_TESTS)
         Source/Updates/UpdateChecker.cpp
         Source/CrashReporter.h
         Source/CrashReporter.cpp
+        Source/ScannerProcesses.h
+        Source/ScannerProcesses.cpp
         Source/ProjectData.h
         Source/ProjectData.cpp
         Source/AudioEngine.h
@@ -398,6 +425,8 @@ if (AERION_BUILD_TESTS)
         Source/Tests/BenchBaseline.h
         Source/ProjectData.cpp
         Source/AudioEngine.cpp
+        Source/ScannerProcesses.cpp
+        Source/Updates/UpdateChecker.cpp
         Source/PluginFaultGuard.cpp
         Source/GoogleDriveClient.cpp
         Source/AerionTooltipWindow.cpp
@@ -438,21 +467,17 @@ endif()
 
 # --- Packaging ----------------------------------------------------------------
 # Shared CPack metadata for both NSIS (Windows) and DragNDrop (macOS). The
-# version comes from `project(... VERSION)` above. A release build passes the
-# release tag's version (e.g. 0.5.0-alpha) as AERION_PACKAGE_VERSION so the
-# installers carry it.
-set(AERION_PACKAGE_VERSION "" CACHE STRING
-    "Version shown in installer names and titles (the release tag without its leading v); empty uses the project version")
-if (NOT AERION_PACKAGE_VERSION)
-    set(AERION_PACKAGE_VERSION "${PROJECT_VERSION}")
-endif()
+# version is AERION_PACKAGE_VERSION, set at the top of this file.
 
 # The update check compares GitHub's releases with the exact tag this build was
-# packaged from (Source/Updates/UpdateChecker.cpp).
+# packaged from, and the About dialog and crash reports show the same version
+# (Source/Updates/UpdateChecker.cpp).
 target_compile_definitions(AerionDaw PRIVATE AERION_BUILD_VERSION="${AERION_PACKAGE_VERSION}")
-if (TARGET AerionTests)
-    target_compile_definitions(AerionTests PRIVATE AERION_BUILD_VERSION="${AERION_PACKAGE_VERSION}")
-endif()
+foreach (_aerion_target AerionTests AerionBench)
+    if (TARGET ${_aerion_target})
+        target_compile_definitions(${_aerion_target} PRIVATE AERION_BUILD_VERSION="${AERION_PACKAGE_VERSION}")
+    endif()
+endforeach()
 
 set(CPACK_PACKAGE_NAME             "Aerion DAW")
 set(CPACK_PACKAGE_VENDOR           "Aethos Studio Ltd.")

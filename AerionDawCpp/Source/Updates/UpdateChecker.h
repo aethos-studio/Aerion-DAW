@@ -65,6 +65,14 @@ namespace Updates
         project version for a local build. */
     Version currentVersion();
 
+    /** A version as people read it: "0.5.1 Alpha", or "0.5.1-alpha.2" when the
+        release tag already carries a pre-release label. */
+    juce::String versionText (const Version& v);
+
+    /** This build's own version as text, ignoring AERION_PRETEND_VERSION. The
+        About dialog, crash reports and the log show this. */
+    juce::String buildVersionText();
+
     /** Alpha and beta builds, and builds of a pre-release tag, also take pre-releases. */
     bool buildTakesPreReleases();
 

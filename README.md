@@ -168,14 +168,14 @@ The app binary:
 build\AerionDaw_artefacts\Debug\Aerion DAW.exe
 ```
 
-For profiling builds, release packaging, and the paint benchmark, see [`CURSOR_DEVELOPMENT.md`](AerionDawCpp/Documentation/CURSOR_DEVELOPMENT.md).
+For profiling builds, release packaging, and the paint benchmark, see [`DEVELOPMENT.md`](AerionDawCpp/Documentation/DEVELOPMENT.md).
 
 ### CI and releases
 
 Both GitHub Actions workflows are **manual only** (`workflow_dispatch`):
 
 - **build-test** — Debug build + smoke tests on Windows and macOS
-- **release-package** — Windows NSIS installer and macOS DMG published to a GitHub Release, signed and notarized when the signing secrets are set (see the release section of [`CURSOR_DEVELOPMENT.md`](AerionDawCpp/Documentation/CURSOR_DEVELOPMENT.md))
+- **release-package** — Windows NSIS installer and macOS DMG published to a GitHub Release, signed and notarized when the signing secrets are set (see the release section of [`DEVELOPMENT.md`](AerionDawCpp/Documentation/DEVELOPMENT.md))
 
 Run them from the [Actions tab](https://github.com/aethos-studio/Aerion-DAW/actions).
 

@@ -150,6 +150,19 @@ public:
 
         beginTest ("this build knows its own version");
         expect (Updates::currentVersion().major >= 0 && ! (Updates::currentVersion() == Version { 0, 0, 0, {} }));
+
+        beginTest ("the version reads the same everywhere");
+        {
+            // A pre-release tag already says what it is; a final one gets the release stage.
+            expectEquals (Updates::versionText (v ("0.5.1-alpha.2")), juce::String ("0.5.1-alpha.2"));
+            expect (Updates::versionText (v ("0.5.1")).startsWith ("0.5.1"));
+
+            // What About, the log and crash reports show is this build's own version.
+            const auto own = Version::parse (AERION_BUILD_VERSION);
+            expect (own.has_value());
+            if (own.has_value())
+                expectEquals (Updates::buildVersionText(), Updates::versionText (*own));
+        }
     }
 };
 

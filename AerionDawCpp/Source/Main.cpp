@@ -12,7 +12,7 @@ public:
     AerionDawApplication() {}
 
     const juce::String getApplicationName() override       { return ProjectInfo::projectName; }
-    const juce::String getApplicationVersion() override    { return ProjectInfo::versionString; }
+    const juce::String getApplicationVersion() override    { return Updates::buildVersionText(); }
     bool moreThanOneInstanceAllowed() override             { return true; }
 
     void initialise (const juce::String& commandLine) override
@@ -31,6 +31,7 @@ public:
             appLogger = std::make_unique<juce::FileLogger> (logFile, "Aerion DAW log", 0);
             juce::Logger::setCurrentLogger (appLogger.get());
             juce::Logger::writeToLog ("=== Aerion starting ===");
+            juce::Logger::writeToLog ("Version: " + Updates::buildVersionText());
             juce::Logger::writeToLog ("Log file: " + logFile.getFullPathName());
 
             // Before anything else can crash. The report copies this session's
@@ -102,7 +103,10 @@ public:
             // The startup plugin scan runs in the background; the splash shows its
             // progress while it is up but never waits for it.
             if (auto* mc = dynamic_cast<MainComponent*> (mainWindow->getContentComponent()))
-                mc->getAudioEngine().onScanProgress = [this] (juce::String pluginName)
+            {
+                auto& engine = mc->getAudioEngine();
+
+                engine.onScanProgress = [this] (juce::String pluginName)
                 {
                     if (splashWindow == nullptr)
                         return;
@@ -110,6 +114,11 @@ public:
                         pluginName = juce::File (pluginName).getFileNameWithoutExtension();
                     splashWindow->setStatus ("Scanning plugins: " + pluginName);
                 };
+
+                // Quitting never waits for a stuck plugin scan, so an update that
+                // is waiting to install must not wait for it either.
+                engine.onForcedQuit = [] { Updates::launchPendingInstaller(); };
+            }
 
             // Show the main window *behind* the splash first so there is no
             // visible "gap" between splash closing and the DAW appearing.

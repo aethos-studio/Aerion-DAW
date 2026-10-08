@@ -1,5 +1,6 @@
 #include "CrashReporter.h"
 #include "PluginFaultGuard.h"
+#include "Updates/UpdateChecker.h"
 
 #if JUCE_WINDOWS
  #ifndef NOMINMAX
@@ -168,7 +169,7 @@ namespace CrashReporter
         juce::String text;
         text << "Aerion DAW crash report" << juce::newLine
              << juce::newLine
-             << "Version: " << ProjectInfo::versionString << juce::newLine
+             << "Version: " << Updates::buildVersionText() << juce::newLine
              << "Time: " << details.time.toISO8601 (true) << juce::newLine
              << "OS: " << juce::SystemStats::getOperatingSystemName()
              << (juce::SystemStats::isOperatingSystem64Bit() ? " (64-bit)" : "") << juce::newLine

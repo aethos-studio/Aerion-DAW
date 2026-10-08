@@ -207,6 +207,17 @@ Version currentVersion()
     return version;
 }
 
+juce::String versionText (const Version& v)
+{
+    const juce::String stage (AERION_RELEASE_STAGE);
+    return v.toString() + (! v.isPreRelease() && stage.isNotEmpty() ? " " + stage : juce::String());
+}
+
+juce::String buildVersionText()
+{
+    return versionText (Version::parse (AERION_BUILD_VERSION).value_or (Version {}));
+}
+
 bool buildTakesPreReleases()
 {
     return currentVersion().isPreRelease() || juce::String (AERION_RELEASE_STAGE).isNotEmpty();

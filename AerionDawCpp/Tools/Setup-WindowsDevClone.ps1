@@ -80,7 +80,7 @@ $handoff = @'
 
 **Updated:** 2026-09-20  
 **Local only** — this file is gitignored. It is not on GitHub.  
-**Read next:** `STATUS.md`, `ROADMAP.md`, `CURSOR_DEVELOPMENT.md`
+**Read next:** `STATUS.md`, `ROADMAP.md`, `DEVELOPMENT.md`
 
 ---
 
@@ -252,4 +252,4 @@ Write-Host "Done."
 Write-Host "  Repo:     $ClonePath"
 Write-Host "  Handoff:  $handoffPath"
 Write-Host ""
-Write-Host "Open the repo root in Cursor/VS Code, then read the handoff doc before continuing M5 perf work."
+Write-Host "Open the repo root in VS Code, then read the handoff doc before continuing M5 perf work."

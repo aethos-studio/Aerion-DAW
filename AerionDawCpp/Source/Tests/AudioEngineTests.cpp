@@ -1,6 +1,7 @@
 #include <JuceHeader.h>
 #include "../AudioEngine.h"
 #include "../ProjectData.h"
+#include "../ScannerProcesses.h"
 
 //==============================================================================
 // AudioEngineManager smoke tests (Milestone 5).
@@ -625,6 +626,28 @@ public:
             engine.createNewProject();
             withoutClips.deleteFile();
             wav.deleteFile();
+        }
+
+        // Quitting during a plugin scan ends the scanner child process, which also
+        // lets a scan that waits on it stop.
+        beginTest ("ending child processes ends a running child");
+        {
+            juce::ChildProcess child;
+           #if JUCE_WINDOWS
+            const juce::String program = "ping.exe";
+            const bool started = child.start (juce::StringArray { program, "-n", "60", "127.0.0.1" }, 0);
+           #else
+            const juce::String program = "sleep";
+            const bool started = child.start (juce::StringArray { "/bin/sleep", "60" }, 0);
+           #endif
+            expect (started);
+
+            if (started)
+            {
+                expect (child.isRunning());
+                ScannerProcesses::endChildren (program);
+                expect (child.waitForProcessToFinish (5000), "the child was still running");
+            }
         }
 
         // Unsaved-changes tracking (hasUnsavedEdits / markEditSaved) is checked by
