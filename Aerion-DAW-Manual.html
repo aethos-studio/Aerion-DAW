@@ -408,21 +408,31 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
   <h3>Windows</h3>
   <ol class="steps">
     <li>Run the downloaded <code>.exe</code>.</li>
-    <li>Windows SmartScreen shows <em>“Windows protected your PC”</em>, because the installer isn't code-signed yet. Click <span class="ui">More info</span>, then <span class="ui">Run anyway</span>.</li>
+    <li>Windows SmartScreen shows <em>“Windows protected your PC”</em>. The installer is signed by Aethos Studio, but with its own certificate rather than one bought from a certificate authority, so Windows doesn't know the publisher yet. Click <span class="ui">More info</span>, then <span class="ui">Run anyway</span>.</li>
     <li>Follow the installer. It adds Aerion DAW to the Start menu and installs the Visual C++ runtime it needs.</li>
   </ol>
+  <p>Installing over an older version offers to remove the old one first; your projects and settings are kept. If Aerion is still open, the installer waits for it to close, and asks you to close it if it stays open.</p>
 
   <h3>macOS</h3>
   <ol class="steps">
     <li>Open the <code>.dmg</code> and drag <span class="ui">Aerion DAW</span> into <span class="ui">Applications</span>.</li>
     <li>Open Aerion. macOS says it can't check the app for malicious software, because it isn't notarized yet.</li>
-    <li>Open <span class="menu">System Settings › Privacy &amp; Security</span>, scroll down, and click <span class="ui">Open Anyway</span> next to the message about Aerion DAW. You only need to do this once.</li>
+    <li>Open <span class="menu">System Settings › Privacy &amp; Security</span>, scroll down, and click <span class="ui">Open Anyway</span> next to the message about Aerion DAW. You may need to do this again after installing a new version.</li>
     <li>Allow microphone access when macOS asks. Aerion needs it to record from any audio input, not only a microphone.</li>
   </ol>
 
   <h3>The first start</h3>
   <p>Aerion shows a splash screen while it opens your audio device, then the main window with an empty project.</p>
   <p>In the background it scans your computer for plugins: VST3 on Windows and macOS, plus Audio Units on macOS. The <span class="ui">Plugins</span> tab of the Browser shows <em>SCANNING</em> until it finishes. Each plugin is checked in a separate process, so a plugin that crashes while being checked is skipped, and Aerion keeps running.</p>
+
+  <h3 id="updates">Updates</h3>
+  <p>A few seconds after it starts, Aerion asks GitHub whether there is a newer version. If there is, a window shows what changed:</p>
+  <ul>
+    <li><span class="ui">Download and Install</span> downloads the installer for your system, with a progress bar, and checks it against the checksum published with the release, so a damaged download is never run. Then choose <span class="ui">Close Aerion and Install</span>, which asks to save your project as quitting does, or <span class="ui">Install When Aerion Closes</span>. On Windows the installer starts; on macOS the disk image opens, and you drag Aerion into <span class="ui">Applications</span> as when you first installed it.</li>
+    <li><span class="ui">Skip This Version</span> stops the automatic check from offering that version again.</li>
+    <li><span class="ui">Later</span> closes the window; Aerion asks again next time it starts.</li>
+  </ul>
+  <p><span class="menu">Help › Check for Updates…</span> checks at once and tells you when you are up to date (on macOS it is in the <span class="menu">Aerion DAW</span> menu). Untick <span class="menu">Help › Check for Updates Automatically</span> to stop the check at startup. Alpha versions are also offered newer alpha and beta releases. The check only asks GitHub for the list of Aerion releases; it sends nothing but Aerion's version number.</p>
 </section>
 
 <!-- 03 -->
@@ -434,7 +444,7 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
   <figure class="diagram" aria-label="Diagram of the Aerion main window">
     <div class="win">
       <div class="r-menu"><span class="tag">1</span>FILE · EDIT · SONG · TRACK · EVENT · AUDIO · TRANSPORT · VIEW · HELP</div>
-      <div class="r-tool"><span class="tag">2</span>TOOLS · PUNCH · PDC</div>
+      <div class="r-tool"><span class="tag">2</span>TOOLS · PUNCH · PDC · FOLLOW</div>
       <div class="r-insp"><span class="tag">3</span>INSPECTOR</div>
       <div class="r-time"><span class="tag">4</span>TIMELINE<div class="ruler"></div><div class="lane"></div><div class="lane b"></div><div class="lane c"></div><div class="lane"></div></div>
       <div class="r-brow"><span class="tag">5</span>BROWSER</div>
@@ -469,6 +479,7 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
       <tr><td>Comp tool</td><td class="wrap">Click one of several overlapping takes to make it the one you hear.</td></tr>
       <tr><td>Punch in/out</td><td class="wrap">Records only inside the loop range (red when on).</td></tr>
       <tr><td>PDC</td><td class="wrap">Plugin delay compensation: keeps tracks in time when plugins add latency. On by default.</td></tr>
+      <tr><td>Follow playback</td><td class="wrap">Keeps the playhead in view while the song plays (<kbd>F</kbd>). See <a href="#transport">Transport &amp; navigation</a>.</td></tr>
       <tr><td>Auto-crossfade</td><td class="wrap">Adds a crossfade automatically where two audio clips overlap.</td></tr>
       <tr><td>Snap</td><td class="wrap">Click to turn snap to grid on or off. Right-click to pick the grid: Bar, 1/2, 1/4, 1/8, 1/16, 1/32 or 1/64. The current grid is shown under the magnet.</td></tr>
       <tr><td>Count-in</td><td class="wrap">Each click cycles Off, 1 bar, 2 bars of metronome before recording starts.</td></tr>
@@ -483,7 +494,7 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
 <section class="chapter" id="audio-setup">
   <div class="eyebrow">Chapter 04</div>
   <h2>Audio &amp; MIDI setup</h2>
-  <p class="intro">Open <span class="menu">File › Audio Settings…</span> (also under the <span class="menu">Audio</span> menu) to choose your audio interface, its sample rate and buffer size, and your MIDI inputs.</p>
+  <p class="intro">Open <span class="menu">File › Audio Settings…</span> or <span class="menu">Audio › Audio Settings…</span>, or press <kbd>Ctrl</kbd> <kbd>,</kbd>, to choose your audio interface, its sample rate and buffer size, and your MIDI inputs. On macOS it is <span class="menu">Aerion DAW › Settings…</span> (<kbd>Cmd</kbd> <kbd>,</kbd>) or <span class="menu">Audio › Audio Settings…</span>.</p>
 
   <h3>Choosing an audio device</h3>
   <ol class="steps">
@@ -532,7 +543,7 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
   <p>The window title shows the project's name with asterisks, as in <code>*My Song*</code>, when it has changes that aren't saved. When you quit, open another project or start a new one with unsaved changes, Aerion asks whether to save them. <span class="ui">Save</span> saves first, <span class="ui">Discard</span> throws the changes away, and <span class="ui">Cancel</span> or <kbd>Esc</kbd> leaves everything as it was. When quitting, the buttons read <span class="ui">Save &amp; Quit</span> and <span class="ui">Discard &amp; Quit</span>.</p>
 
   <h3>Auto-save and crash recovery</h3>
-  <p>Aerion saves a recovery copy of your project in the background every 5 minutes. Change the interval, or turn it off, in <span class="menu">File › Audio Settings…</span> under <span class="ui">Auto-save</span> (Off, 1, 2, 5 or 10 minutes). The recovery copy is separate from your project file, which is only written when you save.</p>
+  <p>Aerion saves a recovery copy of your project in the background every 5 minutes. Change the interval, or turn it off, in <a href="#audio-setup">Audio Settings</a> under <span class="ui">Auto-save</span> (Off, 1, 2, 5 or 10 minutes). The recovery copy is separate from your project file, which is only written when you save.</p>
   <p>If Aerion closes unexpectedly, the next start says so. It first offers to show the crash report (see <a href="#trouble">Troubleshooting</a>), then asks whether to restore the auto-saved session. <span class="ui">Restore</span> opens it; <span class="ui">Discard</span> starts fresh.</p>
 </section>
 
@@ -975,6 +986,7 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
     <li>If the key is already used, Aerion asks whether to <span class="ui">Reassign</span> it.</li>
   </ol>
   <p><span class="ui">Export…</span> and <span class="ui">Import…</span> save and load your shortcuts as an <code>.aerionkeys</code> file, to take them to another computer. <span class="ui">Reset to Defaults</span> restores the original keys. Mouse gestures are shown for reference but can't be changed.</p>
+  <p>On Windows the menus show the key each command is bound to, including keys you changed. On macOS the menus don't show shortcuts yet; this list does.</p>
 </section>
 
 <!-- 18 -->
@@ -1006,7 +1018,7 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
 
   <h3>No sound, or the wrong device</h3>
   <ul>
-    <li>Check <span class="menu">File › Audio Settings…</span>: the right output, and the sample rate your interface uses.</li>
+    <li>Check <a href="#audio-setup">Audio Settings</a>: the right output, and the sample rate your interface uses.</li>
     <li>Click <span class="ui">Reset Audio Settings</span> to return to a safe default.</li>
     <li>On a MIDI track, check that it has an instrument plugin and that its input is your keyboard. New MIDI tracks start without one.</li>
   </ul>
@@ -1023,6 +1035,14 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
     <li>Click <span class="ui">RESCAN</span> in the Browser's Plugins tab.</li>
     <li>Check it's a format Aerion hosts: VST3, or Audio Unit on macOS. VST2 and CLAP plugins aren't supported.</li>
     <li>A plugin that crashed during the scan is skipped. The <span class="ui">Console</span> tab lists it.</li>
+  </ul>
+
+  <h3>An update doesn't work</h3>
+  <ul>
+    <li><em>“Could not reach GitHub”</em>: check the internet connection and try <span class="menu">Help › Check for Updates…</span> again. Behind a company network, the check may be blocked.</li>
+    <li><em>“GitHub is limiting requests”</em>: GitHub allows a limited number of checks per hour from one network. Try again later.</li>
+    <li>A download that fails its check is deleted, never run. Try again, or download the installer from the <a href="https://github.com/aethos-studio/Aerion-DAW/releases">releases page</a> yourself.</li>
+    <li>On Windows, if the installer says Aerion is still running, close it (and, in Task Manager, any <em>Aerion DAW</em> left without a window, such as a plugin scan), then click <span class="ui">Retry</span>.</li>
   </ul>
 
   <h3>The Console</h3>
@@ -1117,7 +1137,9 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
     <li><strong>No CLAP or VST2 plugins, and no Linux version.</strong></li>
     <li><strong>Accessibility</strong> doesn't reach clips on the Timeline or notes in the Piano Roll yet.</li>
     <li><strong>AI tools and the Cloud tab</strong> in the Inspector and Browser are placeholders and don't do anything yet.</li>
-    <li><strong>Unsigned installers:</strong> Windows and macOS warn on first install (see <a href="#install">Installing</a>).</li>
+    <li><strong>Installer warnings:</strong> the Windows installer is signed with Aethos Studio's own certificate and the macOS app isn't signed yet, so both systems warn when you install (see <a href="#install">Installing</a>).</li>
+    <li><strong>On macOS the menus don't show keyboard shortcuts yet.</strong> The shortcuts work; <span class="menu">Help › Keyboard Shortcuts…</span> lists them.</li>
+    <li><strong>The Mac menu bar, shortcuts and trackpad gestures are new</strong> and have had little testing on real Macs.</li>
   </ul>
   <a class="toplink" href="#top">↑ Back to the top</a>
 </section>
