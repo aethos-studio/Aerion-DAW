@@ -258,6 +258,32 @@ public:
         }
     }
 
+    // Compact "chip" shown under the cursor while dragging a plugin, instead of a
+    // snapshot of the whole browser panel.
+    juce::ScaledImage makePluginDragImage (const juce::PluginDescription& d)
+    {
+        const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForPoint (getScreenBounds().getCentre());
+        const float scale = display != nullptr ? juce::jmax (1.0f, (float) display->scale) : 1.0f;
+        const auto font = Theme::uiSize (11.0f).withStyle (juce::Font::bold);
+        const int textW = (int) font.getStringWidth (d.name);
+        const int w = juce::jlimit (90, 260, textW + 28), h = 26;
+
+        juce::Image img (juce::Image::ARGB, juce::roundToInt (w * scale), juce::roundToInt (h * scale), true);
+        {
+            juce::Graphics g (img);
+            g.addTransform (juce::AffineTransform::scale (scale));
+            auto r = juce::Rectangle<float> (0.5f, 0.5f, (float) w - 1.0f, (float) h - 1.0f);
+            g.setColour (Theme::surface.withAlpha (0.92f));
+            g.fillRoundedRectangle (r, 6.0f);
+            g.setColour (Theme::active);
+            g.drawRoundedRectangle (r, 6.0f, 1.0f);
+            g.setColour (Theme::textMain);
+            g.setFont (font);
+            g.drawText (d.name, r.toNearestInt().reduced (10, 0), juce::Justification::centredLeft, true);
+        }
+        return juce::ScaledImage (img, (double) scale);
+    }
+
     void mouseDrag (const juce::MouseEvent& e) override
     {
         if (e.getDistanceFromDragStart() < 8) return;
@@ -274,7 +300,7 @@ public:
                 if (ddc != nullptr)
                 {
                     juce::String payload = "PLUGIN:" + rowDescs[i].createIdentifierString();
-                    ddc->startDragging (payload, this, juce::ScaledImage{}, true);
+                    ddc->startDragging (payload, this, makePluginDragImage (rowDescs[i]), true);
                 }
                 return;
             }

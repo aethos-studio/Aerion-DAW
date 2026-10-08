@@ -2066,7 +2066,13 @@ void MainComponent::refreshFromEngine()
     syncMenuBarState();
 
     auto selected = timeline.getSelectedTracks();
-    syncInspectorToTrack (selected.isEmpty() ? nullptr : selected[0]);
+    // The master is never in the timeline selection; keep showing it while it is
+    // the inspector's track instead of falling back to "(no selection)".
+    auto* master = audioEngine.getMasterTrack();
+    if (selected.isEmpty() && master != nullptr && inspector.selectedTrack == master)
+        syncInspectorToTrack (master);
+    else
+        syncInspectorToTrack (selected.isEmpty() ? nullptr : selected[0]);
 
     browser.repaint();
     mixer.repaint();
