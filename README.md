@@ -4,7 +4,7 @@
 
 **Aerion DAW** is a native digital audio workstation built in **C++20** with **JUCE 8** and the **Tracktion Engine v3.2**. It targets serious home and project-studio production on **Windows 11** first, with **macOS** builds supported through CI and release packaging.
 
-**Current version:** v0.5.1 Alpha · **Active milestone:** [M6 — Complete Core](AerionDawCpp/Documentation/ROADMAP.md) · **[User Manual](Aerion-DAW-Manual.html)**
+**Current version:** v0.5.2 Alpha · **Active milestone:** [M6 — Complete Core](AerionDawCpp/Documentation/ROADMAP.md) · **[User Manual](Aerion-DAW-Manual.html)**
 
 [![Build & Smoke Tests](https://github.com/aethos-studio/Aerion-DAW/actions/workflows/build-test.yml/badge.svg)](https://github.com/aethos-studio/Aerion-DAW/actions/workflows/build-test.yml)
 
@@ -88,6 +88,13 @@ What comes next is in the [roadmap](AerionDawCpp/Documentation/ROADMAP.md).
 ---
 
 ## Recent progress (October 2026)
+
+**v0.5.2 Alpha** adds three Milestone 6 features and two fixes ([release notes](AerionDawCpp/Documentation/releases/v0.5.2.md)):
+
+- **Track templates**: save a track or folder with its plugins and sends, insert it into any project (Track > Insert from Template)
+- **MIDI learn**: map controller knobs and faders to track faders, pan and plugin controls; mappings are saved with the project
+- **Loudness meter**: integrated, short-term and momentary LUFS and true peak of the master output, against streaming and broadcast targets (View > Loudness Meter)
+- Dragging a plugin or file from the Browser shows a small chip instead of the whole panel, and the Inspector keeps the master selected when you bypass one of its plugins
 
 **v0.5.1 Alpha** is the first update through the in-app updater. It adds:
 
