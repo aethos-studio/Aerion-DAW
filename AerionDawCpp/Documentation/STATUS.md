@@ -1,7 +1,9 @@
-# Aerion DAW Project Status — October 8, 2026 (v0.5.2 Alpha)
+# Aerion DAW Project Status — October 9, 2026 (v0.5.3 Alpha)
 
 ## Overview
-**v0.5.2 Alpha** (notes: `Documentation/releases/v0.5.2.md`) adds three Milestone 6 features (track templates, which complete Project & Track Templates; MIDI learn for faders, pan and plugin parameters; a BS.1770 / EBU R128 loudness meter on the final output) and two fixes (a name chip when dragging from the Browser; the Inspector keeps the master selected). It replaces v0.5.1.1, which installed v0.5.1 builds could not see: their update check reads only three-part versions. It should be the first update to go through the in-app updater (0.5.1 to 0.5.2).
+**v0.5.3 Alpha** (notes: `Documentation/releases/v0.5.3.md`) completes three more Milestone 6 items: a spectrum analyser and phase correlation meter (Analysis Metering done), default MIDI mappings (MIDI Learn & Controller Mapping done) and the CLAP spike (done: not now, `CLAP_SPIKE.md`). It also fixes stale views after a plugin is added or removed, a focus frame on the Inspector fader after a click, and a freeze in the Export Mixdown preview. M6 still needs full parameter automation, time-stretch and control surfaces (planned for v0.5.4 and v0.6.0), and the first update through the in-app updater to be confirmed.
+
+**v0.5.2 Alpha** (published October 9 as a pre-release, built from `f3e04bb`; notes: `Documentation/releases/v0.5.2.md`) adds three Milestone 6 features (track templates, which complete Project & Track Templates; MIDI learn for faders, pan and plugin parameters; a BS.1770 / EBU R128 loudness meter on the final output) and two fixes (a name chip when dragging from the Browser; the Inspector keeps the master selected). It replaces v0.5.1.1, which installed v0.5.1 builds could not see: their update check reads only three-part versions. It should be the first update to go through the in-app updater (0.5.1 to 0.5.2).
 
 **v0.5.1 Alpha** is the first update meant to reach testers through the in-app updater. It fixes the master bus (plugins could be added but not removed), turns Follow Playback on by default and adds it to the Piano Roll, scans for new plugins at every start, and ships the first Milestone 6 features: sidechain routing, clip gain / normalise / reverse and project templates.
 
@@ -50,7 +52,7 @@ What already exists versus what remains, verified against the source tree:
 
 ### October 2026
 
-**v0.5.3 Alpha (in progress; notes: `Documentation/releases/v0.5.3.md`):**
+**v0.5.3 Alpha (October 9; notes: `Documentation/releases/v0.5.3.md`):**
 
 - **Spectrum and phase correlation (M6, completes Analysis Metering):** `Source/Audio/OutputAnalysers.*`: `SpectrumAnalyser` (mid signal into a lock-free FIFO; 4096-point Hann FFT on the message thread every 2048 new samples, dB against a full-scale sine, fast rise and gentle fall) and `CorrelationMeter` (50 ms sums of LR, LL, RR on the audio thread; correlation and a no-signal state below -80 dBFS on the message thread, smoothed over about 300 ms). `LoudnessTap` became `Aerion::OutputTap`, which feeds all three analysers from Tracktion's global output processor. View > Loudness Meter became **View > Meters** (`LoudnessWindow`: loudness, correlation bar, log-frequency spectrum; resizable). `OutputAnalyserTests` check the spectrum peak of a sine and correlation of identical, inverted, unrelated and silent signals. `AerionBench --audio` reports the whole tap: 0.23 % of a 256-sample block in Release, 0 allocations.
 - **Default MIDI mappings (M6, completes MIDI Learn & Controller Mapping):** **Save as Default** / **Clear Defaults** in the MIDI Mappings window store the project's mappings of the master's volume and pan and of the Nth audio track's volume and pan (`defaultMappingTargetFor`: `master:volume`, `track:3:pan`) in the user settings (`midiDefaultMappings`); plugin and folder mappings stay per project. `applyDefaultMidiMappings` adds them, through the Edit's `CONTROLLERMAPPINGS` state and `loadFromEdit`, to new projects (and the first one at startup, then marked saved) and to each new audio or MIDI track, where neither the parameter nor the controller is mapped yet. Applied once at creation, so a mapping cleared in a project does not come back. Tested in `AudioEngineTests` (the test keeps and restores the user's own defaults).
@@ -174,7 +176,7 @@ Mirrors [`ROADMAP.md`](./ROADMAP.md) so the two documents agree.
 
 **M6 — Complete Core (v0.6.0)**, in this order: update mechanism (ships in v0.5.0; prove it with a real update from 0.5.0 to v0.5.1), full parameter automation, audio warping and time-stretch (with the clip gain envelope and pitch/speed), MIDI learn and control surfaces, analysis metering (spectrum, phase correlation), CLAP spike. Sidechain routing, clip gain / normalise / reverse and project templates shipped in v0.5.1; track templates, MIDI learn and the loudness meter in v0.5.2.
 
-**v0.5.2:** delete the v0.5.1.1 release and tag, publish `v0.5.2` (not as a draft), and check that an installed v0.5.1 is offered it. Try MIDI learn with a hardware controller and a plugin's own window; give the Piano Roll playhead a cached layer.
+**v0.5.3:** confirm that an installed v0.5.1 was offered v0.5.2 and installed it (closes the Update Mechanism item); run `build-test`; release `v0.5.3` from `main` (not as a draft) and check that v0.5.2 is offered it. Try MIDI learn and its defaults with a hardware controller and a plugin's own window; try the Meters window, the plugin drop on the master and the Export Mixdown tail slider with heavy plugins. Next: full parameter automation (v0.5.4), then time-stretch and control surfaces (v0.6.0, closes M6). Give the Piano Roll playhead a cached layer.
 
 **Deferred from M5:**
 
@@ -185,7 +187,7 @@ Mirrors [`ROADMAP.md`](./ROADMAP.md) so the two documents agree.
 
 - **Track faders reported not moving** (October 4, 2026). Not reproduced. One cause that fits is now fixed: on a track whose volume automation drives the fader, a move was undone by the curve; it now overrides the automation. Whether the report's tracks had automation is unknown; if it happens again, note whether the track has a volume or pan curve.
 - **`release-package` could not create the GitHub Release** (HTTP 403 on v0.3.6, although the job's token had `contents: write`, the repository has no rulesets and earlier runs worked). Cause not found. If it recurs, add a `RELEASE_TOKEN` secret; the step uses it instead of `GITHUB_TOKEN`. The installers are attached to the run as artifacts either way.
-- **No release on GitHub until v0.5.0 is published again** (October 8): the first v0.5.0 (built from an earlier commit) and a v0.5.1 were deleted, with their tags, and today's build is released as v0.5.0. Until a release exists, every update check finds nothing ("up to date"). `release-package` reuses an existing tag, so a release's tag must not exist before the run that builds it, or the release points at older source than its installers. v0.4.0 was never published.
+- **Releases on GitHub** (October 9): v0.5.0, v0.5.1 and v0.5.2 (pre-releases). v0.5.1.1 was withdrawn: installed v0.5.1 builds cannot read a four-part tag. `release-package` reuses an existing tag, so a release's tag must not exist before the run that builds it, and the workflow must run on the commit meant for that release (v0.5.2 was built from `f3e04bb`, before the v0.5.3 work). v0.4.0 was never published.
 
 ## Trademarks
 

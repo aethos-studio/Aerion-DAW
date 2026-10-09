@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.20)
 # AERION_PACKAGE_VERSION. The update check, About dialog, crash reports,
 # installers, the exe's file version and the macOS bundle all follow it, so they
 # cannot disagree. A local build, with no tag, uses AERION_DEFAULT_VERSION.
-set(AERION_DEFAULT_VERSION 0.5.2)
+set(AERION_DEFAULT_VERSION 0.5.3)
 set(AERION_PACKAGE_VERSION "" CACHE STRING
     "Version of a release build: the release tag without its leading v; empty for a local build (AERION_DEFAULT_VERSION)")
 if (AERION_PACKAGE_VERSION)
