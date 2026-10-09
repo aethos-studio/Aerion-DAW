@@ -222,6 +222,18 @@ Selecting notes made the Piano Roll about 12× slower: with all 2000 selected, a
 
 Fixed: `paint()` now works out the selection once (`prepareSelectionForPaint`: a set of the selected notes and a table of the 128 highlighted pitches), the grid, keys and notes look it up, and `getSelectedNotes()` checks the selection against the clip in one pass instead of one search per selected note. Renders with and without a selection, at 100 % and 150 %, are byte-identical before and after (`--snapshots`); `--verify` passes.
 
+### Piano Roll playhead measured (2026-10-09)
+
+`AerionBench` now reports "piano roll playhead move": the two 4 px strips (where the line was, where it is) that one display frame repaints during playback, on the same dense clip. Release, 1920 × 600:
+
+| Scenario | Software | Direct2D |
+|---|---:|---:|
+| Full repaint | 5.6 ms | 5.4 ms |
+| Playhead move | **0.95 ms** | 3.1 ms |
+| Timeline playhead move (cached layer), for comparison | 0.11 ms | 1.4 ms |
+
+The move is within budget (6 % of a frame with the software renderer) but costs 17 % of a full repaint for under 1 % of the area: the strip redraws the full height of keys, grid, notes and lanes. A cached layer like the Timeline's would bring it near 0.1 ms; not done yet. Direct2D figures are CPU submission time (see [Caveats](#caveats)).
+
 ### Fixed along the way: crash when releasing the Edit
 
 `AudioEngineManager` kept each track's LevelMeterPlugin alive in `trackMeters` and released it only after the Edit was destroyed or replaced. If that was the last reference, the plugin's destructor called into the dead Edit (`Edit::getParameterChangeHandler`). This affected quitting, opening a project and creating a new one. It showed up as the benchmark crashing on exit in about half of its runs, and it now releases meters and thumbnails before the Edit goes away (0 crashes in 10 runs).
@@ -260,6 +272,8 @@ Fixed: `paint()` now works out the selection once (`prepareSelectionForPaint`: a
 | All CPUs, pooled memory | 5.2 / 6.5 / 8.1 % | 3.3 / 3.9 / 4.3 % | in 5 and 2 of 3000 blocks |
 
 Graph rebuild: median 1.4 ms, max 1.8 ms.
+
+**Loudness meter (2026-10-09):** `Aerion::LoudnessAnalyser` runs on every output block (Tracktion's global output processor), stopped or playing. Release: **0.23 %** of a 256-sample block at 48 kHz, 0 allocations (`AerionBench --audio`, "[loudness meter]"; the run fails if it allocates).
 
 All targets are met. Findings:
 

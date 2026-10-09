@@ -31,8 +31,12 @@ Aerion-DAW/                    ← open this folder in your editor
   AerionDawCpp/                ← CMake project root (-S AerionDawCpp)
     CMakeLists.txt
     CMakePresets.json
-    Documentation/             ← this file, ROADMAP, STATUS
+    Documentation/             ← this file, ROADMAP, STATUS, PERFORMANCE
+      releases/                ← release notes per version (v0.5.2.md, ...)
     Source/                    ← application C++
+      Audio/                   ← DSP outside Tracktion: loudness meter and its output tap
+      Updates/                 ← update check, download and install
+      Export/                  ← mixdown, stems and freeze rendering
       Views/                   ← one header per UI view (UIComponents.h includes them all)
       UI/                      ← theme, icons, cached layers, dialogs
       Tests/                   ← AerionTests smoke tests, AerionBench
@@ -127,7 +131,8 @@ cmake --build build --preset win-msvc-debug-tests
 
 It reports the Timeline's full repaint, playhead move, scroll steps and clip drag, the
 Mixer, toolbar and transport, and the Piano Roll with a dense clip (`--notes=2000 --cc=1000`,
-`--pianoroll-height=600`; full repaint with no notes and with all notes selected), each
+`--pianoroll-height=600`; full repaint with no notes and with all notes selected, and a
+playhead move: the two strips one display frame repaints during playback), each
 against a 60 Hz frame (16.7 ms). Timings belong to the Release profiling build
 (`build-profiling`); see [`PERFORMANCE.md`](./PERFORMANCE.md).
 
@@ -167,8 +172,9 @@ buses) through Tracktion's playback graph, pulling blocks through Tracktion's ho
 interface instead of a sound card, so it runs on machines without audio hardware. It reports
 the time per block as a share of the block's duration (128 and 256 samples at 48 kHz, one
 thread and all CPUs, with and without pooled memory), heap allocations on the audio thread,
-and how long a graph rebuild takes. Exit code 2 if the output is silent or the allocation
-counter does not work. Run it from the Release build; targets and results are in the Audio
+how long a graph rebuild takes, and what the loudness meter (`Aerion::LoudnessAnalyser`, run
+on every output block) costs per 256-sample block. Exit code 2 if the output is silent, the
+allocation counter does not work, or the loudness meter allocates. Run it from the Release build; targets and results are in the Audio
 section of [`PERFORMANCE.md`](./PERFORMANCE.md#audio).
 
 ### Manual configure (without presets)
@@ -271,11 +277,12 @@ Local Debug presets are fine for day-to-day work; run Release + tests before ope
 
 `release-package` (`.github/workflows/package-release.yml`, run from the Actions tab) builds the Windows NSIS installer and the macOS DMG and attaches them to a GitHub Release for the `tag_name` input. Installers are named after the tag without its `v` (`v0.5.1-alpha` → `AerionDAW-0.5.1-alpha-Windows.exe` and `AerionDAW-0.5.1-alpha-macOS.dmg`), passed to CMake as `AERION_PACKAGE_VERSION`.
 
-**The tag is the app's one version.** `CMakeLists.txt` takes the numeric part (`0.5.1`) as the project version, which becomes the exe's file version and the macOS bundle version, and the whole tag goes into the app as `AERION_BUILD_VERSION`. The update check, the About dialog, update messages, crash reports and the log all read it through `Updates::buildVersionText()`, so they cannot disagree. A local build, with no tag, uses `AERION_DEFAULT_VERSION` at the top of `CMakeLists.txt`; bump it with each release so local builds match. The release stage (`AERION_RELEASE_STAGE`, default `Alpha`) is added to a final tag's version ("0.5.1 Alpha") and left out when the tag already has a pre-release label ("0.5.1-alpha.2"); change it in `CMakeLists.txt` when the stage changes.
+**The tag is the app's one version.** `CMakeLists.txt` takes the numeric part (`0.5.1`, or `0.5.1.1` with a fourth number) as the project version, which becomes the exe's file version and the macOS bundle version, and the whole tag goes into the app as `AERION_BUILD_VERSION`. The update check, the About dialog, update messages, crash reports and the log all read it through `Updates::buildVersionText()`, so they cannot disagree. A local build, with no tag, uses `AERION_DEFAULT_VERSION` at the top of `CMakeLists.txt`; bump it with each release so local builds match. The release stage (`AERION_RELEASE_STAGE`, default `Alpha`) is added to a final tag's version ("0.5.1 Alpha") and left out when the tag already has a pre-release label ("0.5.1-alpha.2"); change it in `CMakeLists.txt` when the stage changes.
 
 Installed copies find new releases through **Help → Check for Updates** (and a quiet check after startup), so tag names matter: the update check reads each release's tag as a semantic version (`v0.5.1`, `v0.6.0-alpha.1`; three numbers, an optional `-` suffix) and ignores tags it cannot read (the log says so from 0.5.2 on), drafts, and releases without a `.exe` (Windows) or `.dmg` (macOS) asset. Builds with a release stage, or of a pre-release tag, are also offered pre-releases; final builds only final releases. A build knows its own version from `AERION_PACKAGE_VERSION` (`AERION_BUILD_VERSION` in the code), so a new release must have a higher tag than the one before. The download is checked against the size and SHA-256 digest GitHub lists for the asset. Logic and tests: `Source/Updates/UpdateChecker.cpp`, `Source/Tests/UpdateTests.cpp`.
 
 - **Draft releases are invisible.** The workflow's `draft` input defaults to on; nobody gets the update until the release is published on GitHub.
+- **Release checklist:** bump `AERION_DEFAULT_VERSION` and the version in README, STATUS and the manual; write `Documentation/releases/vX.Y.Z.md` (paste it into the workflow's `notes` input); run `build-test`; make sure the tag does not exist yet; run `release-package`; publish the draft; check that an older installed build is offered the update.
 - **Four-part tags are refused.** Builds from 0.5.2 on read a fourth number (`0.5.1.1`), but builds up to 0.5.1 do not and skip such a release silently, as happened to v0.5.1.1. The workflow's first job (`validate-tag`) therefore fails for anything but `vMAJOR.MINOR.PATCH[-suffix]`; relax it only once no build older than 0.5.2 is in use.
 
 To try the update window and download against the real releases without publishing anything, start any build with `AERION_PRETEND_VERSION` set to an older version; its update check then acts as that version would (the log says so):
