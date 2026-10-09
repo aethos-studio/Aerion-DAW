@@ -34,7 +34,7 @@ Aerion-DAW/                    ← open this folder in your editor
     Documentation/             ← this file, ROADMAP, STATUS, PERFORMANCE
       releases/                ← release notes per version (v0.5.2.md, ...)
     Source/                    ← application C++
-      Audio/                   ← DSP outside Tracktion: loudness meter and its output tap
+      Audio/                   ← DSP outside Tracktion: loudness, spectrum and correlation meters, and the output tap that feeds them
       Updates/                 ← update check, download and install
       Export/                  ← mixdown, stems and freeze rendering
       Views/                   ← one header per UI view (UIComponents.h includes them all)
@@ -172,9 +172,9 @@ buses) through Tracktion's playback graph, pulling blocks through Tracktion's ho
 interface instead of a sound card, so it runs on machines without audio hardware. It reports
 the time per block as a share of the block's duration (128 and 256 samples at 48 kHz, one
 thread and all CPUs, with and without pooled memory), heap allocations on the audio thread,
-how long a graph rebuild takes, and what the loudness meter (`Aerion::LoudnessAnalyser`, run
-on every output block) costs per 256-sample block. Exit code 2 if the output is silent, the
-allocation counter does not work, or the loudness meter allocates. Run it from the Release build; targets and results are in the Audio
+how long a graph rebuild takes, and what the output analysers (`Aerion::OutputTap`: loudness,
+spectrum and phase correlation, run on every output block) cost per 256-sample block. Exit
+code 2 if the output is silent, the allocation counter does not work, or the analysers allocate. Run it from the Release build; targets and results are in the Audio
 section of [`PERFORMANCE.md`](./PERFORMANCE.md#audio).
 
 ### Manual configure (without presets)

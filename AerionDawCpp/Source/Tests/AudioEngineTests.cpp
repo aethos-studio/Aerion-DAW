@@ -759,6 +759,72 @@ public:
             }
         }
 
+        beginTest ("default MIDI mappings are saved from a project and added to new projects and tracks");
+        {
+            using Kind = AudioEngineManager::AutomationParamKind;
+            auto* settings = engine.getUserSettings();
+            expect (settings != nullptr);
+
+            // These tests share the user's settings file: keep what is there.
+            auto previous = settings->getXmlValue (AudioEngineManager::kDefaultMidiMappingsKey);
+
+            auto addMapping = [&engine] (tracktion::AutomatableParameter& p, int controller)
+            {
+                auto state = engine.getEdit().state.getOrCreateChildWithName (tracktion::IDs::CONTROLLERMAPPINGS, nullptr);
+                state.appendChild (tracktion::createValueTree (tracktion::IDs::MAP,
+                                                               tracktion::IDs::id, controller,
+                                                               tracktion::IDs::channel, 1,
+                                                               tracktion::IDs::param, p.getFullName(),
+                                                               tracktion::IDs::pluginID, p.getOwnerID().toString()), nullptr);
+                engine.getEdit().getParameterControlMappings().loadFromEdit();
+            };
+
+            engine.createNewProject();
+            auto* first = engine.addAudioTrack();
+            auto* masterVolume = engine.getAutomationParam (engine.getMasterTrack(), Kind::Volume);
+            auto* trackPan     = engine.getAutomationParam (first, Kind::Pan);
+            expect (masterVolume != nullptr && trackPan != nullptr);
+
+            if (masterVolume != nullptr && trackPan != nullptr)
+            {
+                addMapping (*masterVolume, 0x10000 + 7);
+                addMapping (*trackPan, 0x10000 + 10);
+                // A plugin parameter is per project only.
+                auto reverb = engine.getEdit().getPluginCache().createNewPlugin (tracktion::ReverbPlugin::xmlTypeName, {});
+                first->pluginList.insertPlugin (reverb, 0, nullptr);
+                if (auto p = reverb->getAutomatableParameter (0))
+                    addMapping (*p, 0x10000 + 20);
+
+                const auto saved = engine.saveMidiMappingsAsDefault();
+                expectEquals (saved.saved, 2);
+                expectEquals (saved.skipped, 1);
+                expectEquals (engine.getNumDefaultMidiMappings(), 2);
+                reverb = nullptr;
+
+                // A new project gets the master mapping, its first new track the pan mapping.
+                engine.createNewProject();
+                expect (engine.getMidiMappingText (engine.getAutomationParam (engine.getMasterTrack(), Kind::Volume)).isNotEmpty());
+                auto* newTrack = engine.addAudioTrack();
+                expect (engine.getMidiMappingText (engine.getAutomationParam (newTrack, Kind::Pan)).isNotEmpty());
+                expect (engine.getMidiMappingText (engine.getAutomationParam (newTrack, Kind::Volume)).isEmpty());
+                // The second track has no default.
+                auto* second = engine.addAudioTrack();
+                expect (engine.getMidiMappingText (engine.getAutomationParam (second, Kind::Pan)).isEmpty());
+
+                engine.clearDefaultMidiMappings();
+                expectEquals (engine.getNumDefaultMidiMappings(), 0);
+                engine.createNewProject();
+                expect (engine.getMidiMappingText (engine.getAutomationParam (engine.getMasterTrack(), Kind::Volume)).isEmpty());
+            }
+
+            if (previous != nullptr)
+                settings->setValue (AudioEngineManager::kDefaultMidiMappingsKey, previous.get());
+            else
+                settings->removeValue (AudioEngineManager::kDefaultMidiMappingsKey);
+            settings->saveIfNeeded();
+            engine.createNewProject();
+        }
+
         // Quitting during a plugin scan ends the scanner child process, which also
         // lets a scan that waits on it stop.
         beginTest ("ending child processes ends a running child");

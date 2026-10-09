@@ -7,6 +7,7 @@
 #include "Export/MixdownExportJob.h"
 #include "PluginFaultGuard.h"
 #include "Audio/LoudnessMeter.h"
+#include "Audio/OutputAnalysers.h"
 
 class AudioEngineManager : public juce::ChangeListener,
                            private juce::Timer
@@ -343,6 +344,21 @@ public:
     // maximum only count while the transport plays.
     const Aerion::LoudnessReadings& getLoudness() const noexcept   { return loudnessMeter.getReadings(); }
     void resetLoudness();
+    /** Spectrum and phase correlation of the same output, updated 30 times a second. */
+    const Aerion::SpectrumAnalyser& getSpectrum() const noexcept    { return spectrumAnalyser; }
+    const Aerion::CorrelationMeter& getCorrelation() const noexcept { return correlationMeter; }
+
+    // Default MIDI mappings (user settings), applied to new projects and new
+    // tracks: the master's volume and pan, and the volume and pan of the
+    // Nth audio or MIDI track. Plugin mappings are per project only.
+    struct DefaultMappingResult { int saved = 0, skipped = 0; };
+    DefaultMappingResult saveMidiMappingsAsDefault();
+    void clearDefaultMidiMappings();
+    int getNumDefaultMidiMappings();
+    /** Adds the defaults that apply to `track` (nullptr: the master) where
+        neither the parameter nor the controller is mapped yet. */
+    void applyDefaultMidiMappings (tracktion::Track* track);
+    static constexpr const char* kDefaultMidiMappingsKey = "midiDefaultMappings";
     struct MidiMappingRow { juce::String controller, parameter; };
     juce::Array<MidiMappingRow> getMidiMappings();
     void removeMidiMapping (int row);
@@ -472,8 +488,15 @@ private:
     };
     std::unique_ptr<MidiLearnWatcher> midiLearnWatcher;
 
-    Aerion::LoudnessAnalyser loudnessAnalyser;   // fed by an Aerion::LoudnessTap on the device output
+    // Fed by an Aerion::OutputTap on the device output.
+    Aerion::LoudnessAnalyser loudnessAnalyser;
     Aerion::LoudnessMeter    loudnessMeter;
+    Aerion::SpectrumAnalyser spectrumAnalyser;
+    Aerion::CorrelationMeter correlationMeter;
+
+    /** "master:volume", "track:3:pan" (1-based among audio tracks), or empty. */
+    juce::String defaultMappingTargetFor (tracktion::AutomatableParameter*);
+    tracktion::AutomatableParameter* parameterForDefaultTarget (const juce::String& target);
     void storeMidiMappings();
 
     void broadcastChange();        // the project was edited

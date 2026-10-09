@@ -2,7 +2,7 @@
 #include "ScannerProcesses.h"
 #include "ProjectData.h"
 #include "Export/MixdownExportJob.h"
-#include "Audio/LoudnessTap.h"
+#include "Audio/OutputTap.h"
 
 namespace te = tracktion;
 
@@ -424,6 +424,8 @@ AudioEngineManager::AudioEngineManager()
     // Session/edit first (cheap vs driver init). Opening devices is deferred to the next
     // message so the main window can show and pump events while the OS loads ASIO/WASAPI.
     setupInitialEdit();
+    applyDefaultMidiMappings (nullptr);
+    markEditSaved();   // the user's default mappings are not an edit
     juce::Logger::writeToLog ("Startup: AudioEngineManager setupInitialEdit completed in "
                               + juce::String (juce::Time::getMillisecondCounterHiRes() - ctorStartMs, 1)
                               + " ms");
@@ -459,7 +461,7 @@ AudioEngineManager::AudioEngineManager()
             clampExcessiveAudioBufferSize (engine);
 
         engine.getDeviceManager().enableOutputClipping (true);
-        engine.getDeviceManager().setGlobalOutputAudioProcessor (std::make_unique<Aerion::LoudnessTap> (loudnessAnalyser));
+        engine.getDeviceManager().setGlobalOutputAudioProcessor (std::make_unique<Aerion::OutputTap> (loudnessAnalyser, spectrumAnalyser, correlationMeter));
         engine.getDeviceManager().deviceManager.addChangeListener (this);
         audioDevicesConnected = true;
 
@@ -493,7 +495,7 @@ AudioEngineManager::~AudioEngineManager()
 
     if (audioDevicesConnected)
     {
-        // The tap refers to loudnessAnalyser, a member destroyed before the engine.
+        // The tap refers to the analysers, members destroyed before the engine.
         engine.getDeviceManager().setGlobalOutputAudioProcessor (nullptr);
         engine.getDeviceManager().removeChangeListener (this);
         if (auto state = engine.getDeviceManager().deviceManager.createStateXml())
@@ -1000,6 +1002,7 @@ te::AudioTrack* AudioEngineManager::addAudioTrack()
             auto p = edit->getPluginCache().createNewPlugin (te::LevelMeterPlugin::xmlTypeName, {});
             at->pluginList.insertPlugin (p, 0, nullptr);
         }
+        applyDefaultMidiMappings (at);
     }
     broadcastChange();
     return t.get();
@@ -1018,6 +1021,7 @@ te::AudioTrack* AudioEngineManager::addMidiTrack()
         if (at->getLevelMeterPlugin() == nullptr)
             at->pluginList.insertPlugin (edit->getPluginCache().createNewPlugin (te::LevelMeterPlugin::xmlTypeName, {}),
                                          at->pluginList.size(), nullptr);
+        applyDefaultMidiMappings (at);
     }
     broadcastChange();
     return t.get();
@@ -1572,6 +1576,166 @@ void AudioEngineManager::removeMidiMapping (int row)
     broadcastChange();
     if (onMidiLearnChanged)
         onMidiLearnChanged();
+}
+
+juce::String AudioEngineManager::defaultMappingTargetFor (te::AutomatableParameter* param)
+{
+    using Kind = AutomationParamKind;
+    if (param == nullptr || edit == nullptr)
+        return {};
+
+    if (auto* master = getMasterTrack())
+    {
+        if (param == getAutomationParam (master, Kind::Volume)) return "master:volume";
+        if (param == getAutomationParam (master, Kind::Pan))    return "master:pan";
+    }
+
+    auto tracks = te::getAudioTracks (*edit);
+    for (int i = 0; i < tracks.size(); ++i)
+    {
+        if (param == getAutomationParam (tracks[i], Kind::Volume)) return "track:" + juce::String (i + 1) + ":volume";
+        if (param == getAutomationParam (tracks[i], Kind::Pan))    return "track:" + juce::String (i + 1) + ":pan";
+    }
+
+    return {};
+}
+
+te::AutomatableParameter* AudioEngineManager::parameterForDefaultTarget (const juce::String& target)
+{
+    using Kind = AutomationParamKind;
+    if (edit == nullptr)
+        return nullptr;
+
+    const auto parts = juce::StringArray::fromTokens (target, ":", "");
+    const auto kind = parts[parts.size() - 1] == "pan" ? Kind::Pan : Kind::Volume;
+
+    if (parts.size() == 2 && parts[0] == "master")
+        return getAutomationParam (getMasterTrack(), kind);
+
+    if (parts.size() == 3 && parts[0] == "track")
+    {
+        auto tracks = te::getAudioTracks (*edit);
+        const int index = parts[1].getIntValue() - 1;
+        if (juce::isPositiveAndBelow (index, tracks.size()))
+            return getAutomationParam (tracks[index], kind);
+    }
+
+    return nullptr;
+}
+
+AudioEngineManager::DefaultMappingResult AudioEngineManager::saveMidiMappingsAsDefault()
+{
+    DefaultMappingResult result;
+    if (edit == nullptr)
+        return result;
+
+    juce::XmlElement defaults ("MidiDefaults");
+    auto& mappings = edit->getParameterControlMappings();
+
+    for (int i = 0; i < mappings.getNumControllerIDs(); ++i)
+    {
+        const auto m = mappings.getMappingForRow (i);
+        const auto target = defaultMappingTargetFor (m.parameter);
+
+        if (target.isEmpty() || m.controllerID <= 0)
+        {
+            ++result.skipped;
+            continue;
+        }
+
+        auto* e = defaults.createNewChildElement ("MAP");
+        e->setAttribute ("controller", m.controllerID);
+        e->setAttribute ("channel", m.channelID);
+        e->setAttribute ("target", target);
+        ++result.saved;
+    }
+
+    if (auto* s = getUserSettings())
+    {
+        s->setValue (kDefaultMidiMappingsKey, &defaults);
+        s->saveIfNeeded();
+    }
+
+    return result;
+}
+
+void AudioEngineManager::clearDefaultMidiMappings()
+{
+    if (auto* s = getUserSettings())
+    {
+        s->removeValue (kDefaultMidiMappingsKey);
+        s->saveIfNeeded();
+    }
+}
+
+int AudioEngineManager::getNumDefaultMidiMappings()
+{
+    if (auto* s = getUserSettings())
+        if (auto xml = s->getXmlValue (kDefaultMidiMappingsKey))
+            return xml->getNumChildElements();
+
+    return 0;
+}
+
+void AudioEngineManager::applyDefaultMidiMappings (te::Track* track)
+{
+    auto* s = getUserSettings();
+    if (edit == nullptr || s == nullptr)
+        return;
+
+    auto defaults = s->getXmlValue (kDefaultMidiMappingsKey);
+    if (defaults == nullptr || defaults->getNumChildElements() == 0)
+        return;
+
+    // Which targets belong to this track: "master:" or "track:<n>:".
+    juce::String prefix = "master:";
+    if (track != nullptr && ! track->isMasterTrack())
+    {
+        const int index = te::getAudioTracks (*edit).indexOf (dynamic_cast<te::AudioTrack*> (track));
+        if (index < 0)
+            return;
+        prefix = "track:" + juce::String (index + 1) + ":";
+    }
+
+    // Mappings are added through the Edit's state, the form Tracktion loads
+    // them from; write back the current ones first so none are lost.
+    auto& mappings = edit->getParameterControlMappings();
+    mappings.saveToEdit();
+    auto state = edit->state.getOrCreateChildWithName (te::IDs::CONTROLLERMAPPINGS, nullptr);
+    bool added = false;
+
+    for (auto* e : defaults->getChildIterator())
+    {
+        const auto target = e->getStringAttribute ("target");
+        if (! target.startsWith (prefix))
+            continue;
+
+        auto* param = parameterForDefaultTarget (target);
+        const int controller = e->getIntAttribute ("controller");
+        const int channel    = e->getIntAttribute ("channel");
+        if (param == nullptr || controller <= 0 || mappings.isParameterMapped (*param))
+            continue;
+
+        bool controllerInUse = false;
+        for (const auto& map : state)
+            controllerInUse = controllerInUse || ((int) map[te::IDs::id] == controller && (int) map[te::IDs::channel] == channel);
+        if (controllerInUse)
+            continue;
+
+        state.appendChild (te::createValueTree (te::IDs::MAP,
+                                                te::IDs::id, controller,
+                                                te::IDs::channel, channel,
+                                                te::IDs::param, param->getFullName(),
+                                                te::IDs::pluginID, param->getOwnerID().toString()), nullptr);
+        added = true;
+    }
+
+    if (added)
+    {
+        mappings.loadFromEdit();
+        if (onMidiLearnChanged)
+            onMidiLearnChanged();
+    }
 }
 
 juce::String AudioEngineManager::midiControllerText (int controllerID, int channel)
@@ -2707,6 +2871,7 @@ void AudioEngineManager::createNewProject()
     cancelActiveFreezeJobs();
     releaseEditResources();
     setupInitialEdit();
+    applyDefaultMidiMappings (nullptr);
     ++editGeneration;
     armedTracks.clear();
     inputDeviceMap.clear();
@@ -3292,12 +3457,18 @@ void AudioEngineManager::resetLoudness()
 {
     loudnessAnalyser.requestReset();
     loudnessMeter.resetIntegrated();
+    spectrumAnalyser.reset();
+    correlationMeter.reset();
 }
 
 void AudioEngineManager::timerCallback()
 {
     if (edit != nullptr)
+    {
         loudnessMeter.update (loudnessAnalyser, isPlaying());
+        spectrumAnalyser.update();
+        correlationMeter.update();
+    }
 
     if (!punchEnabled || !isRecording()) return;
 

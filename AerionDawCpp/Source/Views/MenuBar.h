@@ -671,7 +671,7 @@ private:
         m.addItem (2, "Browser",   true, browserVisible);
         m.addSeparator();
         m.addItem (3, mixerDetached ? "Dock Mixer" : "Detach Mixer");
-        m.addItem (4, "Loudness Meter");
+        m.addItem (4, "Meters");
         m.addSeparator();
 
         juce::PopupMenu wsSub;

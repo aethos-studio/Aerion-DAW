@@ -275,6 +275,8 @@ Graph rebuild: median 1.4 ms, max 1.8 ms.
 
 **Loudness meter (2026-10-09):** `Aerion::LoudnessAnalyser` runs on every output block (Tracktion's global output processor), stopped or playing. Release: **0.23 %** of a 256-sample block at 48 kHz, 0 allocations (`AerionBench --audio`, "[loudness meter]"; the run fails if it allocates).
 
+**Output analysers (2026-10-09, v0.5.3):** the spectrum analyser and phase correlation meter run on the same output (`Aerion::OutputTap`). All three together: **0.23 %** of a 256-sample block, 0 allocations (Release, "[output analysers]"). The FFT (4096 points, every 2048 new samples) runs on the message thread at the UI timer's 30 Hz.
+
 All targets are met. Findings:
 
 1. Tracktion's defaults already run the graph on every CPU, which is 2.4 to 3× faster per block than one thread. Aerion keeps them.

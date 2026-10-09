@@ -1,7 +1,7 @@
 #include <JuceHeader.h>
 #include "AudioBenchmark.h"
 #include "BenchBaseline.h"
-#include "../Audio/LoudnessMeter.h"
+#include "../Audio/OutputTap.h"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -320,13 +320,18 @@ int runAudioBenchmark (const juce::StringArray& args)
         }
     }
 
-    // The loudness meter runs on the device output (Aerion::LoudnessTap) for
-    // every block, stopped or playing. It must cost next to nothing and never allocate.
+    // The output analysers (loudness, spectrum, phase correlation) run on the
+    // device output (Aerion::OutputTap) for every block, stopped or playing.
+    // They must cost next to nothing and never allocate.
     {
         constexpr int blockSize = 256;
         constexpr int blocks = 20000;
-        Aerion::LoudnessAnalyser analyser;
-        analyser.prepare (sampleRate, 2);
+        Aerion::LoudnessAnalyser loudness;
+        Aerion::SpectrumAnalyser spectrum;
+        Aerion::CorrelationMeter correlation;
+        Aerion::OutputTap tap (loudness, spectrum, correlation);
+        tap.prepareToPlay (sampleRate, blockSize);
+        juce::MidiBuffer midi;
 
         juce::AudioBuffer<float> buffer (2, blockSize);
         juce::Random random (1);
@@ -336,23 +341,34 @@ int runAudioBenchmark (const juce::StringArray& args)
 
         countingThread = std::this_thread::get_id();
         const auto allocationsBefore = allocationsOnBlockThread.load();
-        countAllocations = true;
-        const auto start = std::chrono::steady_clock::now();
+        double totalMs = 0.0;
+
         for (int b = 0; b < blocks; ++b)
-            analyser.process (buffer.getArrayOfReadPointers(), 2, blockSize);
-        const double totalMs = std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - start).count();
-        countAllocations = false;
+        {
+            countAllocations = true;
+            const auto start = std::chrono::steady_clock::now();
+            tap.processBlock (buffer, midi);
+            totalMs += std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - start).count();
+            countAllocations = false;
+
+            // The message thread drains the FIFOs; not part of the audio-thread cost.
+            if (b % 16 == 15)
+            {
+                spectrum.update();
+                correlation.update();
+            }
+        }
 
         const double budgetMs = 1000.0 * blockSize / sampleRate;
         const double pct = 100.0 * (totalMs / blocks) / budgetMs;
         const auto allocations = allocationsOnBlockThread.load() - allocationsBefore;
-        BenchBaseline::record ("loudness meter, 256 samples: mean", pct, "%");
-        std::cout << "[loudness meter]\n  " << juce::String (pct, 3) << " % of a 256-sample block, "
+        BenchBaseline::record ("output analysers, 256 samples: mean", pct, "%");
+        std::cout << "[output analysers: loudness, spectrum, correlation]\n  " << juce::String (pct, 3) << " % of a 256-sample block, "
                   << (int) allocations << " allocations" << std::endl;
 
         if (allocations != 0)
         {
-            std::cout << "    loudness meter allocated on the audio thread: FAILED" << std::endl;
+            std::cout << "    output analysers allocated on the audio thread: FAILED" << std::endl;
             ++failures;
         }
     }

@@ -934,9 +934,11 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
     <li>The control is now mapped, and learning stops. A mapped fader shows a small <span class="ui">M</span>.</li>
   </ol>
   <p>Click the <span class="ui">LEARN</span> pill to cancel. To remove a mapping, choose <span class="ui">Clear Volume</span> (or <span class="ui">Clear Pan</span>) in the same menu, or use <span class="menu">Audio › MIDI Mappings…</span>, which lists every mapping in the project. Mappings are saved with the project.</p>
+  <h4>Default mappings</h4>
+  <p>If your controller always does the same job, for example its first fader is the master volume and its first knob the first track's pan, set it up once: map the controls in a project, then click <span class="ui">SAVE AS DEFAULT</span> in <span class="menu">Audio › MIDI Mappings…</span>. Every new project then starts with the master mappings, and each new track gets the mappings of the track in its position (the first track you add gets the first track's). Defaults cover the master and track faders and pan; mappings of plugin controls stay in their project. <span class="ui">CLEAR DEFAULTS</span> removes them; projects keep the mappings they already have.</p>
 
-  <h3 id="loudness">Loudness meter</h3>
-  <p>Streaming services and broadcasters turn songs up or down to a set loudness. The loudness meter shows how loud your mix is, so you know what they will do to it. Open it with <span class="menu">View › Loudness Meter</span>. It measures what you hear, after the master plugins and the master fader.</p>
+  <h3 id="loudness">Meters: loudness, phase and spectrum</h3>
+  <p>Streaming services and broadcasters turn songs up or down to a set loudness. The loudness meter shows how loud your mix is, so you know what they will do to it. Open it with <span class="menu">View › Meters</span>. Everything in this window measures what you hear, after the master plugins and the master fader.</p>
   <div class="anat">
     <div><dl><dt>Integrated</dt><dd>The loudness of everything played since the last reset, in LUFS. Compare this one with the target.</dd></dl></div>
     <div><dl><dt>Short-term</dt><dd>The last 3 seconds. The master strip in the Mixer shows it too.</dd></dl></div>
@@ -945,6 +947,8 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
   </div>
   <p>Choose a target at the top: Spotify and YouTube (−14 LUFS), Apple Music (−16), EBU R128 broadcast (−23) or ATSC A/85 (−24). The integrated value turns blue within 1 LU of the target, red when louder and yellow when quieter. The true peak turns red above the target's limit (−1 dBTP, or −2 for ATSC).</p>
   <p>Integrated loudness and the true peak only count while the song plays. Play the whole song from the start, then read the integrated value; <span class="ui">RESET</span> starts again. The meter measures the first two output channels and includes the metronome, so turn the metronome off while measuring.</p>
+  <p><strong>Phase correlation</strong> shows how alike the left and right channels are: +1 means they are the same (mono), around 0 means wide stereo, and below 0 means parts of the mix cancel out when it is played in mono, on a phone speaker for example. The reading turns red below 0. With no sound it shows a dash.</p>
+  <p><strong>Spectrum</strong> shows how loud each frequency is, from 20 Hz to 20 kHz, with a 1 kHz sine at full scale reaching 0 dB. Use it to spot too much low end or a harsh peak. The window can be resized to make the spectrum larger.</p>
 </section>
 
 <!-- 14 -->
@@ -1191,9 +1195,9 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
     <li><strong>No built-in instruments or effects.</strong> Aerion uses your VST3 and Audio Unit plugins; to play MIDI you need an instrument plugin.</li>
     <li><strong>Automation</strong> covers track volume and pan only, drawn by hand.</li>
     <li><strong>Plugin crash protection</strong> is Windows-only, and doesn't yet cover a crash inside a plugin window that is already open.</li>
-    <li><strong>Not yet supported:</strong> time-stretching, control surfaces, a spectrum analyser and default MIDI mappings for all projects. All are planned.</li>
+    <li><strong>Not yet supported:</strong> time-stretching and control surfaces. Both are planned.</li>
     <li><strong>Clip processing</strong> is gain, normalise and reverse. A gain envelope and per-clip pitch and speed come with time-stretching.</li>
-    <li><strong>No CLAP or VST2 plugins, and no Linux version.</strong></li>
+    <li><strong>No CLAP or VST2 plugins, and no Linux version.</strong> CLAP support depends on the libraries Aerion is built on and is not planned for now.</li>
     <li><strong>Accessibility</strong> doesn't reach clips on the Timeline or notes in the Piano Roll yet.</li>
     <li><strong>AI tools and the Cloud tab</strong> in the Inspector and Browser are placeholders and don't do anything yet.</li>
     <li><strong>Installer warnings:</strong> the Windows installer is signed with Aethos Studio's own certificate and the macOS app isn't signed yet, so both systems warn when you install (see <a href="#install">Installing</a>).</li>

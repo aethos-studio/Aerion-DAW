@@ -143,7 +143,9 @@ target_sources(AerionDaw PRIVATE
     Source/AudioEngine.cpp
     Source/Audio/LoudnessMeter.h
     Source/Audio/LoudnessMeter.cpp
-    Source/Audio/LoudnessTap.h
+    Source/Audio/OutputAnalysers.h
+    Source/Audio/OutputAnalysers.cpp
+    Source/Audio/OutputTap.h
     Source/PluginFaultGuard.h
     Source/UserManual.h
     Source/PluginFaultGuard.cpp
@@ -378,7 +380,10 @@ if (AERION_BUILD_TESTS)
         Source/AudioEngine.cpp
         Source/Audio/LoudnessMeter.h
         Source/Audio/LoudnessMeter.cpp
+        Source/Audio/OutputAnalysers.h
+        Source/Audio/OutputAnalysers.cpp
         Source/Tests/LoudnessTests.cpp
+        Source/Tests/OutputAnalyserTests.cpp
         Source/PluginFaultGuard.h
         Source/PluginFaultGuard.cpp
         Source/Export/MixdownExportJob.h
@@ -432,6 +437,7 @@ if (AERION_BUILD_TESTS)
         Source/ProjectData.cpp
         Source/AudioEngine.cpp
         Source/Audio/LoudnessMeter.cpp
+        Source/Audio/OutputAnalysers.cpp
         Source/ScannerProcesses.cpp
         Source/Updates/UpdateChecker.cpp
         Source/PluginFaultGuard.cpp
