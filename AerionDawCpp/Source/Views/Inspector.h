@@ -23,6 +23,10 @@ public:
 
         setTitle ("Inspector");
         setFocusContainerType (juce::Component::FocusContainerType::focusContainer);
+        // Like the Mixer: a click takes focus here. Otherwise JUCE hands it to
+        // the first focusable child, the fader's accessibility proxy, and its
+        // focus ring framed the fader after any click (BYP, for example).
+        setWantsKeyboardFocus (true);
     }
 
     ~Inspector() override

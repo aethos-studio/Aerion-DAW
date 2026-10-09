@@ -35,6 +35,9 @@ public:
     void cancel();
     void waitForCancel();
     bool isRunning() const;
+    /** True once the render thread has delivered its result (also after a
+        cancel), or if it never started; destroying the job then does not wait. */
+    bool hasFinished() const   { return renderHandle == nullptr || finishedFlag->load(); }
     float getProgress() const;
     juce::String getInitError() const { return initError; }
     bool isValid() const { return initError.isEmpty() && paramsReady; }
@@ -53,6 +56,7 @@ private:
 
     std::unique_ptr<tracktion::Edit> renderEditCopy;
     std::shared_ptr<tracktion::EditRenderer::Handle> renderHandle;
+    std::shared_ptr<std::atomic<bool>> finishedFlag = std::make_shared<std::atomic<bool>> (false);
 
     juce::ListenerList<Listener> listeners;
 

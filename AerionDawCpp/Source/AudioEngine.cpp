@@ -1277,7 +1277,11 @@ void AudioEngineManager::removePlugin (te::Plugin* plugin)
                     return;
     }
 
-    if (plugin != nullptr) plugin->deleteFromParent();
+    if (plugin != nullptr)
+    {
+        plugin->deleteFromParent();
+        broadcastChange();
+    }
 }
 
 bool AudioEngineManager::isExternalPluginBypassed (te::Plugin* plugin) const
@@ -3246,6 +3250,9 @@ tracktion::Plugin::Ptr AudioEngineManager::addPluginToTrack (te::Track* track, c
         track->pluginList.insertPlugin (p, track->pluginList.size(), nullptr);
         p->setEnabled (true);
         p->setProcessingEnabled (true);
+        // Every view showing this track (Inspector, Mixer, Timeline) refreshes,
+        // not just the one the plugin was dropped on.
+        broadcastChange();
         return p;
     }
     return {};

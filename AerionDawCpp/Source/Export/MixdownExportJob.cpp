@@ -191,8 +191,10 @@ void MixdownExportJob::start()
 
     renderHandle = te::EditRenderer::render (
         cachedParams,
-        [weakThis] (tl::expected<juce::File, std::string> result)
+        [weakThis, finished = finishedFlag] (tl::expected<juce::File, std::string> result)
         {
+            finished->store (true);
+
             juce::MessageManager::callAsync ([weakThis, result]() mutable
             {
                 auto* self = weakThis.get();

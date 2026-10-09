@@ -36,6 +36,8 @@ private:
     void startExportRender();
     void cancelRenders();
     void cancelPreview();
+    void retirePreview();
+    void reapRetiredPreviews();
     void cancelExport();
     void showPresetsMenu();
     void showThemedAlert (const juce::String& title, const juce::String& message, bool isError = false);
@@ -84,6 +86,10 @@ private:
     // Preview render (true pre-render to temp file)
     juce::File previewFile;
     std::unique_ptr<MixdownExportJob> previewJob;
+    // Cancelled previews whose render thread is still winding down. Waiting
+    // for them on the message thread froze the dialog (e.g. while dragging
+    // the tail slider), so they are freed from the timer once finished.
+    std::vector<std::unique_ptr<MixdownExportJob>> retiredPreviews;
     std::unique_ptr<WaveformPreviewComponent> waveform;
 
     // Export render

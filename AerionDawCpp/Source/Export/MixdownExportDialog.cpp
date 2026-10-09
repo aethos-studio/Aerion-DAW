@@ -229,7 +229,9 @@ MixdownExportDialog::MixdownExportDialog (te::Engine& e,
     auto restartPreview = [this] { requestPreviewRestart(); };
     boundsBox.onChange = restartPreview;
     tailToggle.onClick = restartPreview;
-    tailMs.onValueChange = restartPreview;
+    // While dragging, only the value changes; the preview renders once on release.
+    tailMs.onValueChange = [this] { if (! tailMs.isMouseButtonDown()) requestPreviewRestart(); };
+    tailMs.onDragEnd = restartPreview;
     formatBox.onChange = restartPreview;
     sampleRateBox.onChange = restartPreview;
     channelsBox.onChange = restartPreview;
@@ -377,6 +379,8 @@ void MixdownExportDialog::resized()
 
 void MixdownExportDialog::timerCallback()
 {
+    reapRetiredPreviews();
+
     if (previewJob != nullptr)
     {
         progressValue = previewJob->getProgress();
@@ -400,6 +404,19 @@ void MixdownExportDialog::exportProgress (float progress01)
 
 void MixdownExportDialog::exportFinished (const MixdownExportJob::Result& r)
 {
+    // Previews report here too. A finished preview only updates the waveform:
+    // no message, and it must not touch the export job.
+    if (exportJob == nullptr && previewJob != nullptr)
+    {
+        if (r.ok)
+        {
+            exportThumbnail.setSource (new juce::FileInputSource (r.outputFile));
+            waveform->setThumbnail (&exportThumbnail);
+            waveform->analyzeForClipping (r.outputFile, audioFormatManager);
+        }
+        return;
+    }
+
     exportJob.reset();
 
     if (! r.ok)
@@ -502,7 +519,16 @@ juce::File MixdownExportDialog::expandedOutputFile() const
 void MixdownExportDialog::startPreviewRender()
 {
     juce::Logger::writeToLog ("MixdownExportDialog: startPreviewRender begin");
-    cancelPreview();
+    retirePreview();
+    reapRetiredPreviews();
+
+    // Never two renders of the live Edit at once: try again once the
+    // cancelled one has stopped (it checks for a cancel every block).
+    if (! retiredPreviews.empty())
+    {
+        requestPreviewRestart();
+        return;
+    }
 
     auto bounds = computeBounds();
     auto outfile = juce::File::getSpecialLocation (juce::File::tempDirectory)
@@ -608,8 +634,30 @@ void MixdownExportDialog::cancelRenders()
     waveform->setThumbnail (nullptr);
 }
 
+void MixdownExportDialog::retirePreview()
+{
+    if (previewJob == nullptr)
+        return;
+
+    // The waveform may show the thumbnail the job owns.
+    waveform->setThumbnail (nullptr);
+    previewJob->removeListener (this);
+    previewJob->cancel();
+    retiredPreviews.push_back (std::move (previewJob));
+}
+
+void MixdownExportDialog::reapRetiredPreviews()
+{
+    retiredPreviews.erase (std::remove_if (retiredPreviews.begin(), retiredPreviews.end(),
+                                           [] (const auto& job) { return job->hasFinished(); }),
+                           retiredPreviews.end());
+}
+
 void MixdownExportDialog::cancelPreview()
 {
+    // Blocking: used before an export and when the dialog closes.
+    retiredPreviews.clear();
+
     if (previewJob != nullptr)
     {
         juce::Logger::writeToLog ("MixdownExportDialog: cancelPreview() waiting for job to finish");

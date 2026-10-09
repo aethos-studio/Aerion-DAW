@@ -50,6 +50,14 @@ What already exists versus what remains, verified against the source tree:
 
 ### October 2026
 
+**v0.5.3 Alpha (in progress; notes: `Documentation/releases/v0.5.3.md`):**
+
+- **Plugin added or removed, other views stale (bug):** `AudioEngineManager::addPluginToTrack` and `removePlugin` did not call `broadcastChange()`, so only the view that made the change repainted; a plugin dropped on the master from the Browser appeared in the Inspector only after a click. Both now broadcast.
+- **Blue frame on the Inspector fader after a click (bug):** the Inspector did not want keyboard focus, so JUCE gave a clicked Inspector's focus to its first focusable child, the fader's accessibility proxy, which draws the focus ring. `Inspector` now calls `setWantsKeyboardFocus (true)`, as `Mixer` does.
+- **Export Mixdown froze while dragging the tail slider (bug):** each value change restarted the preview render, and `cancelPreview` joined the old render thread on the message thread (`EditRenderer::Handle` destructor), which can hang when the render needs the message thread (plugins). The tail slider now restarts the preview on release (`onDragEnd`); a replaced preview is cancelled without waiting and kept in `retiredPreviews` until `MixdownExportJob::hasFinished()` (set from the render's finished callback, which also runs after a cancel); a new preview waits until none is still running, so two renders of the live Edit never overlap. `cancelPreview` still blocks before an export and when the dialog closes.
+- **Preview treated as an export (bug):** previews and exports share `MixdownExportDialog::exportFinished`, so every finished preview reset `exportJob` and showed "Rendered: <temp file>". A finished preview now only loads its waveform.
+- Not yet tried in the app: the drop on the master, the BYP click, and dragging the tail slider with heavy plugins on the master.
+
 **v0.5.2 Alpha (October 9):**
 
 - **v0.5.1.1 was invisible to the updater:** installed v0.5.1 builds parse release tags as exactly three numbers (`Updates::Version::parse`) and skipped `v0.5.1.1` without a word; that build also called itself 0.5.1 (built from `7c3313e`, where CMake read only three numbers). Builds from 0.5.2 on read an optional fourth number (`Updates::Version::revision`; CMake accepts `x.y.z[.r]`) and log a tag they cannot read (`findUpdate`). `release-package` now starts with a `validate-tag` job that refuses anything but `vMAJOR.MINOR.PATCH[-suffix]` until no pre-0.5.2 build is in use.
