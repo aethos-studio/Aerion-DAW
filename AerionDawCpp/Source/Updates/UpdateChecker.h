@@ -20,10 +20,11 @@ namespace Updates
     inline constexpr const char* autoCheckKey      = "updates.autoCheck";       // bool, default true
     inline constexpr const char* skippedVersionKey = "updates.skippedVersion";  // e.g. "0.6.0"
 
-    /** A semantic version such as 0.6.0 or 0.6.0-alpha.2. */
+    /** A semantic version such as 0.6.0 or 0.6.0-alpha.2, optionally with a
+        fourth number for a hotfix release (0.5.1.1). */
     struct Version
     {
-        int major = 0, minor = 0, patch = 0;
+        int major = 0, minor = 0, patch = 0, revision = 0;
         juce::String preRelease;   // "alpha.2"; empty for a final release
 
         /** Accepts a leading "v" and ignores build metadata ("+..."). */

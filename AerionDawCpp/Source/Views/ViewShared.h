@@ -110,6 +110,56 @@ struct InsertRowDragState
     int dropPreviewY = -1;
 };
 
+// MIDI learn items for a track's fader and pan, shared by the Mixer strip and
+// Inspector menus. Uses item IDs firstId .. firstId + 3.
+inline void addMidiLearnMenuItems (juce::PopupMenu& m, AudioEngineManager& audioEngine,
+                                   tracktion::Track* track, int firstId)
+{
+    using Kind = AudioEngineManager::AutomationParamKind;
+    const std::pair<Kind, const char*> controls[] = { { Kind::Volume, "Volume" }, { Kind::Pan, "Pan" } };
+
+    juce::PopupMenu sub;
+    for (int i = 0; i < 2; ++i)
+    {
+        auto* param = audioEngine.getAutomationParam (track, controls[i].first);
+        const auto mapping = audioEngine.getMidiMappingText (param);
+        sub.addItem (firstId + 2 * i, juce::String ("Learn ") + controls[i].second, param != nullptr);
+        if (mapping.isNotEmpty())
+            sub.addItem (firstId + 2 * i + 1, juce::String ("Clear ") + controls[i].second + " (" + mapping + ")");
+    }
+    m.addSubMenu ("MIDI Learn", sub);
+}
+
+/** True if result was one of addMidiLearnMenuItems' items (and handled). */
+inline bool handleMidiLearnMenuResult (int result, AudioEngineManager& audioEngine,
+                                       tracktion::Track* track, int firstId)
+{
+    if (result < firstId || result > firstId + 3)
+        return false;
+
+    using Kind = AudioEngineManager::AutomationParamKind;
+    auto* param = audioEngine.getAutomationParam (track, result < firstId + 2 ? Kind::Volume : Kind::Pan);
+    if (param == nullptr)
+        return true;
+
+    if ((result - firstId) % 2 == 0)
+        audioEngine.learnParameter (*param);
+    else
+        audioEngine.clearMidiMapping (param);
+    return true;
+}
+
+/** "M" badge on a control whose parameter is mapped to a MIDI controller. */
+inline void paintMidiMappedBadge (juce::Graphics& g, juce::Rectangle<float> badge)
+{
+    g.setColour (Theme::accent.withAlpha (0.2f));
+    g.fillRoundedRectangle (badge, 3.0f);
+    g.setColour (Theme::accent);
+    g.drawRoundedRectangle (badge.reduced (0.5f), 3.0f, 1.0f);
+    g.setFont (Theme::uiSize (9.0f).withStyle (juce::Font::bold));
+    g.drawText ("M", badge, juce::Justification::centred, false);
+}
+
 inline bool isInsertTrackFrozen (AudioEngineManager& audioEngine, tracktion::Track* track)
 {
     if (auto* at = dynamic_cast<tracktion::AudioTrack*> (track))

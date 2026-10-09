@@ -147,6 +147,33 @@ MainComponent::MainComponent()
         folder.createDirectory();
         folder.revealToUser();
     };
+    menuBar.onToggleMidiLearn  = [this] { audioEngine.setMidiLearnActive (! audioEngine.isMidiLearnActive()); };
+    menuBar.onShowMidiMappings = [this] { showMidiMappings(); };
+    menuBar.onShowLoudnessMeter = [this] { showLoudnessMeter(); };
+    toolbar.onStopMidiLearn    = [this] { audioEngine.setMidiLearnActive (false); };
+    audioEngine.onMidiLearnChanged = [this]
+    {
+        toolbar.midiLearnOn = audioEngine.isMidiLearnActive();
+        toolbar.repaint();
+        syncMenuBarState();
+        mixer.repaint();
+        inspector.repaint();
+        if (midiMappingsWindow != nullptr)
+            midiMappingsWindow->refresh();
+    };
+
+    menuBar.onSaveTrackAsTemplate = [this]
+    {
+        auto sel = timeline.getSelectedTracks();
+        if (! sel.isEmpty()) saveTrackAsTemplate (sel[0]);
+    };
+    menuBar.onInsertTrackTemplate = [this] (juce::File file) { insertTrackTemplate (file); };
+    menuBar.onShowTrackTemplatesFolder = [this]
+    {
+        auto folder = audioEngine.getTrackTemplatesFolder();
+        folder.createDirectory();
+        folder.revealToUser();
+    };
     menuBar.onNewFromTemplate = [this] (juce::File templateFile)
     {
         if (! projectHasUnsavedChanges()) { openTemplate (templateFile); return; }
@@ -441,6 +468,7 @@ MainComponent::MainComponent()
     {
         syncMenuBarState();
         menuBar.projectTemplates = audioEngine.getProjectTemplates();
+        menuBar.trackTemplates   = audioEngine.getTrackTemplates();
     };
 
     timeline.onAddTrack = [this]
@@ -591,6 +619,9 @@ MainComponent::MainComponent()
     {
         inspector.setSelectedClip (clip);
     };
+
+    timeline.onSaveTrackAsTemplate = [this] (tracktion::Track* t) { saveTrackAsTemplate (t); };
+    mixer.onSaveTrackAsTemplate    = [this] (tracktion::Track* t) { saveTrackAsTemplate (t); };
 
     mixer.onStripSelected = [this] (tracktion::Track* track)
     {
@@ -780,6 +811,9 @@ MainComponent::~MainComponent()
     juce::MenuBarModel::setMacMainMenu (nullptr);
    #endif
     stopTimer();
+    audioEngine.onMidiLearnChanged = nullptr;
+    midiMappingsWindow = nullptr;
+    loudnessWindow = nullptr;
     closeEmbeddedPianoRoll();
     detachFromObservedEditState();
     projectData.getProjectTree().removeListener (this);
@@ -1019,21 +1053,109 @@ void MainComponent::openTemplate (const juce::File& templateFile)
     timeline.repaint();
 }
 
+void MainComponent::showMidiMappings()
+{
+    if (midiMappingsWindow == nullptr)
+        midiMappingsWindow = std::make_unique<MidiMappingsWindow> (audioEngine, [this]
+        {
+            // Deferred: the window is still inside its own close-button callback.
+            juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainComponent> (this)]
+            {
+                if (safe != nullptr)
+                    safe->midiMappingsWindow = nullptr;
+            });
+        });
+
+    midiMappingsWindow->toFront (true);
+}
+
+void MainComponent::showLoudnessMeter()
+{
+    if (loudnessWindow == nullptr)
+        loudnessWindow = std::make_unique<LoudnessWindow> (audioEngine, [this]
+        {
+            juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<MainComponent> (this)]
+            {
+                if (safe != nullptr)
+                    safe->loudnessWindow = nullptr;
+            });
+        });
+
+    loudnessWindow->toFront (true);
+}
+
 void MainComponent::saveProjectAsTemplate()
 {
-    auto* alert = new juce::AlertWindow ("Save as Template",
-                                         "Name the template. It will appear under File > New from Template.",
-                                         juce::MessageBoxIconType::NoIcon);
-    alert->addTextEditor ("name", currentProjectFile.existsAsFile() ? currentProjectFile.getFileNameWithoutExtension()
-                                                                     : juce::String ("My Template"));
-    auto* includeClips = new juce::ToggleButton ("Include clips (otherwise tracks, plugins and routing only)");
+    askTemplateName ("Save as Template", "Name the template. It will appear under File > New from Template.",
+                     currentProjectFile.existsAsFile() ? currentProjectFile.getFileNameWithoutExtension()
+                                                       : juce::String ("My Template"),
+                     "Include clips (otherwise tracks, plugins and routing only)",
+                     [this] (const juce::String& name)
+                     {
+                         return audioEngine.getTemplatesFolder()
+                                    .getChildFile (juce::File::createLegalFileName (name.trim()) + ".aerion");
+                     },
+                     [this] (const juce::String& name, bool withClips)
+                     {
+                         return audioEngine.saveProjectAsTemplate (name, &projectData, withClips) != juce::File();
+                     });
+}
+
+void MainComponent::saveTrackAsTemplate (tracktion::Track* track)
+{
+    if (track == nullptr || track->isMasterTrack())
+        return;
+
+    const auto trackID = track->itemID;
+
+    askTemplateName ("Save Track as Template",
+                     "Name the track template. It will appear under Track > Insert from Template.",
+                     track->getName(),
+                     "Include clips (otherwise the track, its plugins and sends only)",
+                     [this] (const juce::String& name)
+                     {
+                         return audioEngine.getTrackTemplatesFolder()
+                                    .getChildFile (juce::File::createLegalFileName (name.trim())
+                                                   + AudioEngineManager::kTrackTemplateExtension);
+                     },
+                     [this, trackID] (const juce::String& name, bool withClips)
+                     {
+                         // Look the track up again: it may have been deleted while the dialog was open.
+                         auto* t = tracktion::findTrackForID (audioEngine.getEdit(), trackID);
+                         return audioEngine.saveTrackAsTemplate (t, name, withClips) != juce::File();
+                     });
+}
+
+void MainComponent::insertTrackTemplate (const juce::File& file)
+{
+    auto selected = timeline.getSelectedTracks();
+    if (audioEngine.insertTrackTemplate (file, selected.isEmpty() ? nullptr : selected.getLast()) == nullptr)
+    {
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Insert from Template",
+                                                "\"" + file.getFileNameWithoutExtension() + "\" could not be inserted.");
+        return;
+    }
+
+    projectData.syncWithEngine (audioEngine.getEdit());
+    timeline.repaint();
+    mixer.repaint();
+}
+
+void MainComponent::askTemplateName (const juce::String& title, const juce::String& message,
+                                     const juce::String& defaultName, const juce::String& includeClipsText,
+                                     std::function<juce::File (const juce::String&)> fileForName,
+                                     std::function<bool (const juce::String&, bool)> save)
+{
+    auto* alert = new juce::AlertWindow (title, message, juce::MessageBoxIconType::NoIcon);
+    alert->addTextEditor ("name", defaultName);
+    auto* includeClips = new juce::ToggleButton (includeClipsText);
     includeClips->setSize (360, 24);
     alert->addCustomComponent (includeClips);
     alert->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
     alert->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
 
     alert->enterModalState (true, juce::ModalCallbackFunction::create (
-        [safe = juce::Component::SafePointer<MainComponent> (this), alert, includeClips] (int result)
+        [safe = juce::Component::SafePointer<MainComponent> (this), alert, includeClips, title, fileForName, save] (int result)
         {
             std::unique_ptr<juce::AlertWindow> ownedAlert (alert);
             std::unique_ptr<juce::ToggleButton> ownedToggle (includeClips);
@@ -1041,23 +1163,22 @@ void MainComponent::saveProjectAsTemplate()
                 return;
 
             const auto name = alert->getTextEditorContents ("name");
-            const auto existing = safe->audioEngine.getTemplatesFolder()
-                                      .getChildFile (juce::File::createLegalFileName (name.trim()) + ".aerion");
+            const auto existing = fileForName (name);
             const bool withClips = includeClips->getToggleState();
 
-            auto save = [safe, name, withClips]
+            auto doSave = [safe, name, withClips, title, save]
             {
                 if (safe == nullptr) return;
-                if (safe->audioEngine.saveProjectAsTemplate (name, &safe->projectData, withClips) == juce::File())
-                    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Save as Template",
+                if (! save (name, withClips))
+                    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, title,
                                                             "The template could not be saved. Try another name.");
             };
 
-            if (! existing.existsAsFile()) { save(); return; }
+            if (! existing.existsAsFile()) { doSave(); return; }
 
-            Dialogs::confirm ("Save as Template", "A template called \"" + existing.getFileNameWithoutExtension()
-                                                     + "\" already exists. Replace it?",
-                              "Replace", "Cancel", [save] (bool replace) { if (replace) save(); });
+            Dialogs::confirm (title, "A template called \"" + existing.getFileNameWithoutExtension()
+                                         + "\" already exists. Replace it?",
+                              "Replace", "Cancel", [doSave] (bool replace) { if (replace) doSave(); });
         }), false);
 }
 
@@ -1132,6 +1253,7 @@ void MainComponent::syncMenuBarState()
     menuBar.countInBars      = audioEngine.getCountInBars();
     menuBar.punchEnabled     = audioEngine.isPunchEnabled();
     menuBar.pdcEnabled       = audioEngine.isLatencyCompensationEnabled();
+    menuBar.midiLearnOn      = audioEngine.isMidiLearnActive();
     menuBar.loopEnabled      = audioEngine.isLooping();
     menuBar.followPlayback   = timeline.isFollowingPlayback();
     menuBar.keymap           = &audioEngine.getKeymap();

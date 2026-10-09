@@ -22,6 +22,7 @@ class Mixer : public juce::Component,
         juce::Rectangle<int> stripBounds;
         juce::Rectangle<int> muteBtn, soloBtn, panArea, faderArea, peakReadoutArea;
         juce::Rectangle<int> monoBtn, fxBtn, infoBtn;
+        juce::Rectangle<int> loudnessArea;   // master only: short-term LUFS
         juce::Array<InsertRowHitAreas> insertRowHits;
 
         // Fader and pan values currently on screen, so the playback tick can
@@ -52,6 +53,7 @@ public:
     std::function<void()> onDetachRequested;
     std::function<void(tracktion::Track*, const juce::PluginDescription&)> onPluginDroppedOnStrip;
     std::function<void(tracktion::Track*)> onStripSelected;
+    std::function<void(tracktion::Track*)> onSaveTrackAsTemplate;
     bool detached = false;
 
     std::unique_ptr<juce::Drawable> faderKnobDrawable;
@@ -187,6 +189,9 @@ public:
                 region.add (hit.stripBounds.expanded (kStripPaintMargin));
             else
                 region.add (faderLiveAreas (hit.faderArea));
+
+            if (! hit.loudnessArea.isEmpty())
+                region.add (hit.loudnessArea);
         }
 
         return region;
@@ -363,6 +368,14 @@ public:
         auto insertCol = stripBody.removeFromRight (kInsertColW);
         stripBody.removeFromRight (2);
 
+        // The master's short-term loudness, under its inserts (Window > Loudness Meter has the rest).
+        if (isMaster)
+        {
+            hit.loudnessArea = insertCol.removeFromBottom (28);
+            if (needsPaint (hit.loudnessArea))
+                paintMasterLoudness (g, hit.loudnessArea);
+        }
+
         const float pan      = audioEngine.getTrackPan (track);
         const float volumeDb = audioEngine.getTrackVolumeDb (track);
 
@@ -421,6 +434,9 @@ public:
 
             // The fader or pan was moved by hand, so the track's automation no
             // longer drives them (context menu: Re-enable Automation).
+            if (audioEngine.getMidiMappingText (audioEngine.getAutomationParam (track, AudioEngineManager::AutomationParamKind::Volume)).isNotEmpty())
+                paintMidiMappedBadge (g, juce::Rectangle<int> (faderZone.getX() + 2, faderZone.getY() + 18, 14, 14).toFloat());
+
             if (audioEngine.isTrackAutomationOverridden (track))
             {
                 auto badge = juce::Rectangle<int> (faderZone.getX() + 2, faderZone.getY() + 2, 14, 14).toFloat();
@@ -482,6 +498,23 @@ public:
 
         stripHits.add (hit);
     }
+
+        void paintMasterLoudness (juce::Graphics& g, juce::Rectangle<int> area)
+        {
+            const float st = audioEngine.getLoudness().shortTerm;
+            g.setColour (Theme::bgPanel.darker (0.2f));
+            g.fillRoundedRectangle (area.toFloat().reduced (0.5f), 3.0f);
+
+            auto rows = area.reduced (2, 1);
+            g.setColour (Theme::textMuted);
+            g.setFont (Theme::uiSize (6.5f).withStyle (juce::Font::bold));
+            g.drawText ("LUFS", rows.removeFromTop (rows.getHeight() / 2), juce::Justification::centred, false);
+            g.setColour (std::isinf (st) ? Theme::textMuted : Theme::textMain);
+            g.setFont (Theme::uiSize (7.5f));
+            g.drawText (std::isinf (st) || st < -99.0f ? juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x94"))
+                                                        : juce::String (st, 1),
+                        rows, juce::Justification::centred, false);
+        }
 
         static void drawPanKnob (juce::Graphics& g, juce::Rectangle<int> b, float pan)
         {
@@ -570,6 +603,8 @@ public:
         }
 
 
+        static constexpr int kMidiLearnMenuId = 40;   // 40..43
+
         void showTrackContextMenu (tracktion::Track* t, juce::Point<int> screenPos)
         {
             juce::PopupMenu m;
@@ -586,6 +621,9 @@ public:
                 m.addItem (4, "Re-enable Automation");
                 m.addSeparator();
             }
+
+            addMidiLearnMenuItems (m, audioEngine, t, kMidiLearnMenuId);
+            m.addSeparator();
 
             if (auto* f = dynamic_cast<tracktion::FolderTrack*> (t))
             {
@@ -622,11 +660,16 @@ public:
             m.addSubMenu ("Snapshots", snaps);
 
             m.addSeparator();
+            if (t != audioEngine.getMasterTrack())
+                m.addItem (24, "Save Track as Template...");
             m.addItem (3, "Reset Peak");
 
             m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ screenPos.x, screenPos.y, 1, 1 }),
                 [this, t] (int result)
                 {
+                    if (handleMidiLearnMenuResult (result, audioEngine, t, kMidiLearnMenuId))
+                        return;
+
                     if (result == 1)      audioEngine.setTrackPhase (t, ! audioEngine.getTrackPhase (t));
                     else if (result == 2) audioEngine.setTrackMono (t, ! audioEngine.getTrackMono (t));
                     else if (result == 3) audioEngine.clearTrackMaxPeak (t);
@@ -647,6 +690,11 @@ public:
                         for (auto* p : AudioEngineManager::getInsertDevices (t))
                             audioEngine.setPluginBypassed (p, true);
                         repaint();
+                    }
+                    else if (result == 24)
+                    {
+                        if (onSaveTrackAsTemplate) onSaveTrackAsTemplate (t);
+                        return;
                     }
                     else if (result == 200)
                     {

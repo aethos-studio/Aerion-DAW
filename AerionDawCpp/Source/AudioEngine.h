@@ -6,6 +6,7 @@
 #include "Keymap.h"
 #include "Export/MixdownExportJob.h"
 #include "PluginFaultGuard.h"
+#include "Audio/LoudnessMeter.h"
 
 class AudioEngineManager : public juce::ChangeListener,
                            private juce::Timer
@@ -147,6 +148,19 @@ public:
     juce::Array<juce::File> getProjectTemplates();
     /** Saves the current project as a template; returns its file, or {} for an unusable name. */
     juce::File saveProjectAsTemplate (const juce::String& name, class ProjectData* projectData, bool includeClips);
+
+    // Track templates: one track (a folder with its sub-tracks), with its
+    // plugins and sends, as an .aeriontrack file in Templates/Tracks.
+    juce::File getTrackTemplatesFolder();
+    juce::Array<juce::File> getTrackTemplates();
+    /** Returns the file written, or {} for an unusable name or no track. */
+    juce::File saveTrackAsTemplate (tracktion::Track* track, const juce::String& name, bool includeClips);
+    /** Inserts the template after `after` (at the end when nullptr), with new
+        IDs so it can be inserted any number of times. Returns the new track. */
+    tracktion::Track* insertTrackTemplate (const juce::File& file, tracktion::Track* after = nullptr);
+    static constexpr const char* kTrackTemplateExtension = ".aeriontrack";
+    /** Removes every clip element below e (project and track templates without clips). */
+    static void stripClipsFromXml (juce::XmlElement& e);
 
     // Waveform Rendering
     tracktion::SmartThumbnail& getThumbnailForClip (tracktion::WaveAudioClip& clip, juce::Component& componentToRepaint);
@@ -311,6 +325,30 @@ public:
     enum class AutomationParamKind { Volume, Pan };
     tracktion::AutomatableParameter* getAutomationParam (tracktion::Track* track, AutomationParamKind kind);
 
+    // MIDI learn, through Tracktion's ParameterControlMappings (saved in the
+    // Edit). While learn is on, the last parameter touched (a fader, a knob in
+    // a plugin's window) is mapped to the next controller moved; learn then
+    // turns itself off.
+    void setMidiLearnActive (bool shouldBeActive);
+    bool isMidiLearnActive();
+    /** Turns learn on with this parameter waiting for a controller. */
+    void learnParameter (tracktion::AutomatableParameter& param);
+    /** "CC 7 · Ch 1", or empty when the parameter has no mapping. */
+    juce::String getMidiMappingText (tracktion::AutomatableParameter* param);
+    void clearMidiMapping (tracktion::AutomatableParameter* param);
+    static juce::String midiControllerText (int controllerID, int channel);
+
+    // Loudness of the final output (after the master inserts and fader),
+    // updated 30 times a second. Integrated loudness and the true-peak
+    // maximum only count while the transport plays.
+    const Aerion::LoudnessReadings& getLoudness() const noexcept   { return loudnessMeter.getReadings(); }
+    void resetLoudness();
+    struct MidiMappingRow { juce::String controller, parameter; };
+    juce::Array<MidiMappingRow> getMidiMappings();
+    void removeMidiMapping (int row);
+    /** Learn turned on or off, or a mapping was added or removed. */
+    std::function<void()> onMidiLearnChanged;
+
     // Volume Helpers
     static constexpr float kMinVolumeDb  = -60.0f;
     static constexpr float kMaxVolumeDb  =  30.0f;
@@ -424,6 +462,19 @@ private:
         AudioEngineManager& owner;
     };
     std::unique_ptr<EditListener> editListener;
+
+    struct MidiLearnWatcher : public tracktion::MidiLearnState::Listener
+    {
+        MidiLearnWatcher (AudioEngineManager& m);
+        void midiLearnStatusChanged (bool) override;
+        void midiLearnAssignmentChanged (tracktion::MidiLearnState::ChangeType) override;
+        AudioEngineManager& owner;
+    };
+    std::unique_ptr<MidiLearnWatcher> midiLearnWatcher;
+
+    Aerion::LoudnessAnalyser loudnessAnalyser;   // fed by an Aerion::LoudnessTap on the device output
+    Aerion::LoudnessMeter    loudnessMeter;
+    void storeMidiMappings();
 
     void broadcastChange();        // the project was edited
     void broadcastStatusChange();  // UI-visible state changed, project did not

@@ -57,8 +57,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The in-app updater skips any release whose tag it cannot read as a version,
+  # without a word. Builds up to 0.5.1 read only major.minor.patch with an
+  # optional -suffix, so a four-part tag (v0.5.1.1) never reaches them. Refuse
+  # such tags until no build older than 0.5.2 is in use.
+  validate-tag:
+    name: Check the release tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tag must be vMAJOR.MINOR.PATCH[-suffix]
+        env:
+          TAG_NAME: ${{ inputs.tag_name }}
+        run: |
+          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::'$TAG_NAME' is not vMAJOR.MINOR.PATCH[-suffix]; installed builds would not see this release."
+            exit 1
+          fi
+
   windows-installer:
     name: Windows installer (NSIS)
+    needs: validate-tag
     if: ${{ inputs.platforms != 'macos' }}
     runs-on: windows-latest
 
@@ -214,6 +232,7 @@ jobs:
 
   macos-installer:
     name: macOS installer (DMG)
+    needs: validate-tag
     if: ${{ inputs.platforms != 'windows' }}
     runs-on: macos-latest
 

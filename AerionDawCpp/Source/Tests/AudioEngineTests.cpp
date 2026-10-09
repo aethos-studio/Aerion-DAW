@@ -628,6 +628,137 @@ public:
             wav.deleteFile();
         }
 
+        beginTest ("a track template keeps plugins and sends and inserts with new IDs");
+        {
+            const auto wav = writeTestWav ("aerion_track_template_clip.wav", 0.5, 0.25f);
+            auto* track = engine.addAudioTrack();
+            track->setName ("Lead Vox");
+            track->pluginList.insertPlugin (engine.getEdit().getPluginCache()
+                                                .createNewPlugin (tracktion::ReverbPlugin::xmlTypeName, {}), 0, nullptr);
+            engine.addSendToNewBus (track);
+            engine.insertAudioClipOnTrack (track, wav, 0.0);
+
+            // A sidechain from a track outside the template is dropped.
+            auto* kick = engine.addAudioTrack();
+            if (auto* reverb = track->pluginList.getPluginsOfType<tracktion::ReverbPlugin>().getFirst())
+                engine.setPluginSidechainSource (*reverb, kick);
+
+            const juce::String name = "Aerion smoke test track template " + juce::String (juce::Random::getSystemRandom().nextInt());
+            const auto file = engine.saveTrackAsTemplate (track, name, false);
+            expect (file.existsAsFile());
+            expect (engine.getTrackTemplates().contains (file));
+            expect (engine.saveTrackAsTemplate (track, "  ", false) == juce::File());
+            expect (engine.saveTrackAsTemplate (engine.getMasterTrack(), name, false) == juce::File());
+
+            engine.createNewProject();
+            auto* first  = engine.insertTrackTemplate (file);
+            auto* second = engine.insertTrackTemplate (file);
+            expect (first != nullptr && second != nullptr);
+
+            if (first != nullptr && second != nullptr)
+            {
+                expect (first->itemID != second->itemID);
+                expectEquals (first->getName(), juce::String ("Lead Vox"));
+
+                auto* at = dynamic_cast<tracktion::AudioTrack*> (first);
+                expect (at != nullptr && at->getClips().isEmpty());
+
+                auto reverbs = first->pluginList.getPluginsOfType<tracktion::ReverbPlugin>();
+                expectEquals (reverbs.size(), 1);
+                if (! reverbs.isEmpty())
+                    expect (! reverbs.getFirst()->getSidechainSourceID().isValid());
+                expect (! first->pluginList.getPluginsOfType<tracktion::AuxSendPlugin>().isEmpty());
+
+                auto otherReverbs = second->pluginList.getPluginsOfType<tracktion::ReverbPlugin>();
+                if (! reverbs.isEmpty() && ! otherReverbs.isEmpty())
+                    expect (reverbs.getFirst()->itemID != otherReverbs.getFirst()->itemID);
+            }
+
+            engine.createNewProject();
+            file.deleteFile();
+            wav.deleteFile();
+        }
+
+        beginTest ("a folder track template brings its sub-tracks");
+        {
+            auto* a = engine.addAudioTrack();
+            auto* b = engine.addAudioTrack();
+            a->setName ("Kick");
+            b->setName ("Snare");
+            auto* folder = engine.groupTracks ({ a, b });
+            expect (folder != nullptr);
+            if (folder != nullptr)
+                folder->setName ("Drums");
+
+            const juce::String name = "Aerion smoke test folder template " + juce::String (juce::Random::getSystemRandom().nextInt());
+            const auto file = engine.saveTrackAsTemplate (folder, name, false);
+            expect (file.existsAsFile());
+
+            engine.createNewProject();
+            auto* inserted = dynamic_cast<tracktion::FolderTrack*> (engine.insertTrackTemplate (file));
+            expect (inserted != nullptr);
+            if (inserted != nullptr)
+            {
+                expectEquals (inserted->getName(), juce::String ("Drums"));
+                expectEquals (inserted->getAllSubTracks (false).size(), 2);
+            }
+
+            engine.createNewProject();
+            file.deleteFile();
+        }
+
+        beginTest ("MIDI learn marks the parameter, and a mapping drives it, saves and clears");
+        {
+            using Kind = AudioEngineManager::AutomationParamKind;
+            auto* track = engine.addAudioTrack();
+            auto* volume = engine.getAutomationParam (track, Kind::Volume);
+            expect (volume != nullptr);
+
+            if (volume != nullptr)
+            {
+                engine.learnParameter (*volume);
+                expect (engine.isMidiLearnActive());
+                expect (engine.getEdit().getParameterChangeHandler().getPendingParam (false).get() == volume);
+                engine.setMidiLearnActive (false);
+                expect (! engine.isMidiLearnActive());
+                expect (! engine.getEdit().getParameterChangeHandler().isParameterPending());
+
+                // What a learnt mapping looks like in the Edit: CC 7 on channel 1.
+                constexpr int cc7 = 0x10000 + 7;
+                juce::ValueTree mappings (tracktion::IDs::CONTROLLERMAPPINGS);
+                mappings.appendChild (tracktion::createValueTree (tracktion::IDs::MAP,
+                                                                  tracktion::IDs::id, cc7,
+                                                                  tracktion::IDs::channel, 1,
+                                                                  tracktion::IDs::param, volume->getFullName(),
+                                                                  tracktion::IDs::pluginID, volume->getOwnerID().toString()), nullptr);
+                engine.getEdit().state.appendChild (mappings, nullptr);
+                engine.getEdit().getParameterControlMappings().loadFromEdit();
+
+                expectEquals (engine.getMidiMappingText (volume), juce::String (juce::CharPointer_UTF8 ("CC 7 \xc2\xb7 Ch 1")));
+                expectEquals (engine.getMidiMappings().size(), 1);
+
+                engine.getEdit().getParameterControlMappings().sendChange (cc7, 0.25f, 1);
+                expectWithinAbsoluteError (volume->getCurrentNormalisedValue(), 0.25f, 0.01f);
+
+                const auto trackID = track->itemID;
+                auto project = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                   .getChildFile ("aerion_midi_learn_test.aerion");
+                engine.saveProject (project);
+                engine.createNewProject();
+                engine.loadProject (project);
+
+                auto* reloaded = engine.getAutomationParam (tracktion::findTrackForID (engine.getEdit(), trackID), Kind::Volume);
+                expect (reloaded != nullptr && engine.getMidiMappingText (reloaded).isNotEmpty());
+
+                engine.clearMidiMapping (reloaded);
+                expect (engine.getMidiMappingText (reloaded).isEmpty());
+                expect (engine.getMidiMappings().isEmpty());
+
+                engine.createNewProject();
+                project.deleteFile();
+            }
+        }
+
         // Quitting during a plugin scan ends the scanner child process, which also
         // lets a scan that waits on it stop.
         beginTest ("ending child processes ends a running child");

@@ -5,11 +5,11 @@ cmake_minimum_required(VERSION 3.20)
 # AERION_PACKAGE_VERSION. The update check, About dialog, crash reports,
 # installers, the exe's file version and the macOS bundle all follow it, so they
 # cannot disagree. A local build, with no tag, uses AERION_DEFAULT_VERSION.
-set(AERION_DEFAULT_VERSION 0.5.1)
+set(AERION_DEFAULT_VERSION 0.5.2)
 set(AERION_PACKAGE_VERSION "" CACHE STRING
     "Version of a release build: the release tag without its leading v; empty for a local build (AERION_DEFAULT_VERSION)")
 if (AERION_PACKAGE_VERSION)
-    string(REGEX MATCH "^[0-9]+\\.[0-9]+\\.[0-9]+" AERION_VERSION_CORE "${AERION_PACKAGE_VERSION}")
+    string(REGEX MATCH "^[0-9]+\\.[0-9]+\\.[0-9]+(\\.[0-9]+)?" AERION_VERSION_CORE "${AERION_PACKAGE_VERSION}")
     if (NOT AERION_VERSION_CORE)
         message(FATAL_ERROR "AERION_PACKAGE_VERSION must start with major.minor.patch (got '${AERION_PACKAGE_VERSION}')")
     endif()
@@ -141,6 +141,9 @@ target_sources(AerionDaw PRIVATE
     Source/ProjectData.cpp
     Source/AudioEngine.h
     Source/AudioEngine.cpp
+    Source/Audio/LoudnessMeter.h
+    Source/Audio/LoudnessMeter.cpp
+    Source/Audio/LoudnessTap.h
     Source/PluginFaultGuard.h
     Source/UserManual.h
     Source/PluginFaultGuard.cpp
@@ -373,6 +376,9 @@ if (AERION_BUILD_TESTS)
         Source/ProjectData.cpp
         Source/AudioEngine.h
         Source/AudioEngine.cpp
+        Source/Audio/LoudnessMeter.h
+        Source/Audio/LoudnessMeter.cpp
+        Source/Tests/LoudnessTests.cpp
         Source/PluginFaultGuard.h
         Source/PluginFaultGuard.cpp
         Source/Export/MixdownExportJob.h
@@ -425,6 +431,7 @@ if (AERION_BUILD_TESTS)
         Source/Tests/BenchBaseline.h
         Source/ProjectData.cpp
         Source/AudioEngine.cpp
+        Source/Audio/LoudnessMeter.cpp
         Source/ScannerProcesses.cpp
         Source/Updates/UpdateChecker.cpp
         Source/PluginFaultGuard.cpp

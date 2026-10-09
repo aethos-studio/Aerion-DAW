@@ -21,6 +21,7 @@ public:
     int    countInBars      = 0;
     bool   punchEnabled     = false;
     bool   pdcEnabled       = false;
+    bool   midiLearnOn      = false;
     bool   loopEnabled      = false;
     bool   followPlayback   = false;
 
@@ -61,6 +62,7 @@ public:
     std::function<void()> onToggleTrackArm, onToggleTrackMute, onToggleTrackSolo;
     std::function<void()> onNudgeLeft, onNudgeRight, onTrimLeft, onTrimRight, onDeleteEvent;
     std::function<void()> onRescanPlugins, onTogglePdc;
+    std::function<void()> onToggleMidiLearn, onShowMidiMappings, onShowLoudnessMeter;
     std::function<void()> onToggleAutoCrossfade;
     std::function<void(int)> onAutoCrossfadeMaxChanged;
     std::function<void()> onPlay, onStop, onRecord, onGoToStart;
@@ -76,6 +78,9 @@ public:
     std::function<void(juce::File)>   onNewFromTemplate;
     std::function<void()>             onSaveAsTemplate, onShowTemplatesFolder;
     juce::Array<juce::File>           projectTemplates;
+    std::function<void(juce::File)>   onInsertTrackTemplate;
+    std::function<void()>             onSaveTrackAsTemplate, onShowTrackTemplatesFolder;
+    juce::Array<juce::File>           trackTemplates;
     std::function<void()>             onClearRecent;
     std::function<void()>             onCollectSaveAs;
     std::function<void()>             onShowKeyboardShortcuts;
@@ -536,6 +541,17 @@ private:
         m.addItem (1, "Add Audio Track");
         m.addItem (2, "Add MIDI Track");
         m.addItem (3, "Add Folder Track");
+
+        juce::PopupMenu templateSub;
+        for (int i = 0; i < juce::jmin (trackTemplates.size(), 97); ++i)
+            templateSub.addItem (300 + i, trackTemplates[i].getFileNameWithoutExtension());
+        if (trackTemplates.isEmpty())
+            templateSub.addItem (-1, "No track templates yet: use Save Track as Template...", false);
+        templateSub.addSeparator();
+        templateSub.addItem (399, "Show Track Templates Folder");
+        m.addSubMenu ("Insert from Template", templateSub);
+        m.addItem (8, "Save Track as Template...", hasSelectedTrack, false);
+
         m.addSeparator();
         m.addItem (4, "Delete Track", hasSelectedTrack, false);
         m.addSeparator();
@@ -554,6 +570,10 @@ private:
         if (r == 5 && onToggleTrackArm)  onToggleTrackArm();
         if (r == 6 && onToggleTrackMute) onToggleTrackMute();
         if (r == 7 && onToggleTrackSolo) onToggleTrackSolo();
+        if (r == 8 && onSaveTrackAsTemplate) onSaveTrackAsTemplate();
+        if (r >= 300 && r < 300 + trackTemplates.size() && onInsertTrackTemplate)
+            onInsertTrackTemplate (trackTemplates[r - 300]);
+        if (r == 399 && onShowTrackTemplatesFolder) onShowTrackTemplatesFolder();
     }
 
     juce::PopupMenu eventMenu()
@@ -592,6 +612,9 @@ private:
         for (auto ms : { 10, 25, 50, 80, 120, 200, 500 })
             xfadeLen.addItem (1000 + ms, juce::String (ms) + " ms", true, autoCrossfadeMaxMs == ms);
         m.addSubMenu ("Auto Crossfade Length", xfadeLen, autoCrossfadeOn);
+        m.addSeparator();
+        m.addItem (5, "MIDI Learn", true, midiLearnOn);
+        m.addItem (6, "MIDI Mappings...");
         return m;
     }
 
@@ -601,6 +624,8 @@ private:
         if (r == 2 && onRescanPlugins) onRescanPlugins();
         if (r == 3 && onTogglePdc)     onTogglePdc();
         if (r == 4 && onToggleAutoCrossfade) onToggleAutoCrossfade();
+        if (r == 5 && onToggleMidiLearn)     onToggleMidiLearn();
+        if (r == 6 && onShowMidiMappings)    onShowMidiMappings();
         if (r >= 1000 && onAutoCrossfadeMaxChanged) onAutoCrossfadeMaxChanged (r - 1000);
     }
 
@@ -646,6 +671,7 @@ private:
         m.addItem (2, "Browser",   true, browserVisible);
         m.addSeparator();
         m.addItem (3, mixerDetached ? "Dock Mixer" : "Detach Mixer");
+        m.addItem (4, "Loudness Meter");
         m.addSeparator();
 
         juce::PopupMenu wsSub;
@@ -709,6 +735,7 @@ private:
             onGraphicsEngineChanged (r - 500);
         if (r >= 600 && r <= 602 && onLightweightUiChanged)
             onLightweightUiChanged (r - 600);
+        if (r == 4 && onShowLoudnessMeter) onShowLoudnessMeter();
         if (r == 1 && onToggleInspector)   onToggleInspector();
         if (r == 2 && onToggleBrowser)     onToggleBrowser();
         if (r == 3 && onToggleMixerDetach) onToggleMixerDetach();

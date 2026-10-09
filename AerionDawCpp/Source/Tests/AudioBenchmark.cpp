@@ -1,6 +1,7 @@
 #include <JuceHeader.h>
 #include "AudioBenchmark.h"
 #include "BenchBaseline.h"
+#include "../Audio/LoudnessMeter.h"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -316,6 +317,43 @@ int runAudioBenchmark (const juce::StringArray& args)
                     ++failures;
                 }
             }
+        }
+    }
+
+    // The loudness meter runs on the device output (Aerion::LoudnessTap) for
+    // every block, stopped or playing. It must cost next to nothing and never allocate.
+    {
+        constexpr int blockSize = 256;
+        constexpr int blocks = 20000;
+        Aerion::LoudnessAnalyser analyser;
+        analyser.prepare (sampleRate, 2);
+
+        juce::AudioBuffer<float> buffer (2, blockSize);
+        juce::Random random (1);
+        for (int c = 0; c < 2; ++c)
+            for (int i = 0; i < blockSize; ++i)
+                buffer.setSample (c, i, random.nextFloat() * 0.5f - 0.25f);
+
+        countingThread = std::this_thread::get_id();
+        const auto allocationsBefore = allocationsOnBlockThread.load();
+        countAllocations = true;
+        const auto start = std::chrono::steady_clock::now();
+        for (int b = 0; b < blocks; ++b)
+            analyser.process (buffer.getArrayOfReadPointers(), 2, blockSize);
+        const double totalMs = std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now() - start).count();
+        countAllocations = false;
+
+        const double budgetMs = 1000.0 * blockSize / sampleRate;
+        const double pct = 100.0 * (totalMs / blocks) / budgetMs;
+        const auto allocations = allocationsOnBlockThread.load() - allocationsBefore;
+        BenchBaseline::record ("loudness meter, 256 samples: mean", pct, "%");
+        std::cout << "[loudness meter]\n  " << juce::String (pct, 3) << " % of a 256-sample block, "
+                  << (int) allocations << " allocations" << std::endl;
+
+        if (allocations != 0)
+        {
+            std::cout << "    loudness meter allocated on the audio thread: FAILED" << std::endl;
+            ++failures;
         }
     }
 

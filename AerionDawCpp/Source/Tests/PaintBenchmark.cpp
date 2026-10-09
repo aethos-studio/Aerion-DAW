@@ -1555,6 +1555,15 @@ int main (int argc, char* argv[])
             auto& editor = *scene.editor;
             report ("piano roll full repaint",
                     timePaint (editor, width, pianoRollH, frames, editor.getLocalBounds(), *renderer.type));
+            // One display frame of playback: the line leaves one strip and enters the next.
+            {
+                juce::RectangleList<int> moved;
+                moved.add (editor.getPlayheadStrip (width / 2));
+                moved.add (editor.getPlayheadStrip (width / 2 + 1));
+                report ("piano roll playhead move",
+                        timePaint (editor, width, pianoRollH, frames, moved, *renderer.type));
+            }
+
             scene.selectAll();
             report ("piano roll, all selected",
                     timePaint (editor, width, pianoRollH, frames, editor.getLocalBounds(), *renderer.type));

@@ -2,6 +2,7 @@
 #include "ScannerProcesses.h"
 #include "ProjectData.h"
 #include "Export/MixdownExportJob.h"
+#include "Audio/LoudnessTap.h"
 
 namespace te = tracktion;
 
@@ -418,6 +419,7 @@ AudioEngineManager::AudioEngineManager()
         appProperties.getUserSettings()->getValue ("recentProjects"));
 
     keymap.loadFrom (appProperties.getUserSettings());
+    midiLearnWatcher = std::make_unique<MidiLearnWatcher> (*this);
 
     // Session/edit first (cheap vs driver init). Opening devices is deferred to the next
     // message so the main window can show and pump events while the OS loads ASIO/WASAPI.
@@ -457,6 +459,7 @@ AudioEngineManager::AudioEngineManager()
             clampExcessiveAudioBufferSize (engine);
 
         engine.getDeviceManager().enableOutputClipping (true);
+        engine.getDeviceManager().setGlobalOutputAudioProcessor (std::make_unique<Aerion::LoudnessTap> (loudnessAnalyser));
         engine.getDeviceManager().deviceManager.addChangeListener (this);
         audioDevicesConnected = true;
 
@@ -490,6 +493,8 @@ AudioEngineManager::~AudioEngineManager()
 
     if (audioDevicesConnected)
     {
+        // The tap refers to loudnessAnalyser, a member destroyed before the engine.
+        engine.getDeviceManager().setGlobalOutputAudioProcessor (nullptr);
         engine.getDeviceManager().removeChangeListener (this);
         if (auto state = engine.getDeviceManager().deviceManager.createStateXml())
         {
@@ -1468,6 +1473,130 @@ float AudioEngineManager::getTrackVolumeDb (te::Track* track)
     return 0.0f;
 }
 
+//==============================================================================
+AudioEngineManager::MidiLearnWatcher::MidiLearnWatcher (AudioEngineManager& m)
+    : te::MidiLearnState::Listener (m.engine.getMidiLearnState()), owner (m)
+{
+}
+
+void AudioEngineManager::MidiLearnWatcher::midiLearnStatusChanged (bool)
+{
+    if (owner.onMidiLearnChanged)
+        owner.onMidiLearnChanged();
+}
+
+void AudioEngineManager::MidiLearnWatcher::midiLearnAssignmentChanged (te::MidiLearnState::ChangeType type)
+{
+    // One controller per learn: stop once it is mapped. Deferred, because this
+    // runs inside the mapping code's own notification.
+    owner.storeMidiMappings();
+
+    if (type == te::MidiLearnState::added)
+        juce::MessageManager::callAsync ([safe = juce::WeakReference<AudioEngineManager> (&owner)]
+        {
+            if (safe != nullptr)
+                safe->setMidiLearnActive (false);
+        });
+
+    owner.broadcastChange();
+    if (owner.onMidiLearnChanged)
+        owner.onMidiLearnChanged();
+}
+
+void AudioEngineManager::setMidiLearnActive (bool shouldBeActive)
+{
+    if (! shouldBeActive && edit != nullptr)
+        edit->getParameterChangeHandler().getPendingParam (true);
+
+    engine.getMidiLearnState().setActive (shouldBeActive);
+}
+
+bool AudioEngineManager::isMidiLearnActive()
+{
+    return engine.getMidiLearnState().isActive();
+}
+
+void AudioEngineManager::learnParameter (te::AutomatableParameter& param)
+{
+    setMidiLearnActive (true);
+    // Marks the parameter as the one waiting for a controller, as a touch would.
+    param.getEdit().getParameterChangeHandler().parameterChanged (param, false);
+}
+
+juce::String AudioEngineManager::getMidiMappingText (te::AutomatableParameter* param)
+{
+    int channel = -1, controllerID = -1;
+    if (param == nullptr || edit == nullptr
+         || ! edit->getParameterControlMappings().getParameterMapping (*param, channel, controllerID))
+        return {};
+
+    return midiControllerText (controllerID, channel);
+}
+
+void AudioEngineManager::storeMidiMappings()
+{
+    // The mappings object keeps its own list; the Edit (and so the saved
+    // project) only has them once written back. Done on each change rather
+    // than on save, because writing them changes the Edit.
+    if (edit != nullptr)
+        edit->getParameterControlMappings().saveToEdit();
+}
+
+juce::Array<AudioEngineManager::MidiMappingRow> AudioEngineManager::getMidiMappings()
+{
+    juce::Array<MidiMappingRow> rows;
+    if (edit == nullptr)
+        return rows;
+
+    auto& mappings = edit->getParameterControlMappings();
+    for (int i = 0; i < mappings.getNumControllerIDs(); ++i)
+    {
+        const auto m = mappings.getMappingForRow (i);
+        rows.add ({ midiControllerText (m.controllerID, m.channelID),
+                    m.parameter != nullptr ? m.parameter->getFullName() : juce::String ("(no parameter)") });
+    }
+    return rows;
+}
+
+void AudioEngineManager::removeMidiMapping (int row)
+{
+    if (edit == nullptr || ! juce::isPositiveAndBelow (row, edit->getParameterControlMappings().getNumControllerIDs()))
+        return;
+
+    edit->getParameterControlMappings().removeMapping (row);
+    storeMidiMappings();
+    broadcastChange();
+    if (onMidiLearnChanged)
+        onMidiLearnChanged();
+}
+
+juce::String AudioEngineManager::midiControllerText (int controllerID, int channel)
+{
+    // Tracktion's controller IDs: 0x10000 + CC number, 0x20000 NRPN, 0x30000 RPN, 0x40000 pressure.
+    juce::String what;
+    if (controllerID >= 0x40000)      what = "Pressure";
+    else if (controllerID >= 0x30000) what = "RPN " + juce::String (controllerID & 0x7fff);
+    else if (controllerID >= 0x20000) what = "NRPN " + juce::String (controllerID & 0x7fff);
+    else if (controllerID >= 0x10000) what = "CC " + juce::String (controllerID & 0x7f);
+    else                              return {};
+
+    return what + juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 Ch ")) + juce::String (channel);
+}
+
+void AudioEngineManager::clearMidiMapping (te::AutomatableParameter* param)
+{
+    if (param == nullptr || edit == nullptr)
+        return;
+
+    if (edit->getParameterControlMappings().removeParameterMapping (*param))
+    {
+        storeMidiMappings();
+        broadcastChange();
+        if (onMidiLearnChanged)
+            onMidiLearnChanged();
+    }
+}
+
 void AudioEngineManager::ensureVolumeRange (te::Track* track)
 {
     if (track == nullptr) return;
@@ -1897,25 +2026,113 @@ juce::File AudioEngineManager::saveProjectAsTemplate (const juce::String& name, 
     {
         if (auto xml = juce::XmlDocument::parse (file))
         {
-            static const juce::StringArray clipTags { "AUDIOCLIP", "MIDICLIP", "STEPCLIP", "EDITCLIP",
-                                                      "CHORDCLIP", "ARRANGERCLIP", "CONTAINERCLIP" };
-            std::function<void (juce::XmlElement&)> strip = [&] (juce::XmlElement& e)
-            {
-                for (int i = e.getNumChildElements(); --i >= 0;)
-                {
-                    auto* child = e.getChildElement (i);
-                    if (clipTags.contains (child->getTagName()))
-                        e.removeChildElement (child, true);
-                    else
-                        strip (*child);
-                }
-            };
-            strip (*xml);
+            stripClipsFromXml (*xml);
             xml->writeTo (file);
         }
     }
 
     return file;
+}
+
+void AudioEngineManager::stripClipsFromXml (juce::XmlElement& e)
+{
+    static const juce::StringArray clipTags { "AUDIOCLIP", "MIDICLIP", "STEPCLIP", "EDITCLIP",
+                                              "CHORDCLIP", "ARRANGERCLIP", "CONTAINERCLIP" };
+
+    for (int i = e.getNumChildElements(); --i >= 0;)
+    {
+        auto* child = e.getChildElement (i);
+        if (clipTags.contains (child->getTagName()))
+            e.removeChildElement (child, true);
+        else
+            stripClipsFromXml (*child);
+    }
+}
+
+juce::File AudioEngineManager::getTrackTemplatesFolder()
+{
+    return getTemplatesFolder().getChildFile ("Tracks");
+}
+
+juce::Array<juce::File> AudioEngineManager::getTrackTemplates()
+{
+    auto files = getTrackTemplatesFolder().findChildFiles (juce::File::findFiles, false, "*" + juce::String (kTrackTemplateExtension));
+    files.sort();
+    return files;
+}
+
+juce::File AudioEngineManager::saveTrackAsTemplate (te::Track* track, const juce::String& name, bool includeClips)
+{
+    const auto safeName = juce::File::createLegalFileName (name.trim());
+    if (track == nullptr || track->isMasterTrack() || safeName.isEmpty()
+         || ! getTrackTemplatesFolder().createDirectory())
+        return {};
+
+    edit->flushState();
+
+    auto trackXml = track->state.createXml();
+    if (trackXml == nullptr)
+        return {};
+
+    if (! includeClips)
+        stripClipsFromXml (*trackXml);
+
+    // A sidechain source outside the template would point at a track the
+    // project it is inserted into does not have.
+    juce::StringArray ownIDs;
+    std::function<void (const juce::XmlElement&)> collectIDs = [&] (const juce::XmlElement& e)
+    {
+        if (e.hasTagName (te::IDs::TRACK.toString()) || e.hasTagName (te::IDs::FOLDERTRACK.toString()))
+            ownIDs.add (e.getStringAttribute (te::IDs::id));
+        for (auto* child : e.getChildIterator())
+            collectIDs (*child);
+    };
+    collectIDs (*trackXml);
+
+    std::function<void (juce::XmlElement&)> dropOutsideSidechains = [&] (juce::XmlElement& e)
+    {
+        const auto source = e.getStringAttribute (te::IDs::sidechainSourceID);
+        if (source.isNotEmpty() && ! ownIDs.contains (source))
+            e.removeAttribute (te::IDs::sidechainSourceID);
+        for (auto* child : e.getChildIterator())
+            dropOutsideSidechains (*child);
+    };
+    dropOutsideSidechains (*trackXml);
+
+    juce::XmlElement root ("AerionTrackTemplate");
+    root.setAttribute ("version", 1);
+    root.addChildElement (trackXml.release());
+
+    const auto file = getTrackTemplatesFolder().getChildFile (safeName + kTrackTemplateExtension);
+    return root.writeTo (file) ? file : juce::File();
+}
+
+te::Track* AudioEngineManager::insertTrackTemplate (const juce::File& file, te::Track* after)
+{
+    auto xml = juce::XmlDocument::parse (file);
+    if (edit == nullptr || xml == nullptr || ! xml->hasTagName ("AerionTrackTemplate"))
+        return nullptr;
+
+    auto* trackXml = xml->getFirstChildElement();
+    if (trackXml == nullptr)
+        return nullptr;
+
+    // New IDs for the track, its sub-tracks, plugins and clips; references
+    // between them (sidechain sources) follow.
+    te::EditItemID::remapIDs (*trackXml, *edit, nullptr);
+
+    auto state = juce::ValueTree::fromXml (*trackXml);
+    if (! state.isValid())
+        return nullptr;
+
+    const auto insertPoint = (after == nullptr || after->isMasterTrack())
+                               ? te::TrackInsertPoint::getEndOfTracks (*edit)
+                               : te::TrackInsertPoint (after->getParentTrack(), after);
+    auto newTrack = edit->insertTrack (insertPoint, state, nullptr);
+
+    syncFolderRouting();
+    broadcastChange();
+    return newTrack.get();
 }
 
 void AudioEngineManager::loadProject (const juce::File& file, class ProjectData* projectData)
@@ -3064,8 +3281,17 @@ std::optional<juce::PluginDescription> AudioEngineManager::findDevice (const juc
 // Milestone 3  -  Recording & Monitoring
 //==============================================================================
 
+void AudioEngineManager::resetLoudness()
+{
+    loudnessAnalyser.requestReset();
+    loudnessMeter.resetIntegrated();
+}
+
 void AudioEngineManager::timerCallback()
 {
+    if (edit != nullptr)
+        loudnessMeter.update (loudnessAnalyser, isPlaying());
+
     if (!punchEnabled || !isRecording()) return;
 
     auto& t = edit->getTransport();

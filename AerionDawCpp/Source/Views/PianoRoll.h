@@ -93,6 +93,9 @@ public:
         }
     }
 
+    /** What updatePlayhead repaints for a playhead at x (AerionBench measures it). */
+    juce::Rectangle<int> getPlayheadStrip (int x) const    { return playheadStrip (x); }
+
     PianoRollEditor (tracktion::MidiClip& clip, tracktion::Edit& edit,
                      ProjectData& pd, AudioEngineManager& ae)
         : midiClip (clip), edit (edit), projectData (pd), audioEngine (ae)

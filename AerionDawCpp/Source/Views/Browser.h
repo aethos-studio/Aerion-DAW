@@ -258,14 +258,14 @@ public:
         }
     }
 
-    // Compact "chip" shown under the cursor while dragging a plugin, instead of a
-    // snapshot of the whole browser panel.
-    juce::ScaledImage makePluginDragImage (const juce::PluginDescription& d)
+    // Compact "chip" shown under the cursor while dragging a plugin or file,
+    // instead of a snapshot of the whole browser panel.
+    juce::ScaledImage makeDragChip (const juce::String& label)
     {
         const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForPoint (getScreenBounds().getCentre());
         const float scale = display != nullptr ? juce::jmax (1.0f, (float) display->scale) : 1.0f;
         const auto font = Theme::uiSize (11.0f).withStyle (juce::Font::bold);
-        const int textW = (int) font.getStringWidth (d.name);
+        const int textW = (int) font.getStringWidth (label);
         const int w = juce::jlimit (90, 260, textW + 28), h = 26;
 
         juce::Image img (juce::Image::ARGB, juce::roundToInt (w * scale), juce::roundToInt (h * scale), true);
@@ -279,7 +279,7 @@ public:
             g.drawRoundedRectangle (r, 6.0f, 1.0f);
             g.setColour (Theme::textMain);
             g.setFont (font);
-            g.drawText (d.name, r.toNearestInt().reduced (10, 0), juce::Justification::centredLeft, true);
+            g.drawText (label, r.toNearestInt().reduced (10, 0), juce::Justification::centredLeft, true);
         }
         return juce::ScaledImage (img, (double) scale);
     }
@@ -300,7 +300,7 @@ public:
                 if (ddc != nullptr)
                 {
                     juce::String payload = "PLUGIN:" + rowDescs[i].createIdentifierString();
-                    ddc->startDragging (payload, this, makePluginDragImage (rowDescs[i]), true);
+                    ddc->startDragging (payload, this, makeDragChip (rowDescs[i].name), true);
                 }
                 return;
             }
@@ -313,7 +313,7 @@ public:
                     // Start internal drag so Timeline can show ghost preview
                     auto* ddc = juce::DragAndDropContainer::findParentDragContainerFor (this);
                     if (ddc != nullptr)
-                        ddc->startDragging ("AUDIOFILE:" + f.getFullPathName(), this);
+                        ddc->startDragging ("AUDIOFILE:" + f.getFullPathName(), this, makeDragChip (f.getFileName()));
 
                     // Also start external drag for dropping into other apps/OS
                     juce::DragAndDropContainer::performExternalDragDropOfFiles (

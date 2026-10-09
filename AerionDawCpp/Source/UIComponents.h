@@ -5,6 +5,8 @@
 
 #include "Views/ViewShared.h"
 #include "Views/PluginManagerWindow.h"
+#include "Views/MidiMappingsWindow.h"
+#include "Views/LoudnessWindow.h"
 #include "Views/DAWPanel.h"
 #include "Views/AboutDialog.h"
 #include "Views/KeyboardShortcutsDialog.h"

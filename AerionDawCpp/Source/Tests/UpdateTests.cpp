@@ -59,8 +59,10 @@ public:
             expectEquals (a->preRelease, juce::String ("alpha.2"));
             expectEquals (Version::parse ("0.5.0+build.7")->toString(), juce::String ("0.5.0"));
             expectEquals (Version::parse ("V1.2.3-Beta")->toString(), juce::String ("1.2.3-beta"));
+            expectEquals (Version::parse ("v0.5.1.1")->toString(), juce::String ("0.5.1.1"));
+            expectEquals (Version::parse ("0.5.1.0")->toString(), juce::String ("0.5.1"));
 
-            for (auto* bad : { "", "v", "0.5", "1.2.3.4", "1.x.3", "1.2.3-", "1.2.3-al..pha", "1.2.3-al_pha" })
+            for (auto* bad : { "", "v", "0.5", "1.2.3.4.5", "1.2.3.x", "1.x.3", "1.2.3-", "1.2.3-al..pha", "1.2.3-al_pha" })
                 expect (! Version::parse (bad).has_value(), juce::String ("parsed: ") + bad);
         }
 
@@ -68,7 +70,7 @@ public:
         {
             const char* ascending[] = { "0.5.0-alpha", "0.5.0-alpha.1", "0.5.0-alpha.2", "0.5.0-alpha.10",
                                         "0.5.0-alpha.beta", "0.5.0-beta", "0.5.0-rc.1", "0.5.0", "0.5.1",
-                                        "0.6.0-alpha", "0.6.0", "0.10.0", "1.0.0" };
+                                        "0.5.1.1", "0.5.1.2", "0.5.2", "0.6.0-alpha", "0.6.0", "0.10.0", "1.0.0" };
             for (size_t i = 0; i + 1 < std::size (ascending); ++i)
             {
                 expect (v (ascending[i]) < v (ascending[i + 1]), juce::String (ascending[i]) + " < " + ascending[i + 1]);

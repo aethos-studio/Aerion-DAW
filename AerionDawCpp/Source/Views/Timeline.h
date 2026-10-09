@@ -49,6 +49,7 @@ public:
     std::function<void()> onAddTrack;
     std::function<void()> onAddMidiTrack;
     std::function<void()> onAddFolder;
+    std::function<void(tracktion::Track*)> onSaveTrackAsTemplate;
     std::function<void(const juce::File&)> onImportFile; // legacy single-file path (menu import)
     // Position-aware drop: files + target track (nullptr = create new) + time position
     std::function<void(const juce::Array<juce::File>&,
@@ -3370,10 +3371,18 @@ public:
             m.addSeparator();
         }
 
+        m.addItem (12, "Save Track as Template...");
+        m.addSeparator();
         m.addItem (2, "Delete Track");
 
         m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ screenPos.x, screenPos.y, 1, 1 }),
             [this, track, parentFolder, folders] (int chosen) {
+                if (chosen == 12)
+                {
+                    if (onSaveTrackAsTemplate) onSaveTrackAsTemplate (track);
+                    return;
+                }
+
                 if (chosen >= 30 && chosen < 30 + kNumTrackHeightPresets)
                 {
                     commitLaneHeights (getResizeGroup (track), kTrackHeightPresets[chosen - 30].height);

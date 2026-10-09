@@ -55,6 +55,14 @@ private:
     void doCreateNewProject();
     void openTemplate (const juce::File& templateFile);
     void saveProjectAsTemplate();
+    void saveTrackAsTemplate (tracktion::Track* track);
+    void insertTrackTemplate (const juce::File& file);
+    /** The name + "Include clips" dialog both kinds of template use; asks
+        before replacing an existing file. save returns false on failure. */
+    void askTemplateName (const juce::String& title, const juce::String& message,
+                          const juce::String& defaultName, const juce::String& includeClipsText,
+                          std::function<juce::File (const juce::String&)> fileForName,
+                          std::function<bool (const juce::String&, bool)> save);
     void createNewProject();
     void doOpenProjectChooser();
     void openProject();
@@ -227,6 +235,10 @@ private:
 
     class MixerWindow;
     std::unique_ptr<MixerWindow> mixerWindow;
+    std::unique_ptr<MidiMappingsWindow> midiMappingsWindow;
+    void showMidiMappings();
+    std::unique_ptr<LoudnessWindow> loudnessWindow;
+    void showLoudnessMeter();
 
     std::unique_ptr<juce::FileChooser> fileChooser;
 

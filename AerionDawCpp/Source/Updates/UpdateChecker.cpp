@@ -81,7 +81,7 @@ std::optional<Version> Version::parse (juce::String text)
     const auto pre  = text.fromFirstOccurrenceOf ("-", false, false);
 
     const auto numbers = juce::StringArray::fromTokens (core, ".", "");
-    if (numbers.size() != 3)
+    if (numbers.size() != 3 && numbers.size() != 4)
         return {};
 
     for (const auto& n : numbers)
@@ -100,6 +100,7 @@ std::optional<Version> Version::parse (juce::String text)
     v.major      = numbers[0].getIntValue();
     v.minor      = numbers[1].getIntValue();
     v.patch      = numbers[2].getIntValue();
+    v.revision   = numbers.size() == 4 ? numbers[3].getIntValue() : 0;
     v.preRelease = pre.toLowerCase();
     return v;
 }
@@ -109,6 +110,7 @@ int Version::compare (const Version& a, const Version& b)
     if (a.major != b.major)  return a.major < b.major ? -1 : 1;
     if (a.minor != b.minor)  return a.minor < b.minor ? -1 : 1;
     if (a.patch != b.patch)  return a.patch < b.patch ? -1 : 1;
+    if (a.revision != b.revision)  return a.revision < b.revision ? -1 : 1;
 
     if (a.isPreRelease() != b.isPreRelease())
         return a.isPreRelease() ? -1 : 1;
@@ -126,6 +128,7 @@ int Version::compare (const Version& a, const Version& b)
 juce::String Version::toString() const
 {
     return juce::String (major) + "." + juce::String (minor) + "." + juce::String (patch)
+         + (revision != 0 ? "." + juce::String (revision) : juce::String())
          + (isPreRelease() ? "-" + preRelease : juce::String());
 }
 
@@ -154,7 +157,13 @@ std::optional<Release> findUpdate (const juce::var& releases, const Version& cur
                 continue;
 
             const auto version = Version::parse (r["tag_name"].toString());
-            if (! version.has_value() || ! (current < *version))
+            if (! version.has_value())
+            {
+                juce::Logger::writeToLog ("Updates: ignoring release tag '" + r["tag_name"].toString() + "' (not a version)");
+                continue;
+            }
+
+            if (! (current < *version))
                 continue;
 
             const bool preRelease = (bool) r["prerelease"] || version->isPreRelease();

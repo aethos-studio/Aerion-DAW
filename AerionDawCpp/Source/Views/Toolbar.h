@@ -38,6 +38,7 @@ public:
     }
 
     std::function<void()> onToggleSnap;
+    std::function<void()> onStopMidiLearn;
     std::function<void(double)> onSnapIntervalChanged;
     std::function<void()> onToggleInspector;
     std::function<void()> onToggleBrowser;
@@ -58,6 +59,7 @@ public:
     bool metronomeEnabled = false;
     bool punchEnabled  = false;
     bool pdcEnabled    = true;
+    bool midiLearnOn   = false;   // shows the LEARN pill; clicking it stops learn
     int  countInBars   = 0;
     EditTool activeTool = EditTool::select;
     bool autoCrossfadeEnabled = true;
@@ -94,6 +96,7 @@ public:
         punchBtn     = { 160,     btnY, btnS, btnS };
         pdcBtn       = { 192,     btnY, btnS, btnS };
         followBtn    = { 236,     btnY, btnS, btnS };
+        learnPill    = { 274,     btnY + 4, 56, btnS - 8 };
         browserBtn   = { W - 36,  btnY, btnS, btnS };
         clickBtn     = { W - 86,  btnY, btnS, btnS };
         countInBtn   = { W - 118, btnY, btnS, btnS };
@@ -164,6 +167,18 @@ public:
         // Group 3b: Follow playback
         drawIconBtn (g, followBtn, iconFollow.get(), followPlayback);
 
+        // MIDI learn waiting for a controller.
+        if (midiLearnOn)
+        {
+            auto pill = learnPill.toFloat();
+            g.setColour (Theme::accent.withAlpha (0.25f));
+            g.fillRoundedRectangle (pill, pill.getHeight() * 0.5f);
+            g.setColour (Theme::accent);
+            g.drawRoundedRectangle (pill.reduced (0.5f), pill.getHeight() * 0.5f, 1.0f);
+            g.setFont (Theme::uiSize (10.0f).withStyle (juce::Font::bold));
+            g.drawText ("LEARN", learnPill, juce::Justification::centred, false);
+        }
+
         // -- Right side --------------------------------------------------------
         const int W = getWidth();
 
@@ -216,6 +231,12 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override
     {
+        if (midiLearnOn && learnPill.contains (e.getPosition()))
+        {
+            if (onStopMidiLearn) onStopMidiLearn();
+            return;
+        }
+
         if (followBtn.contains (e.getPosition()))
         {
             followPlayback = ! followPlayback;
@@ -334,7 +355,7 @@ private:
     // Hit-test rectangles (laid out in resized, read in mouseDown)
     juce::Rectangle<int> snapBounds, selectBounds, razorBounds, compBounds;
     juce::Rectangle<int> inspectorBtn, browserBtn, clickBtn, punchBtn, pdcBtn, countInBtn;
-    juce::Rectangle<int> xfadeBounds, followBtn;
+    juce::Rectangle<int> xfadeBounds, followBtn, learnPill;
 
     Accessibility::ProxyPool proxies { *this };
 

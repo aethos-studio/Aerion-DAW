@@ -85,6 +85,8 @@ public:
             auto faderMeterArea = b.removeFromRight (45);
             faderArea = faderMeterArea.withTrimmedBottom (12);
             ::paintFader (g, faderArea, audioEngine, selectedTrack, Theme::colourForTrack (trackIndex), false, faderKnobDrawable.get());
+            if (audioEngine.getMidiMappingText (audioEngine.getAutomationParam (selectedTrack, AudioEngineManager::AutomationParamKind::Volume)).isNotEmpty())
+                paintMidiMappedBadge (g, juce::Rectangle<int> (faderArea.getX(), faderArea.getY(), 14, 14).toFloat());
             b.removeFromRight (10); // Gap
         }
         else
@@ -356,6 +358,22 @@ public:
         }
 
         // Fader interaction
+        if (faderArea.contains (e.getPosition()) && e.mods.isPopupMenu() && selectedTrack != nullptr)
+        {
+            juce::PopupMenu m;
+            addMidiLearnMenuItems (m, audioEngine, selectedTrack, 1);
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ e.getScreenX(), e.getScreenY(), 1, 1 }),
+                [safe = juce::Component::SafePointer<Inspector> (this), track = selectedTrack] (int r)
+                {
+                    if (safe != nullptr && safe->selectedTrack == track)
+                    {
+                        handleMidiLearnMenuResult (r, safe->audioEngine, track, 1);
+                        safe->repaint();
+                    }
+                });
+            return;
+        }
+
         if (faderArea.contains (e.getPosition()))
         {
             if (dynamic_cast<tracktion::AudioTrack*> (selectedTrack) != nullptr || isMasterSelected())
