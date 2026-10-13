@@ -17,6 +17,22 @@ public:
     {
         rebuildRows();
 
+        // Presets: start from the keys of the DAW you know.
+        presetLabel.setText ("Preset", juce::dontSendNotification);
+        presetLabel.setColour (juce::Label::textColourId, Theme::textMuted);
+        addAndMakeVisible (presetLabel);
+        const auto& presets = AerionKeymapPreset::all();
+        for (int i = 0; i < (int) presets.size(); ++i)
+            presetBox.addItem (presets[(size_t) i].name, i + 1);
+        presetBox.setTitle ("Keyboard shortcut preset");
+        presetBox.setTooltip ("Use the shortcuts of another DAW. You can still change any key below.");
+        presetBox.onChange = [this] { choosePreset(); };
+        addAndMakeVisible (presetBox);
+        modifiedLabel.setColour (juce::Label::textColourId, Theme::textMuted);
+        modifiedLabel.setFont (Theme::uiSize (10.5f));
+        addAndMakeVisible (modifiedLabel);
+        showPreset();
+
         list.setModel (this);
         list.setRowHeight (26);
         list.setWantsKeyboardFocus (false);
@@ -28,14 +44,15 @@ public:
             b.setButtonText (text);
             addAndMakeVisible (b);
         };
-        initBtn (resetBtn,  "Reset to Defaults");
+        initBtn (resetBtn,  "Reset to Preset");
         initBtn (importBtn, "Import...");
         initBtn (exportBtn, "Export...");
         initBtn (closeBtn,  "Close");
 
+        resetBtn.setTooltip ("Undo every key changed by hand: back to the preset's keys");
         resetBtn.onClick  = [this]
         {
-            keymap.resetToDefaults();
+            keymap.applyPreset (keymap.getPresetId());
             persist();
             cancelCapture();
         };
@@ -48,12 +65,19 @@ public:
         };
 
         setWantsKeyboardFocus (true);
-        setSize (460, 540);
+        setSize (460, 580);
     }
 
     void resized() override
     {
         auto r = getLocalBounds().reduced (10);
+        auto top = r.removeFromTop (28);
+        presetLabel.setBounds (top.removeFromLeft (52));
+        presetBox.setBounds (top.removeFromLeft (180));
+        top.removeFromLeft (8);
+        modifiedLabel.setBounds (top);
+        r.removeFromTop (8);
+
         auto footer = r.removeFromBottom (34);
         r.removeFromBottom (8);
         list.setBounds (r);
@@ -221,7 +245,58 @@ private:
     {
         capturingId = {};
         rebuildRows();
+        showPreset();
         repaint();
+    }
+
+    /** Shows the keymap's preset in the box, and whether keys were changed since. */
+    void showPreset()
+    {
+        const auto& presets = AerionKeymapPreset::all();
+        for (int i = 0; i < (int) presets.size(); ++i)
+            if (keymap.getPresetId() == presets[(size_t) i].id)
+                presetBox.setSelectedId (i + 1, juce::dontSendNotification);
+        modifiedLabel.setText (keymap.differsFromPreset() ? "with your changes" : juce::String(),
+                               juce::dontSendNotification);
+    }
+
+    void choosePreset()
+    {
+        const int index = presetBox.getSelectedId() - 1;
+        const auto& presets = AerionKeymapPreset::all();
+        if (! juce::isPositiveAndBelow (index, (int) presets.size()))
+            return;
+        const juce::String id = presets[(size_t) index].id;
+        if (id == keymap.getPresetId() && ! keymap.differsFromPreset())
+            return;
+
+        auto apply = [this, id]
+        {
+            keymap.applyPreset (id);
+            persist();
+            cancelCapture();
+        };
+
+        // Keys changed by hand would be lost: ask first.
+        if (! keymap.differsFromPreset())
+        {
+            apply();
+            return;
+        }
+
+        juce::Component::SafePointer<KeyboardShortcutsPanel> safe (this);
+        juce::AlertWindow::showOkCancelBox (
+            juce::MessageBoxIconType::QuestionIcon,
+            "Use " + juce::String (presets[(size_t) index].name) + " Shortcuts",
+            "This replaces the keys you changed by hand.",
+            "Use Preset", "Cancel", this,
+            juce::ModalCallbackFunction::create ([safe, apply] (int result)
+            {
+                if (safe == nullptr)
+                    return;
+                if (result == 1) apply();
+                else             safe->showPreset();
+            }));
     }
 
     void persist() { keymap.saveTo (props); }
@@ -271,6 +346,8 @@ private:
     juce::String capturingId;
 
     juce::ListBox list;
+    juce::Label presetLabel, modifiedLabel;
+    juce::ComboBox presetBox;
     juce::TextButton resetBtn, importBtn, exportBtn, closeBtn;
     std::unique_ptr<juce::FileChooser> chooser;
 

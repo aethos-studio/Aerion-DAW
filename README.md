@@ -89,7 +89,7 @@ What comes next is in the [roadmap](AerionDawCpp/Documentation/ROADMAP.md).
 
 ## Recent progress (October 2026)
 
-**v0.5.3 Alpha** ([release notes](AerionDawCpp/Documentation/releases/v0.5.3.md)) completes three more Milestone 6 items: a spectrum analyser and phase correlation meter (View > Meters), default MIDI mappings for new projects and tracks, and the CLAP hosting spike ([verdict: not now](AerionDawCpp/Documentation/CLAP_SPIKE.md)). It also fixes the Inspector after a plugin drop, a stray focus frame and a freeze in the Export Mixdown preview.
+**v0.5.3 Alpha** ([release notes](AerionDawCpp/Documentation/releases/v0.5.3.md)) completes three more Milestone 6 items: a spectrum analyser and phase correlation meter (View > Meters), default MIDI mappings for new projects and tracks, and the CLAP hosting spike ([verdict: not now](AerionDawCpp/Documentation/CLAP_SPIKE.md)). From tester feedback it adds separate horizontal and vertical zoom for the timeline, and keyboard shortcut presets for Cubase, Pro Tools, Logic Pro, Ableton Live, Studio One and REAPER. It also fixes meters that read on a different scale from their fader, the Inspector after a plugin drop, a stray focus frame and a freeze in the Export Mixdown preview.
 
 **v0.5.2 Alpha** adds three Milestone 6 features and two fixes ([release notes](AerionDawCpp/Documentation/releases/v0.5.2.md)):
 

@@ -208,6 +208,101 @@ public:
             expectEquals (km.toXml()->getIntAttribute ("version"), AerionKeymap::kFormatVersion);
         }
 
+        beginTest ("no keymap or preset binds one key to two actions, on either platform");
+        {
+            juce::StringArray catalogIds;
+            for (auto& a : AerionActionCatalog::actions())
+                catalogIds.add (a.id);
+
+            for (auto& preset : AerionKeymapPreset::all())
+            {
+                for (auto& b : preset.bindings)
+                {
+                    expect (catalogIds.contains (b.id), juce::String (preset.id) + " names unknown action " + b.id);
+                    if (juce::String (b.key).isNotEmpty())
+                        expect (juce::KeyPress::createFromDescription (b.key).isValid(),
+                                juce::String (preset.id) + ": " + b.key + " does not parse");
+                }
+
+                for (bool mac : { false, true })
+                {
+                    AerionKeymap km;
+                    km.applyPreset (preset.id, mac);
+                    expectEquals (km.getPresetId(), juce::String (preset.id));
+                    for (auto& a : AerionActionCatalog::actions())
+                        if (a.rebindable && km.get (a.id).isValid())
+                            expect (km.conflicts (km.get (a.id), a.id).isEmpty(),
+                                    juce::String (preset.id) + (mac ? " (Mac): " : ": ") + a.id + " shares "
+                                        + km.get (a.id).getTextDescription() + " with "
+                                        + km.conflicts (km.get (a.id), a.id).joinIntoString (", "));
+                }
+            }
+        }
+
+        beginTest ("a preset sets its keys and frees the Aerion defaults it takes");
+        {
+            AerionKeymap km;
+            km.applyPreset ("cubase", false);
+            expect (km.matches ("view.zoomIn",      juce::KeyPress::createFromDescription ("H")));
+            expect (km.matches ("clip.split",       juce::KeyPress::createFromDescription ("alt + X")));
+            expect (km.matches ("transport.record", juce::KeyPress (juce::KeyPress::numberPadMultiply)));
+            expect (km.matches ("file.save",        juce::KeyPress::createFromDescription ("command + S")),
+                    "actions a preset leaves out keep Aerion's keys");
+            expect (! km.get ("tool.comp").isValid(), "a preset can leave an action unassigned");
+            expect (! km.differsFromPreset());
+
+            // Logic records with R, so Aerion's R for record arm goes.
+            km.applyPreset ("logic", false);
+            expect (km.matches ("transport.record", juce::KeyPress::createFromDescription ("R")));
+            expect (! km.get ("track.arm").isValid());
+
+            // Ableton's redo differs per platform.
+            km.applyPreset ("ableton", false);
+            expect (km.matches ("edit.redo", juce::KeyPress::createFromDescription ("command + Y")));
+            km.applyPreset ("ableton", true);
+            expect (km.matches ("edit.redo", juce::KeyPress::createFromDescription ("command + shift + Z")));
+
+            km.applyPreset ("no-such-preset", false);
+            expectEquals (km.getPresetId(), juce::String ("aerion"));
+        }
+
+        beginTest ("the preset and keys changed by hand survive saving");
+        {
+            AerionKeymap km;
+            km.applyPreset ("protools");
+            const auto custom = juce::KeyPress::createFromDescription ("ctrl + shift + P");
+            km.set ("transport.playStop", custom);
+            expect (km.differsFromPreset());
+
+            auto file = juce::File::createTempFile (".aerionkeys");
+            expect (km.exportToFile (file));
+            AerionKeymap restored;
+            expect (restored.importFromFile (file));
+            expectEquals (restored.getPresetId(), juce::String ("protools"));
+            expect (restored.matches ("transport.playStop", custom));
+            expect (restored.matches ("view.zoomIn", juce::KeyPress::createFromDescription ("command + ]")));
+            expect (restored.differsFromPreset());
+            file.deleteFile();
+        }
+
+        beginTest ("a keymap saved before presets gets the new actions without clashes");
+        {
+            // As 0.5.3 saved it: no preset, no new actions, and the user had
+            // put Follow Playback on L, which is now Aerion's Loop key.
+            auto file = juce::File::createTempFile (".aerionkeys");
+            file.replaceWithText ("<keymap version=\"2\">"
+                                  "<binding id=\"transport.follow\" key=\"L\"/>"
+                                  "<binding id=\"file.save\" key=\"command + S\"/>"
+                                  "</keymap>");
+            AerionKeymap km;
+            expect (km.importFromFile (file));
+            expectEquals (km.getPresetId(), juce::String ("aerion"));
+            expect (km.matches ("transport.follow", juce::KeyPress::createFromDescription ("L")));
+            expect (! km.get ("transport.loop").isValid(), "Loop must not also take L");
+            expect (km.matches ("view.zoomIn", juce::KeyPress::createFromDescription ("H")), "other new actions get defaults");
+            file.deleteFile();
+        }
+
         beginTest ("import rejects files without a keymap root");
         {
             auto file = juce::File::createTempFile (".aerionkeys");

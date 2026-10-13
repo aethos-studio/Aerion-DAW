@@ -57,12 +57,21 @@ struct AerionActionCatalog
 
         add ("edit.undo",              "Edit",       "Undo",                 "command + Z");
         add ("edit.redo",              "Edit",       "Redo",                 "command + shift + Z");
+        add ("edit.snap",              "Edit",       "Snap to Grid",         "command + G");
 
         add ("transport.playStop",     "Transport",  "Play / Stop",          "spacebar");
         add ("transport.record",       "Transport",  "Record",               "command + R");
         add ("transport.goToStart",    "Transport",  "Go to Start",          "home");
+        add ("transport.goToEnd",      "Transport",  "Go to End",            "end");
+        add ("transport.loop",         "Transport",  "Loop On / Off",        "L");
+        add ("transport.metronome",    "Transport",  "Metronome On / Off",   "C");
         add ("transport.follow",       "Transport",  "Follow Playback",      "F");
 
+        add ("tool.select",            "Tools",      "Select Tool",          "1");
+        add ("tool.razor",             "Tools",      "Razor Tool",           "2");
+        add ("tool.comp",              "Tools",      "Comp Tool",            "3");
+
+        add ("clip.split",             "Clip",       "Split Clip at Playhead", "command + E");
         add ("clip.nudgeLeft",         "Clip",       "Nudge Clip Left",      "cursor left");
         add ("clip.nudgeRight",        "Clip",       "Nudge Clip Right",     "cursor right");
         add ("clip.trimLeft",          "Clip",       "Trim Clip Shorter",    "alt + cursor left");
@@ -72,6 +81,13 @@ struct AerionActionCatalog
 
         add ("audio.crossfade",        "Audio",      "Force Crossfade",      "X");
 
+        add ("view.zoomIn",            "View",       "Zoom In (Time)",       "H");
+        add ("view.zoomOut",           "View",       "Zoom Out (Time)",      "G");
+        add ("view.zoomInVertical",    "View",       "Zoom In (Track Height)",  "shift + H");
+        add ("view.zoomOutVertical",   "View",       "Zoom Out (Track Height)", "shift + G");
+        add ("view.fitProject",        "View",       "Zoom to Project",      "shift + F");
+        add ("view.fitTracks",         "View",       "Fit All Tracks",       "shift + T");
+        add ("view.zoomToLoop",        "View",       "Zoom to Loop Range",   "shift + L");
         add ("view.nextPane",          "View",       "Focus Next Pane",      "F6");
         add ("app.settings",           "View",       "Audio Settings",       "command + ,");
 
@@ -103,6 +119,134 @@ struct AerionActionCatalog
 };
 
 //==============================================================================
+// Keymap presets: the keys another DAW uses for Aerion's actions, so someone
+// coming from it can keep their habits. A preset lists only what differs from
+// Aerion's defaults; an Aerion default whose key the preset gives to another
+// action is left unassigned. Keys are each DAW's factory defaults as far as
+// they have an Aerion equivalent. "command" is Ctrl on Windows, Cmd on macOS.
+struct AerionKeymapPreset
+{
+    struct Binding
+    {
+        const char* id;
+        const char* key;          // "" = unassigned
+        const char* macKey = nullptr;   // macOS key when it differs
+    };
+
+    const char* id;
+    const char* name;
+    std::vector<Binding> bindings;
+
+    static const std::vector<AerionKeymapPreset>& all()
+    {
+        static const std::vector<AerionKeymapPreset> presets {
+            { "aerion", "Aerion", {} },
+
+            { "cubase", "Cubase", {
+                { "transport.record",    "numpad *" },
+                { "transport.loop",      "numpad /" },
+                { "clip.split",          "alt + X" },
+                { "clip.nudgeLeft",      "command + cursor left" },
+                { "clip.nudgeRight",     "command + cursor right" },
+                { "tool.select",         "1" },
+                { "tool.razor",          "3" },
+                { "tool.comp",           "" },
+                { "edit.snap",           "J" } } },
+
+            { "protools", "Pro Tools", {
+                { "transport.record",    "command + spacebar" },
+                { "transport.goToStart", "return" },
+                { "transport.goToEnd",   "alt + return" },
+                { "transport.loop",      "command + shift + L" },
+                { "transport.metronome", "numpad 7" },
+                { "view.zoomIn",         "command + ]" },
+                { "view.zoomOut",        "command + [" },
+                { "view.zoomInVertical", "command + alt + ]" },
+                { "view.zoomOutVertical","command + alt + [" },
+                { "view.fitProject",     "alt + A" },
+                { "tool.select",         "F8" },
+                { "tool.razor",          "" },
+                { "tool.comp",           "" },
+                { "edit.snap",           "F4" },
+                { "track.mute",          "shift + M" },
+                { "track.solo",          "shift + S" },
+                { "track.arm",           "shift + R" } } },
+
+            { "logic", "Logic Pro", {
+                { "transport.record",    "R" },
+                { "transport.goToStart", "return" },
+                { "transport.loop",      "C" },
+                { "transport.metronome", "K" },
+                { "clip.split",          "command + T" },
+                { "view.zoomIn",         "command + cursor right" },
+                { "view.zoomOut",        "command + cursor left" },
+                { "view.zoomInVertical", "command + cursor down" },
+                { "view.zoomOutVertical","command + cursor up" },
+                { "view.fitProject",     "Z" },
+                { "tool.select",         "" },
+                { "tool.razor",          "" },
+                { "tool.comp",           "" } } },
+
+            { "ableton", "Ableton Live", {
+                { "edit.redo",           "command + Y", "command + shift + Z" },
+                { "edit.snap",           "command + 4" },
+                { "transport.record",    "F9" },
+                { "transport.loop",      "command + L" },
+                { "transport.metronome", "O" },
+                { "transport.follow",    "command + shift + F" },
+                { "view.zoomIn",         "=" },
+                { "view.zoomOut",        "-" },
+                { "view.zoomInVertical", "alt + =" },
+                { "view.zoomOutVertical","alt + -" },
+                { "view.fitProject",     "W" },
+                { "view.fitTracks",      "H" },
+                { "tool.select",         "" },
+                { "tool.razor",          "" },
+                { "tool.comp",           "" },
+                { "pianoRoll.quantize",  "command + U" } } },
+
+            { "studioone", "Studio One", {
+                { "transport.record",    "numpad *" },
+                { "transport.loop",      "numpad /" },
+                { "clip.split",          "alt + X" },
+                { "view.zoomIn",         "E" },
+                { "view.zoomOut",        "W" },
+                { "view.zoomInVertical", "shift + E" },
+                { "view.zoomOutVertical","shift + W" },
+                { "tool.select",         "1" },
+                { "tool.razor",          "3" },
+                { "tool.comp",           "" },
+                { "edit.snap",           "N" },
+                { "track.mute",          "shift + M" },
+                { "track.solo",          "shift + S" },
+                { "track.arm",           "shift + R" } } },
+
+            { "reaper", "REAPER", {
+                { "transport.loop",      "R" },
+                { "clip.split",          "S" },
+                { "view.zoomIn",         "=" },
+                { "view.zoomOut",        "-" },
+                { "view.zoomInVertical", "page up" },
+                { "view.zoomOutVertical","page down" },
+                { "view.fitProject",     "command + page down" },
+                { "tool.select",         "" },
+                { "tool.razor",          "" },
+                { "tool.comp",           "" },
+                { "edit.snap",           "alt + S" } } },
+        };
+        return presets;
+    }
+
+    static const AerionKeymapPreset* find (const juce::String& presetId)
+    {
+        for (auto& p : all())
+            if (presetId == p.id)
+                return &p;
+        return nullptr;
+    }
+};
+
+//==============================================================================
 class AerionKeymap
 {
 public:
@@ -111,9 +255,65 @@ public:
     void resetToDefaults()
     {
         bindings.clear();
+        presetId = "aerion";
         for (auto& a : AerionActionCatalog::actions())
             if (a.rebindable)
                 bindings[a.id] = juce::KeyPress::createFromDescription (a.platformDefaultKey());
+    }
+
+    /** The preset the bindings started from ("aerion", "cubase", ...); keys
+        changed by hand since are kept in the bindings, not here. */
+    const juce::String& getPresetId() const noexcept   { return presetId; }
+
+    /** True when a key has been changed by hand since the preset was applied. */
+    bool differsFromPreset() const
+    {
+        AerionKeymap fresh;
+        fresh.applyPreset (presetId);
+        for (auto& [id, key] : bindings)
+        {
+            const auto other = fresh.get (id);
+            if (key.isValid() != other.isValid() || (key.isValid() && ! sameKey (key, other)))
+                return true;
+        }
+        return false;
+    }
+
+    /** Replaces every binding with `preset`'s keys (Aerion's defaults for
+        actions it leaves out). Unknown ids give Aerion's defaults. */
+    void applyPreset (const juce::String& id)
+    {
+       #if JUCE_MAC
+        applyPreset (id, true);
+       #else
+        applyPreset (id, false);
+       #endif
+    }
+
+    void applyPreset (const juce::String& id, bool mac)
+    {
+        // Defaults for `mac` rather than this platform, so tests can check both.
+        resetToDefaults();
+        for (auto& a : AerionActionCatalog::actions())
+            if (a.rebindable)
+                bindings[a.id] = juce::KeyPress::createFromDescription (a.defaultKeyFor (mac));
+
+        auto* preset = AerionKeymapPreset::find (id);
+        if (preset == nullptr)
+            return;
+
+        presetId = preset->id;
+        juce::StringArray presetIds;
+        for (auto& b : preset->bindings)
+        {
+            if (bindings.count (b.id) == 0)
+                continue;
+            const juce::String key = mac && b.macKey != nullptr ? b.macKey : b.key;
+            bindings[b.id] = key.isEmpty() ? juce::KeyPress() : juce::KeyPress::createFromDescription (key);
+            presetIds.add (b.id);
+        }
+
+        unassignDefaultsTakenBy (presetIds);
     }
 
     /** Saved keymaps carry this; version 2 moved the defaults from Ctrl to
@@ -147,14 +347,23 @@ public:
         return it != bindings.end() && it->second.isValid() && sameKey (it->second, key);
     }
 
-    // Returns ids of any other rebindable actions already bound to this key.
+    /** Piano Roll keys act only while the Piano Roll has focus, which takes
+        them first, so they may repeat keys from the rest of Aerion. */
+    static bool sameScope (const juce::String& a, const juce::String& b)
+    {
+        return a.startsWith ("pianoRoll.") == b.startsWith ("pianoRoll.");
+    }
+
+    // Returns ids of any other rebindable actions already bound to this key,
+    // in the same scope as `excludeId` (the action being bound).
     juce::StringArray conflicts (const juce::KeyPress& key, const juce::String& excludeId) const
     {
         juce::StringArray out;
         if (! key.isValid())
             return out;
         for (auto& b : bindings)
-            if (b.first != excludeId && b.second.isValid() && sameKey (b.second, key))
+            if (b.first != excludeId && sameScope (b.first, excludeId)
+                 && b.second.isValid() && sameKey (b.second, key))
                 out.add (b.first);
         return out;
     }
@@ -232,6 +441,7 @@ public:
     {
         auto xml = std::make_unique<juce::XmlElement> ("keymap");
         xml->setAttribute ("version", kFormatVersion);
+        xml->setAttribute ("preset", presetId);
         for (auto& a : AerionActionCatalog::actions())
         {
             if (! a.rebindable)
@@ -273,6 +483,11 @@ private:
         const int version = xml.getIntAttribute ("version", 1);
         const auto catalog = AerionActionCatalog::actions();
 
+        // Start from the preset the keymap was made from, so actions added
+        // since it was saved get that preset's keys.
+        applyPreset (xml.getStringAttribute ("preset", "aerion"), mac);
+
+        juce::StringArray savedIds;
         for (auto* e : xml.getChildWithTagNameIterator ("binding"))
         {
             auto id = e->getStringAttribute ("id");
@@ -281,9 +496,33 @@ private:
 
             for (auto& a : catalog)
                 if (a.id == id)
+                {
                     bindings[id] = keyFromSaved (a, e->getStringAttribute ("key"), version, mac);
+                    savedIds.add (id);
+                }
+        }
+
+        // An action new since the keymap was saved must not take a key the
+        // user already gave to something else.
+        unassignDefaultsTakenBy (savedIds);
+    }
+
+    /** Clears every binding not in `kept` whose key one of `kept` uses. */
+    void unassignDefaultsTakenBy (const juce::StringArray& kept)
+    {
+        for (auto& [id, key] : bindings)
+        {
+            if (! key.isValid() || kept.contains (id))
+                continue;
+            for (auto& k : kept)
+                if (sameScope (id, k) && bindings[k].isValid() && sameKey (key, bindings[k]))
+                {
+                    key = juce::KeyPress();
+                    break;
+                }
         }
     }
 
     std::map<juce::String, juce::KeyPress> bindings;
+    juce::String presetId { "aerion" };
 };

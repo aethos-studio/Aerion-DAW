@@ -87,40 +87,63 @@
       "name": "win-msvc-debug",
       "displayName": "Build Debug",
       "configurePreset": "win-msvc-debug",
-      "configuration": "Debug"
+      "configuration": "Debug",
+      "targets": [
+        "AerionDaw"
+      ]
     },
     {
       "name": "win-msvc-release",
       "displayName": "Build Release",
       "configurePreset": "win-msvc-debug",
-      "configuration": "Release"
+      "configuration": "Release",
+      "targets": [
+        "AerionDaw"
+      ]
     },
     {
       "name": "win-msvc-debug-tests",
       "displayName": "Build Debug + Tests",
       "configurePreset": "win-msvc-debug-tests",
-      "configuration": "Debug"
+      "configuration": "Debug",
+      "targets": [
+        "AerionDaw",
+        "AerionTests",
+        "AerionBench"
+      ]
     },
     {
       "name": "win-msvc-profiling",
       "displayName": "Build Release + Paint Profiling",
       "configurePreset": "win-msvc-profiling",
-      "configuration": "Release"
+      "configuration": "Release",
+      "targets": [
+        "AerionDaw"
+      ]
     },
     {
       "name": "mac-clang-debug",
       "configurePreset": "mac-clang-debug",
-      "configuration": "Debug"
+      "configuration": "Debug",
+      "targets": [
+        "AerionDaw"
+      ]
     },
     {
       "name": "mac-clang-release",
       "configurePreset": "mac-clang-release",
-      "configuration": "Release"
+      "configuration": "Release",
+      "targets": [
+        "AerionDaw"
+      ]
     },
     {
       "name": "mac-clang-x86",
       "configurePreset": "mac-clang-x86",
-      "configuration": "Release"
+      "configuration": "Release",
+      "targets": [
+        "AerionDaw"
+      ]
     }
   ],
   "testPresets": [

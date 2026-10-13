@@ -33,6 +33,14 @@ public:
     static constexpr int kTrackH      = 80;    // default lane height; the full header fits
     static constexpr int kMinTrackH   = 56;    // name and M / S / R / A still fit, FX is hidden
     static constexpr int kMaxTrackH   = 400;
+    // Vertical zoom scales every lane's saved height for display, within these
+    // limits. Below kMinTrackH the header is a single line (name, M / S / R / A).
+    static constexpr int    kMinZoomedTrackH = 24;
+    static constexpr int    kMaxZoomedTrackH = 800;
+    static constexpr double kMinVerticalZoom = 0.3;   // the default 80 px lane at 24 px
+    static constexpr double kMaxVerticalZoom = 3.0;
+    static constexpr double kMinPxPerSec     = 1.0;
+    static constexpr double kMaxPxPerSec     = 2000.0;
     static constexpr int kAutoLaneH   = 80;    // automation lane below a track
     static constexpr int kResizeGrabH = 4;     // grab zone around a lane's bottom edge, each side
 
@@ -82,9 +90,15 @@ public:
         addAndMakeVisible (verticalScrollBar);
         verticalScrollBar.addListener (this);
 
+        // Footer: horizontal zoom (time) and vertical zoom (all track heights),
+        // as separate sliders. Double-click either one to reset it.
         addAndMakeVisible (zoomSlider);
-        zoomSlider.setRange (1.0, 2000.0, 1.0);
-        zoomSlider.setValue (pxPerSec);
+        zoomSlider.setRange (kMinPxPerSec, kMaxPxPerSec, 0.0);
+        zoomSlider.setSkewFactorFromMidPoint (100.0);
+        zoomSlider.setValue (pxPerSec, juce::dontSendNotification);
+        zoomSlider.setDoubleClickReturnValue (true, 100.0);
+        zoomSlider.setTooltip ("Horizontal zoom (time)");
+        zoomSlider.setTitle ("Horizontal zoom");
         zoomSlider.onValueChange = [this] {
             const double start = getStartTime();
             pxPerSec = zoomSlider.getValue();
@@ -92,6 +106,15 @@ public:
             repaint();
             updateScrollBar();
         };
+
+        addAndMakeVisible (verticalZoomSlider);
+        verticalZoomSlider.setRange (kMinVerticalZoom, kMaxVerticalZoom, 0.0);
+        verticalZoomSlider.setSkewFactorFromMidPoint (1.0);
+        verticalZoomSlider.setValue (verticalZoom, juce::dontSendNotification);
+        verticalZoomSlider.setDoubleClickReturnValue (true, 1.0);
+        verticalZoomSlider.setTooltip ("Vertical zoom (track heights)");
+        verticalZoomSlider.setTitle ("Vertical zoom");
+        verticalZoomSlider.onValueChange = [this] { setVerticalZoom (verticalZoomSlider.getValue()); };
 
         addChildComponent (trackNameEditor);
         trackNameEditor.setColour (juce::TextEditor::backgroundColourId, Theme::surface);
@@ -364,7 +387,7 @@ public:
             if (row.track == clip.getTrack())
                 { rowTopInComp = kRulerH + row.y - scrollY; break; }
 
-        const float clipTopY = (float) rowTopInComp + 2.0f;
+        const float clipTopY = (float) rowTopInComp - 1.0f;   // clipBodyArea's top
         const bool onFadeInDot  = (pos.x >= clipX                && pos.x <= clipX + hSize
                                    && pos.y >= clipTopY          && pos.y <= clipTopY + hSize);
         const bool onFadeOutDot = (pos.x >= clipX + clipW - hSize && pos.x <= clipX + clipW
@@ -578,7 +601,7 @@ public:
         {
             if (row.track != nullptr && audioEngine.isTrackArmed (row.track))
             {
-                repaint (0, kRulerH + row.y - scrollY, getWidth(), row.height);
+                repaint (0, kRulerH + row.y - scrollY - 1, getWidth(), row.height + 1);   // - 1: clip frames on the separator above
                 repaintedAny = true;
             }
         }
@@ -1152,7 +1175,10 @@ public:
     {
         const int barY = getHeight() - kFooterH + 6;
         horizontalScrollBar.setBounds (kHeaderWidth, barY, getWidth() - kHeaderWidth - kVScrollW, 14);
-        zoomSlider.setBounds (10, barY, kHeaderWidth - 20, 14);
+        // Each slider follows a small glyph painted in paint(): ↔ and ↕.
+        const int sliderW = (kHeaderWidth - 20 - 2 * kZoomGlyphW - 8) / 2;
+        zoomSlider.setBounds (10 + kZoomGlyphW, barY, sliderW, 14);
+        verticalZoomSlider.setBounds (zoomSlider.getRight() + 8 + kZoomGlyphW, barY, sliderW, 14);
         verticalScrollBar.setBounds (getWidth() - kVScrollW, laneTop(), kVScrollW, laneBottom() - laneTop());
         updateScrollBar();
     }
@@ -1630,6 +1656,8 @@ public:
         g.fillRect (0, getHeight() - kFooterH, getWidth(), kFooterH);
         g.setColour (Theme::border);
         g.fillRect (0, getHeight() - kFooterH, getWidth(), 1);
+        paintZoomGlyph (g, zoomSlider.getBounds().withX (zoomSlider.getX() - kZoomGlyphW).withWidth (kZoomGlyphW), false);
+        paintZoomGlyph (g, verticalZoomSlider.getBounds().withX (verticalZoomSlider.getX() - kZoomGlyphW).withWidth (kZoomGlyphW), true);
 
         // The playhead is drawn by TimelinePlayheadOverlay, not here, so that
         // moving it never invalidates this component's cached layer.
@@ -1687,6 +1715,28 @@ public:
         return x;
     }
 
+    /** A double-headed arrow before a zoom slider: sideways for time, upright for height. */
+    static void paintZoomGlyph (juce::Graphics& g, juce::Rectangle<int> area, bool vertical)
+    {
+        auto c = area.toFloat().getCentre();
+        const float half = 5.0f, head = 3.0f;
+        juce::Path p;
+        if (vertical)
+        {
+            p.startNewSubPath (c.x, c.y - half); p.lineTo (c.x, c.y + half);
+            p.startNewSubPath (c.x - head, c.y - half + head); p.lineTo (c.x, c.y - half); p.lineTo (c.x + head, c.y - half + head);
+            p.startNewSubPath (c.x - head, c.y + half - head); p.lineTo (c.x, c.y + half); p.lineTo (c.x + head, c.y + half - head);
+        }
+        else
+        {
+            p.startNewSubPath (c.x - half, c.y); p.lineTo (c.x + half, c.y);
+            p.startNewSubPath (c.x - half + head, c.y - head); p.lineTo (c.x - half, c.y); p.lineTo (c.x - half + head, c.y + head);
+            p.startNewSubPath (c.x + half - head, c.y - head); p.lineTo (c.x + half, c.y); p.lineTo (c.x + half - head, c.y + head);
+        }
+        g.setColour (Theme::textMuted);
+        g.strokePath (p, juce::PathStrokeType (1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
     static void drawHeaderButton (juce::Graphics& g, juce::Rectangle<int> b,
                                   const juce::String& label, juce::Colour col)
     {
@@ -1742,10 +1792,9 @@ public:
                 continue;
 
             const auto pos = clip.getPosition();
-            const juce::Rectangle<float> body (timeToX (pos.getStart().inSeconds()),
-                                               (float) (laneTop() + row.y - scrollY),
-                                               (float) (pos.getLength().inSeconds() * pxPerSec),
-                                               (float) getLaneHeight (track));
+            const auto body = clipBodyArea (laneTop() + row.y - scrollY, getLaneHeight (track),
+                                            timeToX (pos.getStart().inSeconds()),
+                                            (float) (pos.getLength().inSeconds() * pxPerSec));
 
             return body.expanded (kClipPaintMargin).getSmallestIntegerContainer()
                        .getIntersection ({ kHeaderWidth, laneTop(),
@@ -1755,17 +1804,144 @@ public:
         return {};
     }
 
+    /** A clip's body in a lane whose top is at `y`: its frame lies on the
+        separator rows above and below the lane (the last pixel row of the row
+        above, and of this lane), the same rows as the header's edges, so the
+        clip and the track header line up. */
+    static juce::Rectangle<float> clipBodyArea (int y, int laneH, float x, float w)
+    {
+        return { x, (float) (y - 1), w, (float) (laneH + 1) };
+    }
+
     static bool isClipEditDrag (DragMode m)
     {
         return m == DragMode::move || m == DragMode::trimLeft || m == DragMode::trimRight
             || m == DragMode::fadeLeft || m == DragMode::fadeRight;
     }
 
-    /** A track's lane height: what its bottom edge was dragged to, saved with
-        the project on the track's state (IDs::laneHeight), kTrackH by default. */
-    static int getLaneHeight (const tracktion::Track* t)
+    /** A track's saved lane height: what its bottom edge was dragged to, saved
+        with the project on the track's state (IDs::laneHeight), kTrackH by default. */
+    static int getStoredLaneHeight (const tracktion::Track* t)
     {
         return juce::jlimit (kMinTrackH, kMaxTrackH, (int) t->state.getProperty (IDs::laneHeight, kTrackH));
+    }
+
+    /** A track's lane height on screen: its saved height at the vertical zoom. */
+    int getLaneHeight (const tracktion::Track* t) const
+    {
+        const int stored = getStoredLaneHeight (t);
+        if (verticalZoom == 1.0)
+            return stored;
+        return juce::jlimit (kMinZoomedTrackH, kMaxZoomedTrackH, juce::roundToInt (stored * verticalZoom));
+    }
+
+    //== Zoom ==================================================================
+    double getPixelsPerSecond() const noexcept { return pxPerSec; }
+    double getVerticalZoom() const noexcept    { return verticalZoom; }
+
+    /** Sets the vertical zoom (1.0 = saved heights). The track at the top of
+        the view stays there. */
+    void setVerticalZoom (double zoom)
+    {
+        zoom = juce::jlimit (kMinVerticalZoom, kMaxVerticalZoom, zoom);
+        verticalZoomSlider.setValue (zoom, juce::dontSendNotification);
+        if (zoom == verticalZoom)
+            return;
+
+        // Find the row at the top of the view and how far into it the view starts.
+        tracktion::Track* topTrack = nullptr;
+        double intoRow = 0.0;
+        for (auto& row : getVisibleRows())
+            if (scrollY < row.y + row.height)
+            {
+                topTrack = row.track;
+                intoRow = (double) (scrollY - row.y) / juce::jmax (1, row.height);
+                break;
+            }
+
+        verticalZoom = zoom;
+
+        int newScrollY = 0;
+        for (auto& row : getVisibleRows())
+            if (row.track == topTrack)
+            {
+                newScrollY = row.y + juce::roundToInt (intoRow * row.height);
+                break;
+            }
+
+        scrollY = clampScrollY (newScrollY);
+        trackNameEditor.setVisible (false);
+        repaint();
+        updateScrollBar();
+    }
+
+    /** Zooms vertically by `factor` (e.g. 1.25 in, 0.8 out). */
+    void zoomVerticallyBy (double factor)   { setVerticalZoom (verticalZoom * factor); }
+
+    /** Zooms horizontally by `factor`, around the playhead when it is in view,
+        otherwise around the middle of the view. */
+    void zoomHorizontallyBy (double factor)
+    {
+        float x = (float) (kHeaderWidth + (getWidth() - kHeaderWidth - kVScrollW) / 2);
+        const float playheadX = timeToX (audioEngine.getTransportPosition());
+        if (playheadX >= (float) kHeaderWidth && playheadX < (float) (getWidth() - kVScrollW))
+            x = playheadX;
+        zoomAround (x, factor);
+    }
+
+    /** The largest vertical zoom at which every visible track fits the view. */
+    void fitAllTracks()
+    {
+        const int visibleH = juce::jmax (1, laneBottom() - laneTop());
+        const double saved = verticalZoom;
+        double lo = kMinVerticalZoom, hi = kMaxVerticalZoom;
+
+        // Heights are rounded and clamped per track, so search rather than divide.
+        for (int i = 0; i < 24; ++i)
+        {
+            verticalZoom = (lo + hi) * 0.5;
+            if (contentHeight() <= visibleH) lo = verticalZoom;
+            else                             hi = verticalZoom;
+        }
+        verticalZoom = saved;
+
+        setVerticalZoom (lo);
+        scrollTo (scrollPx, 0);
+        updateScrollBar();
+    }
+
+    /** Shows `start` to `end` (seconds) across the lane area. */
+    void zoomToTimeRange (double start, double end)
+    {
+        const double length = end - start;
+        const int viewW = getWidth() - kHeaderWidth - kVScrollW;
+        if (length <= 0.0 || viewW <= 0)
+            return;
+
+        // A little room either side, so the edges are not under the scrollbars.
+        const double margin = length * 0.02;
+        pxPerSec = juce::jlimit (kMinPxPerSec, kMaxPxPerSec, viewW / (length + 2.0 * margin));
+        zoomSlider.setValue (pxPerSec, juce::dontSendNotification);
+        scrollPx = pixelsForStartTime (start - margin);
+        repaint();
+        requestTimelineRefresh (true);
+    }
+
+    /** Fits the whole project (its last clip, or the first minute when empty) across the view. */
+    void fitProject()
+    {
+        const double length = audioEngine.getEdit().getLength().inSeconds();
+        zoomToTimeRange (0.0, length > 1.0 ? length : 60.0);
+    }
+
+    /** Fits the loop range across the view; false when there is none. */
+    bool zoomToLoopRange()
+    {
+        const auto range = audioEngine.getEdit().getTransport().getLoopRange();
+        if (range.getLength().inSeconds() <= 0.0)
+            return false;
+        zoomToTimeRange (range.getStart().inSeconds(), range.getEnd().inSeconds());
+        return true;
     }
 
     /** The whole row: the lane plus its automation lane when shown. */
@@ -1805,7 +1981,7 @@ public:
         bool changed = false;
         for (auto* t : tracks)
         {
-            if (getLaneHeight (t) == height)
+            if (getStoredLaneHeight (t) == height)
                 continue;
             if (height == kTrackH)
                 t->state.removeProperty (IDs::laneHeight, nullptr);
@@ -1839,35 +2015,73 @@ public:
         return { t };
     }
 
+    /** Where a track header's parts go, for a lane `laneH` tall whose top is
+        at `y`. At kMinTrackH and up: the name, M / S / R / A below it, and the
+        FX badge from kTrackH. Shorter (zoomed out): one line, with the buttons
+        at the right. */
+    struct HeaderLayout
+    {
+        bool compact = false;
+        juce::Rectangle<int> name, chevron, submixBadge, m, s, r, a, fx;
+    };
+
+    static HeaderLayout getHeaderLayout (int y, int laneH, int indent)
+    {
+        HeaderLayout l;
+        const int textX = 14 + indent;
+        l.compact = laneH < kMinTrackH;
+
+        if (! l.compact)
+        {
+            const int btnY = y + 32;
+            l.name        = { textX, y + 8, kHeaderWidth - textX - 8, 20 };
+            l.chevron     = { textX - 10, y + 10, 10, 10 };
+            l.submixBadge = { kHeaderWidth - 22, y + 6, 14, 14 };
+            l.m = { textX,      btnY, 24, 22 };
+            l.s = { textX + 28, btnY, 24, 22 };
+            l.r = { textX + 56, btnY, 24, 22 };
+            l.a = { textX + 84, btnY, 24, 22 };
+            if (laneH >= kTrackH)
+                l.fx = { textX, btnY + 24, 76, 20 };
+            return l;
+        }
+
+        const int bh = juce::jmin (20, laneH - 6);
+        const int by = y + (laneH - bh) / 2;
+        const int bw = 20, step = 22;
+        const int firstX = kHeaderWidth - 8 - 4 * step + (step - bw);
+        l.m = { firstX,            by, bw, bh };
+        l.s = { firstX + step,     by, bw, bh };
+        l.r = { firstX + step * 2, by, bw, bh };
+        l.a = { firstX + step * 3, by, bw, bh };
+        l.submixBadge = { firstX - 20, y + (laneH - 14) / 2, 14, 14 };
+        l.chevron     = { textX - 10, y + (laneH - 10) / 2, 10, 10 };
+        l.name        = { textX, by, l.submixBadge.getX() - 4 - textX, bh };
+        return l;
+    }
+
     int drawTrackRow(juce::Graphics& g, tracktion::Track* track, int topIndex, int indent, int y)
     {
         auto* folder = dynamic_cast<tracktion::FolderTrack*>(track);
         auto* audio  = dynamic_cast<tracktion::AudioTrack*>(track);
         int   rowH   = getTrackHeight(track);
         const int laneH = getLaneHeight (track);
+        const auto layout = getHeaderLayout (y, laneH, indent);
 
         AERION_PROFILE_COUNT ("Timeline.rowsVisited", 1);
 
         // mouseDown hit-tests the M/S/R/A buttons through this cache, so it has
         // to be populated even for rows we are about to skip drawing - otherwise
         // culling would silently stop those buttons responding.
-        const int textX = 14 + indent;
-        const int btnY  = y + 32;
-        trackButtonCache[track->itemID.toString()] = {
-            track,
-            juce::Rectangle<int> (textX,      btnY, 24, 22),
-            juce::Rectangle<int> (textX + 28, btnY, 24, 22),
-            juce::Rectangle<int> (textX + 56, btnY, 24, 22),
-            juce::Rectangle<int> (textX + 84, btnY, 24, 22)
-        };
+        trackButtonCache[track->itemID.toString()] = { track, layout.m, layout.s, layout.r, layout.a };
 
         // Rows outside the invalidated region still cost a full walk of their
         // clips, waveform cache lookups and engine queries even though every
         // drawing call is thrown away by the clip. Skip that work, but keep
         // advancing y and still descend into folder children, which may be
         // visible even when their parent row is not.
-        // + 1: the row's bottom line is anti-aliased into the next row's first pixel.
-        if (! g.clipRegionIntersects (juce::Rectangle<int> (0, y, getWidth(), rowH + 1)))
+        // From y - 1: clip frames reach up onto the row above's separator (clipBodyArea).
+        if (! g.clipRegionIntersects (juce::Rectangle<int> (0, y - 1, getWidth(), rowH + 1)))
         {
             y += rowH;
 
@@ -1894,8 +2108,10 @@ public:
         // Lane bg
         g.setColour((topIndex % 2 == 1 ? Theme::bgPanel.withAlpha(0.2f) : juce::Colours::transparentBlack));
         g.fillRect(kHeaderWidth, y, getWidth() - kHeaderWidth, rowH);
+        // Separators fill the row's last pixel row, one crisp line that clip
+        // frames and the header's edge share.
         g.setColour(Theme::border.withAlpha(0.3f));
-        g.drawLine((float)kHeaderWidth, (float)(y + rowH), (float)getWidth(), (float)(y + rowH));
+        g.fillRect (kHeaderWidth, y + rowH - 1, getWidth() - kHeaderWidth, 1);
 
         // Header
         juce::Rectangle<int> hb(0, y, kHeaderWidth, rowH);
@@ -1905,7 +2121,7 @@ public:
             g.setColour(isSel ? Theme::surface : Theme::bgPanel);
             g.fillRect(hb);
             g.setColour(Theme::border);
-            g.drawLine(0.0f, (float)(y + rowH), (float)kHeaderWidth, (float)(y + rowH));
+            g.fillRect (0, y + rowH - 1, kHeaderWidth, 1);
             g.fillRect (kHeaderWidth - 1, y, 1, rowH);
 
             g.setColour(tColor);
@@ -1914,12 +2130,12 @@ public:
             g.fillRect((float)indent, (float)y, barW, (float)rowH);
 
             g.setColour(Theme::textMain);
-            g.setFont (Theme::uiSize (13.0f).withStyle (juce::Font::bold));
-        
+            g.setFont (Theme::uiSize (layout.compact ? 11.5f : 13.0f).withStyle (juce::Font::bold));
+
             if (folder != nullptr)
             {
                 // Draw expand/collapse chevron
-                auto chevronR = juce::Rectangle<int> (textX - 10, y + 10, 10, 10);
+                auto chevronR = layout.chevron;
                 g.setColour (Theme::textMuted);
                 juce::Path p;
                 if (collapsedFolders.contains (folder->itemID.toString())) {
@@ -1938,11 +2154,11 @@ public:
             juce::String label = track->getName();
             if (folder != nullptr && ! submixFolder)
                 label += "  [GROUP]";
-            g.drawText(label, textX, y + 8, kHeaderWidth - textX - 8, 20, juce::Justification::left);
+            g.drawText (label, layout.name, juce::Justification::centredLeft, true);
 
             if (submixFolder)
             {
-                auto br = juce::Rectangle<int> (kHeaderWidth - 22, y + 6, 14, 14);
+                auto br = layout.submixBadge;
                 g.setColour (tColor.withAlpha (0.45f));
                 g.fillRoundedRectangle (br.toFloat(), 2.0f);
                 g.setColour (Theme::textMain);
@@ -1969,15 +2185,10 @@ public:
 
             // Below kTrackH the FX badge does not fit; the inserts stay in
             // the Inspector and the Mixer.
-            if (laneH >= kTrackH)
-            {
-                int fxY = btnY + 24;
-                auto fxB = juce::Rectangle<int>(textX, fxY, 76, 20);
-                int  numFx = track->pluginList.size();
-                drawFxBadge (g, fxB, numFx);
-            }
+            if (! layout.fx.isEmpty())
+                drawFxBadge (g, layout.fx, track->pluginList.size());
 
-            if (audio != nullptr)
+            if (audio != nullptr && ! layout.compact)
             {
                 const bool frozen = audioEngine.isTrackFrozen (audio);
                 const bool freezing = audioEngine.isTrackFreezing (audio);
@@ -2003,7 +2214,7 @@ public:
         if (audio != nullptr)
         {
             juce::Graphics::ScopedSaveState s (g);
-            g.reduceClipRegion (kHeaderWidth, y, getWidth() - kHeaderWidth, rowH);
+            g.reduceClipRegion (kHeaderWidth, y - 1, getWidth() - kHeaderWidth, rowH + 1);   // clipBodyArea reaches y - 1
 
             if (activeTool == EditTool::comp)
             {
@@ -2075,8 +2286,7 @@ public:
                         }
                     }
 
-                    juce::Rectangle<float> cb(timeToX(start),
-                                              (float)y + 2.0f, len * pxPerSec, (float)laneH - 4.0f);
+                    auto cb = clipBodyArea (y, laneH, timeToX (start), len * pxPerSec);
 
                     // Whole-pixel clip edges, so the frame and waveform are copied
                     // from cached images rather than resampled at fractional offsets.
@@ -2364,7 +2574,7 @@ public:
         if (audio != nullptr && audioEngine.isRecording())
         {
             juce::Graphics::ScopedSaveState s (g);
-            g.reduceClipRegion (kHeaderWidth, y, getWidth() - kHeaderWidth, rowH);
+            g.reduceClipRegion (kHeaderWidth, y - 1, getWidth() - kHeaderWidth, rowH + 1);   // clipBodyArea reaches y - 1
 
             for (auto* idi : audioEngine.getEdit().getEditInputDevices().getDevicesForTargetTrack (*audio))
             {
@@ -2385,7 +2595,7 @@ public:
                 const float endX   = timeToX ((float) nowSec);
                 if (endX <= startX) continue;
 
-                juce::Rectangle<float> cb (startX, (float) y + 2.0f, endX - startX, (float) laneH - 4.0f);
+                auto cb = clipBodyArea (y, laneH, startX, endX - startX);
                 if (cb.getRight() < kHeaderWidth || cb.getX() > getWidth()) continue;
 
                 {
@@ -2473,15 +2683,14 @@ public:
                 if (recMidiClip != nullptr)
                 {
                     juce::Graphics::ScopedSaveState ss (g);
-                    g.reduceClipRegion (kHeaderWidth, y, getWidth() - kHeaderWidth, rowH);
+                    g.reduceClipRegion (kHeaderWidth, y - 1, getWidth() - kHeaderWidth, rowH + 1);   // clipBodyArea reaches y - 1
 
                     const double nowSec = audioEngine.getTransportPosition();
                     if (nowSec > recStartSec)
                     {
                         const float startX = timeToX ((float) recStartSec);
                         const float endX   = timeToX ((float) nowSec);
-                        juce::Rectangle<float> cb (startX, (float)y + 2.0f,
-                                                   endX - startX, (float)laneH - 4.0f);
+                        auto cb = clipBodyArea (y, laneH, startX, endX - startX);
 
                         if (cb.getRight() >= kHeaderWidth && cb.getX() <= (float)getWidth())
                         {
@@ -2886,7 +3095,7 @@ public:
                 resizeTrack  = edgeTrack;
                 resizeGroup  = getResizeGroup (edgeTrack);
                 resizeStartY = e.y;
-                resizeStartH = getLaneHeight (edgeTrack);
+                resizeStartH = getStoredLaneHeight (edgeTrack);
                 return;
             }
 
@@ -3084,18 +3293,16 @@ public:
                 auto& row = rows.getReference (i);
                 if (targetY >= row.y && targetY < row.y + row.height)
                 {
-                    int rowTop = kRulerH + row.y - scrollY;
-                    int btnY    = rowTop + 32;
-                    int fxY     = btnY + 24;
-                    int textX   = 14 + row.indent;
+                    const int rowTop = kRulerH + row.y - scrollY;
+                    const auto layout = getHeaderLayout (rowTop, getLaneHeight (row.track), row.indent);
                     auto* clickedTrack = row.track;
                     auto* folder = dynamic_cast<tracktion::FolderTrack*> (row.track);
 
                     // Chevron hit test for folders
                     if (folder != nullptr)
                     {
-                        auto chevronR = juce::Rectangle<int> (textX - 10, rowTop + 10, 10, 10);
-                        if (chevronR.contains (e.getPosition()))
+                        // A little wider than drawn: it is small.
+                        if (layout.chevron.expanded (3).contains (e.getPosition()))
                         {
                             juce::String fid = folder->itemID.toString();
                             if (collapsedFolders.contains (fid)) collapsedFolders.removeString (fid);
@@ -3140,8 +3347,7 @@ public:
                     }
 
                     // FX hit.
-                    if (getLaneHeight (clickedTrack) >= kTrackH
-                        && juce::Rectangle<int>(textX, fxY, 76, 20).contains (e.getPosition()))
+                    if (layout.fx.contains (e.getPosition()))
                     {
                         auto* w = new PluginManagerWindow (clickedTrack, audioEngine);
                         w->toFront(true);
@@ -3363,7 +3569,7 @@ public:
 
         // Also reachable by dragging the lane's bottom edge in the header.
         {
-            const int current = getLaneHeight (track);
+            const int current = getStoredLaneHeight (track);
             juce::PopupMenu heightSub;
             for (int i = 0; i < kNumTrackHeightPresets; ++i)
                 heightSub.addItem (30 + i, kTrackHeightPresets[i].name, true, current == kTrackHeightPresets[i].height);
@@ -3453,7 +3659,8 @@ public:
     {
         if (resizeTrack != nullptr)
         {
-            setLaneHeights (resizeGroup, resizeStartH + (e.y - resizeStartY));
+            // The drag is on screen, at the vertical zoom; the saved height is not.
+            setLaneHeights (resizeGroup, resizeStartH + juce::roundToInt ((e.y - resizeStartY) / verticalZoom));
             return;
         }
 
@@ -3777,7 +3984,7 @@ public:
         if (resizeTrack != nullptr)
         {
             for (auto* t : resizeGroup)
-                if (getLaneHeight (t) != resizeStartH)
+                if (getStoredLaneHeight (t) != resizeStartH)
                 {
                     audioEngine.getEdit().markAsChanged();
                     break;
@@ -3971,7 +4178,12 @@ public:
                 {
                     trackBeingRenamed = row.track;
                     trackNameEditor.setText (trackBeingRenamed->getName(), false);
-                    trackNameEditor.setBounds (8, kRulerH + row.y - scrollY + 8, kHeaderWidth - 80, 24);
+                    const int rowTop = kRulerH + row.y - scrollY;
+                    const int laneH = getLaneHeight (row.track);
+                    if (laneH < kMinTrackH)
+                        trackNameEditor.setBounds (getHeaderLayout (rowTop, laneH, row.indent).name.withX (8).expanded (0, 2));
+                    else
+                        trackNameEditor.setBounds (8, rowTop + 8, kHeaderWidth - 80, 24);
                     trackNameEditor.setVisible (true);
                     trackNameEditor.grabKeyboardFocus();
                     trackNameEditor.selectAll();
@@ -4073,7 +4285,7 @@ public:
     void zoomAround (float x, double factor)
     {
         const double timeAtX = xToTime (x);
-        pxPerSec = juce::jlimit (1.0, 2000.0, pxPerSec * factor);
+        pxPerSec = juce::jlimit (kMinPxPerSec, kMaxPxPerSec, pxPerSec * factor);
         zoomSlider.setValue (pxPerSec, juce::dontSendNotification);
         scrollPx = pixelsForStartTime (timeAtX - (x - kHeaderWidth) / pxPerSec);
 
@@ -4317,6 +4529,7 @@ private:
     double scrollPx  = 0.0;
     double pxPerSec  = 100.0;
     int    scrollY   = 0;
+    double verticalZoom = 1.0;   // getLaneHeight: saved heights times this
 
     // Follow Playback (followPlayhead): the state seen on the previous frame.
     bool   followPlayback       = false;
@@ -4327,6 +4540,8 @@ private:
     juce::ScrollBar horizontalScrollBar { false };
     juce::ScrollBar verticalScrollBar   { true };
     juce::Slider    zoomSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
+    juce::Slider    verticalZoomSlider { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
+    static constexpr int kZoomGlyphW = 16;
 
     struct TooltipInfo
     {

@@ -38,7 +38,10 @@ A milestone is done when its items are verified: benchmark targets for performan
 ## Milestone 7 — Pro Composition & Audio Editing (v0.7.0)
 *Close pro-composition DAW gaps for songwriters, composers, and vocal producers.*
 
-*Custom keyboard shortcuts shipped in Milestone 4 — see `AerionKeymap` / `KeyboardShortcutsPanel`.*
+*Custom keyboard shortcuts shipped in Milestone 4, and presets with other DAWs' keys (Cubase, Pro Tools, Logic Pro, Ableton Live, Studio One, REAPER) in v0.5.3 — see `AerionKeymap` / `AerionKeymapPreset` / `KeyboardShortcutsPanel`.*
+
+- [ ] **Timecode & Sync (first step towards video):** SMPTE timecode in the transport display and ruler (23.976 / 24 / 25 / 29.97 drop / 30 fps), a project start time (e.g. 01:00:00:00), and MIDI Time Code out and in, so Aerion can follow or lead a video player or another DAW. *Moved up from Future after tester feedback (October 12, 2026): scoring to picture.*
+- [ ] **Video Track:** Import a video file, show it in a floating or docked video window that follows the transport frame-accurately, with an offset, a thumbnail lane on the Timeline, and audio extraction from the video. Builds on Timecode & Sync. Needs a decoder decision (platform frameworks: Media Foundation / AVFoundation, or FFmpeg and its licence).
 
 - [ ] **Command Palette + Action Registry:** Centralise every menu item, toolbar action, shortcut, and context command behind a single action registry. This becomes the foundation for custom keymaps, macros, command search, and eventual scripting.
 - [ ] **Macro Actions:** Let users chain existing commands into named macros, assign shortcuts, and store them in the project/user settings. This is the REAPER-style productivity bridge before full scripting.

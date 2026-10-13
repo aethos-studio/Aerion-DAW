@@ -990,18 +990,18 @@ int main (int argc, char* argv[])
         if (auto rows = timeline.getVisibleRows(); ! rows.isEmpty())
         {
             auto* track = rows.getFirst().track;
-            auto edgeY = [&] { return (float) (Timeline::kRulerH + rows.getFirst().y + Timeline::getLaneHeight (track)
+            auto edgeY = [&] { return (float) (Timeline::kRulerH + rows.getFirst().y + timeline.getLaneHeight (track)
                                                - timeline.getScrollY()); };
             audioEngine.markEditSaved();
 
             const juce::Point<float> start (100.0f, edgeY());
             dragMouse (timeline, start, start.translated (0.0f, 40.0f));
-            const int grown = Timeline::getLaneHeight (track);
+            const int grown = Timeline::getStoredLaneHeight (track);
             const bool marked = audioEngine.hasUnsavedEdits();
 
             const juce::Point<float> again (100.0f, edgeY());
             dragMouse (timeline, again, again.translated (0.0f, -500.0f));
-            const int shrunk = Timeline::getLaneHeight (track);
+            const int shrunk = Timeline::getStoredLaneHeight (track);
 
             auto check = [&] (const juce::String& name, bool ok, const juce::String& detail)
             {
@@ -1013,6 +1013,52 @@ int main (int argc, char* argv[])
             check ("resize marks project unsaved", marked, marked ? "yes" : "no");
 
             timeline.setLaneHeights ({ track }, Timeline::kTrackH);
+
+            // Vertical zoom: lanes shrink on screen, the saved heights stay, and
+            // a drag on screen changes the saved height by the unzoomed amount.
+            std::cout << "[verify vertical zoom]" << std::endl;
+            timeline.setVerticalZoom (0.5);
+            const int zoomedH = timeline.getLaneHeight (track);
+            check ("half zoom halves the lane", zoomedH == Timeline::kTrackH / 2, juce::String (zoomedH) + " px");
+            check ("saved height unchanged", Timeline::getStoredLaneHeight (track) == Timeline::kTrackH,
+                   juce::String (Timeline::getStoredLaneHeight (track)) + " px");
+
+            const juce::Point<float> zoomedEdge (100.0f, edgeY());
+            dragMouse (timeline, zoomedEdge, zoomedEdge.translated (0.0f, 20.0f));
+            const int afterZoomedDrag = Timeline::getStoredLaneHeight (track);
+            check ("20 px drag at half zoom = 40", afterZoomedDrag == Timeline::kTrackH + 40, juce::String (afterZoomedDrag) + " px");
+            timeline.setLaneHeights ({ track }, Timeline::kTrackH);
+
+            // A compact (one-line) header still takes clicks on M.
+            // The header's button bounds are laid out by a paint.
+            timeline.setVerticalZoom (Timeline::kMinVerticalZoom);
+            {
+                auto scratch = makeImage (timeline.getWidth(), timeline.getHeight(), juce::SoftwareImageType());
+                paintInto (scratch, timeline);
+            }
+            const auto compactRows = timeline.getVisibleRows();
+            const int compactH = timeline.getLaneHeight (track);
+            check ("min zoom gives compact rows", compactH == Timeline::kMinZoomedTrackH, juce::String (compactH) + " px");
+            const auto layout = Timeline::getHeaderLayout (Timeline::kRulerH + compactRows.getFirst().y - timeline.getScrollY(),
+                                                           compactH, compactRows.getFirst().indent);
+            const bool mutedBefore = track->isMuted (false);
+            dragMouse (timeline, layout.m.getCentre().toFloat(), layout.m.getCentre().toFloat());
+            const bool mutedAfter = track->isMuted (false);
+            check ("compact header M toggles mute", mutedAfter != mutedBefore, mutedAfter ? "muted" : "unmuted");
+            if (mutedAfter != mutedBefore)
+                audioEngine.toggleTrackMute (track);
+
+            // Fit All Tracks: everything fits the lane area, as big as it can.
+            timeline.setVerticalZoom (2.0);
+            timeline.fitAllTracks();
+            int contentH = 0;
+            for (auto& r : timeline.getVisibleRows())
+                contentH = juce::jmax (contentH, r.y + r.height);
+            const int visibleH = timeline.getHeight() - Timeline::kRulerH - Timeline::kFooterH;
+            check ("fit all tracks fits", contentH <= visibleH || timeline.getVerticalZoom() == Timeline::kMinVerticalZoom,
+                   juce::String (contentH) + " of " + juce::String (visibleH) + " px at " + juce::String (timeline.getVerticalZoom(), 2));
+
+            timeline.setVerticalZoom (1.0);
         }
     }
 
@@ -1083,6 +1129,12 @@ int main (int argc, char* argv[])
             writeSnapshot (timeline,  scale, dir.getChildFile ("timeline"  + suffix));
             writeSnapshot (mixer,     scale, dir.getChildFile ("mixer"     + suffix));
         }
+
+        // Zoomed out vertically: compact one-line headers.
+        timeline.setVerticalZoom (Timeline::kMinVerticalZoom);
+        for (float scale : { 1.0f, 1.5f })
+            writeSnapshot (timeline, scale, dir.getChildFile (scale > 1.0f ? "timeline_compact_150.png" : "timeline_compact_100.png"));
+        timeline.setVerticalZoom (1.0);
 
         sourceFile.deleteFile();
         return 0;

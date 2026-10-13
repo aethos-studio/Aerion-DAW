@@ -71,11 +71,17 @@ cmake --build build --preset win-msvc-release
 # Tests
 cmake --preset win-msvc-debug-tests -S AerionDawCpp -B build
 cmake --build build --preset win-msvc-debug-tests
-ctest --test-dir build -C Debug --output-on-failure
+ctest --test-dir build -C Debug -R Aerion --output-on-failure
 ```
 
 All Windows presets use **Visual Studio 17 2022**, **x64**, and write output under `build/`
 (`win-msvc-profiling` uses `build-profiling/` so it never clobbers your daily build tree).
+
+The build presets build only Aerion's own targets: `AerionDaw`, plus `AerionTests` and
+`AerionBench` for `win-msvc-debug-tests`. Tracktion Engine adds its example apps and plugins to
+every configure (its `examples` folder ignores `TRACKTION_BUILD_EXAMPLES`), and one of them,
+`EngineInPluginDemo`'s LV2 step, crashes on Windows. They are not built, so `ctest` without
+`-R Aerion` lists Tracktion's `Benchmarks` and `TestRunner` as "Not Run"; that is not a failure.
 
 ---
 
@@ -268,7 +274,7 @@ GitHub Actions (`.github/workflows/build-test.yml`) uses:
 cmake -S AerionDawCpp -B build -G "Visual Studio 17 2022" -A x64 -DAERION_BUILD_TESTS=ON
 cmake --build build --config Release --target AerionDaw
 cmake --build build --config Release --target AerionTests
-ctest --test-dir build -C Release --output-on-failure
+ctest --test-dir build -C Release -R Aerion --output-on-failure
 ```
 
 Local Debug presets are fine for day-to-day work; run Release + tests before opening a PR.

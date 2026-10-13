@@ -261,7 +261,7 @@ MainComponent::MainComponent()
     menuBar.onUndo = [this] { audioEngine.undo(); };
     menuBar.onRedo = [this] { audioEngine.redo(); };
 
-    menuBar.onToggleMetronome       = [this] { audioEngine.toggleMetronome(); transport.repaint(); };
+    menuBar.onToggleMetronome       = [this] { audioEngine.toggleMetronome(); syncToolbarFromEngine(); transport.repaint(); };
     menuBar.onShowMetronomeSettings = [this] {
         auto popup = std::make_unique<MetronomeSettingsPopup> (audioEngine);
         juce::CallOutBox::launchAsynchronously (std::move (popup), menuBar.getScreenBounds(), this);
@@ -409,6 +409,20 @@ MainComponent::MainComponent()
             audioEngine.play();
         timeline.repaint();
         transport.repaint();
+    };
+    menuBar.onGoToEnd = [this] {
+        audioEngine.setTransportPosition (audioEngine.getEdit().getLength().inSeconds());
+        timeline.repaint();
+        transport.repaint();
+    };
+    menuBar.onViewAction = [this] (const juce::String& id) {
+        if      (id == "view.zoomIn")          timeline.zoomHorizontallyBy (1.25);
+        else if (id == "view.zoomOut")         timeline.zoomHorizontallyBy (0.8);
+        else if (id == "view.zoomInVertical")  timeline.zoomVerticallyBy (1.25);
+        else if (id == "view.zoomOutVertical") timeline.zoomVerticallyBy (0.8);
+        else if (id == "view.fitProject")      timeline.fitProject();
+        else if (id == "view.fitTracks")       timeline.fitAllTracks();
+        else if (id == "view.zoomToLoop")      timeline.zoomToLoopRange();
     };
     menuBar.onToggleLoop  = [this] { audioEngine.toggleLoop(); transport.repaint(); };
     menuBar.onTogglePunch = [this] {
@@ -916,6 +930,20 @@ bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component* orig
 
     if (km.matches ("transport.follow", key)) { setFollowPlayback (! timeline.isFollowingPlayback()); return true; }
 
+    if (km.matches ("transport.loop", key))      { audioEngine.toggleLoop(); transport.repaint(); syncMenuBarState(); return true; }
+    if (km.matches ("transport.metronome", key)) { audioEngine.toggleMetronome(); syncToolbarFromEngine(); syncMenuBarState(); transport.repaint(); return true; }
+    if (km.matches ("edit.snap", key))           { if (menuBar.onToggleSnap) menuBar.onToggleSnap(); syncMenuBarState(); return true; }
+    if (km.matches ("clip.split", key))          { splitClipsAtPlayhead(); return true; }
+
+    if (km.matches ("tool.select", key)) { setActiveTool (EditTool::select); return true; }
+    if (km.matches ("tool.razor",  key)) { setActiveTool (EditTool::razor);  return true; }
+    if (km.matches ("tool.comp",   key)) { setActiveTool (EditTool::comp);   return true; }
+
+    for (auto& zoom : DAWMenuBar::kZoomActions)
+        if (km.matches (zoom.id, key)) { menuBar.onViewAction (zoom.id); return true; }
+
+    if (km.matches ("transport.goToEnd", key)) { menuBar.onGoToEnd(); return true; }
+
     if (km.matches ("transport.goToStart", key))
     {
         bool wasPlaying = audioEngine.isPlaying();
@@ -1240,7 +1268,49 @@ void MainComponent::syncToolbarFromEngine()
     toolbar.punchEnabled = audioEngine.isPunchEnabled();
     toolbar.pdcEnabled   = audioEngine.isLatencyCompensationEnabled();
     toolbar.countInBars  = audioEngine.getCountInBars();
+    toolbar.metronomeEnabled = audioEngine.isMetronomeEnabled();
     toolbar.repaint();
+}
+
+void MainComponent::setActiveTool (EditTool tool)
+{
+    toolbar.activeTool  = tool;
+    timeline.activeTool = tool;
+    toolbar.repaint();
+    timeline.repaint();
+}
+
+void MainComponent::splitClipsAtPlayhead()
+{
+    const auto at = tracktion::TimePosition::fromSeconds (audioEngine.getTransportPosition());
+
+    // The selected clip; otherwise every clip under the playhead on the selected tracks.
+    juce::Array<tracktion::Clip*> clips;
+    if (auto* clip = timeline.selectedClip)
+        clips.add (clip);
+    else
+        for (auto* t : timeline.getSelectedTracks())
+            if (auto* ct = dynamic_cast<tracktion::ClipTrack*> (t))
+                for (auto* c : ct->getClips())
+                    clips.add (c);
+
+    bool split = false;
+    for (auto* clip : clips)
+    {
+        const auto pos = clip->getPosition();
+        if (at <= pos.getStart() || at >= pos.getEnd() || isClipTrackFrozenOrFreezing (audioEngine, clip))
+            continue;
+        if (auto* ct = clip->getClipTrack())
+        {
+            if (clip == timeline.selectedClip)
+                timeline.clearSelectedClip();
+            ct->splitClip (*clip, at);
+            split = true;
+        }
+    }
+
+    if (split)
+        timeline.repaint();
 }
 
 void MainComponent::syncMenuBarState()
@@ -1799,9 +1869,18 @@ void MainComponent::resized()
     auto centerBounds = bounds;
     static constexpr int kTabH = 22;
 
+    // Until the divider is dragged or a workspace sets it, the bottom panel
+    // takes the same share of the window on every screen.
+    if (! mixerHeightChosen)
+        mixerHeight = juce::roundToInt ((float) getHeight() * kDefaultMixerShare);
+    // Clamped here, not where it is set, so a window that is briefly small
+    // (while it opens) does not shrink the height the user chose.
+    const int bottomH = juce::jlimit (100, juce::jmax (140, getHeight() - 400), mixerHeight);
+    shownMixerHeight = bottomH;
+
     if (! mixer.detached)
     {
-        auto bottomArea = centerBounds.removeFromBottom (mixerHeight + 4 + kTabH);
+        auto bottomArea = centerBounds.removeFromBottom (bottomH + 4 + kTabH);
 
         // Tab bar strip
         auto tabStrip = bottomArea.removeFromTop (kTabH);
@@ -1853,13 +1932,13 @@ void MainComponent::resized()
 
         if (bottomPanel == BottomPanel::Console)
         {
-            auto cArea = centerBounds.removeFromBottom (mixerHeight);
+            auto cArea = centerBounds.removeFromBottom (bottomH);
             consolePanel.setVisible (true);
             consolePanel.setBounds (cArea);
         }
         else if (embeddedPianoRoll && bottomPanel == BottomPanel::PianoRoll)
         {
-            auto prArea = centerBounds.removeFromBottom (mixerHeight);
+            auto prArea = centerBounds.removeFromBottom (bottomH);
             embeddedPianoRoll->setVisible (true);
             embeddedPianoRoll->setBounds (prArea);
         }
@@ -1956,8 +2035,9 @@ void MainComponent::applyWorkspaceLayout (const WorkspaceLayout& layout)
     else
         bottomPanel = BottomPanel::Mixer;
 
-    const int maxMixerH = juce::jmax (140, getHeight() - 400);
-    mixerHeight = juce::jlimit (100, maxMixerH, layout.mixerHeight);
+    // resized() fits it to the window.
+    mixerHeight = layout.mixerHeight;
+    mixerHeightChosen = true;
 
     if (layout.mixerDetached && ! mixer.detached)      detachMixer();
     else if (! layout.mixerDetached && mixer.detached) reattachMixer();

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Aerion DAW Manual</title>
-<meta name="description" content="The complete user manual for Aerion DAW 0.5.0 Alpha by Aethos Studio.">
+<meta name="description" content="The complete user manual for Aerion DAW 0.5.3 Alpha by Aethos Studio.">
 <style>
 :root { color-scheme: dark; }
 html, body { margin: 0; }
@@ -651,7 +651,13 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
       <tr><td><kbd>Ctrl</kbd> + wheel, or pinch</td><td class="wrap">Zooms in and out around the mouse pointer.</td></tr>
     </tbody>
   </table></div>
-  <p>The zoom slider and the horizontal scroll bar at the bottom of the timeline do the same. The piano roll scrolls and zooms the same way.</p>
+  <p>The scroll bars do the same. The piano roll scrolls and zooms the same way.</p>
+  <p>Below the track headers are two zoom sliders. The one marked <span class="ui">↔</span> zooms the time, so you can see a longer or shorter part of the song. The one marked <span class="ui">↕</span> makes all tracks shorter or taller at once, so you can fit more tracks on screen. Each track keeps its own height relative to the others, and zoomed far out a track shows just its name and its M, S, R and A buttons. Double-click a slider to reset it. <span class="menu">View › Zoom</span> has the same zooms with keys, and three more:</p>
+  <ul>
+    <li><strong>Zoom to Project</strong> (<kbd>Shift</kbd> <kbd>F</kbd>) shows the whole song from start to end.</li>
+    <li><strong>Fit All Tracks</strong> (<kbd>Shift</kbd> <kbd>T</kbd>) makes the tracks as tall as they can be with all of them on screen.</li>
+    <li><strong>Zoom to Loop Range</strong> (<kbd>Shift</kbd> <kbd>L</kbd>) shows exactly the loop range. To see a span of your choosing, <kbd>Alt</kbd>-drag it on the ruler, then press <kbd>Shift</kbd> <kbd>L</kbd>.</li>
+  </ul>
   <p><strong>Follow Playback</strong> keeps the playhead in view while the song plays, in the Timeline and in the Piano Roll. It is on unless you turn it off with <span class="menu">Transport › Follow Playback</span>, the follow button in the toolbar, or <kbd>F</kbd>. When the playhead reaches the right edge, the view moves on so it shows again on the left. If you scroll elsewhere during playback, Aerion leaves you there until you scroll back to the playhead or start playback somewhere new.</p>
 </section>
 
@@ -1043,11 +1049,12 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
 
   <h3>Keyboard shortcuts</h3>
   <p><span class="menu">Help › Keyboard Shortcuts…</span> lists every command and its key.</p>
+  <p><strong>Coming from another DAW?</strong> Choose it under <span class="ui">Preset</span> at the top: Cubase, Pro Tools, Logic Pro, Ableton Live, Studio One or REAPER. Aerion then uses that program's keys for the commands it has too, such as record, loop, split, zoom and tools. Commands the other program has no key for keep Aerion's key, and an Aerion key the preset gives to another command is left unassigned. Keys are those programs' factory defaults, so if you changed yours there, change them here too.</p>
   <ol class="steps">
     <li>Click a command, then press the new key or combination. <kbd>Esc</kbd> cancels.</li>
     <li>If the key is already used, Aerion asks whether to <span class="ui">Reassign</span> it.</li>
   </ol>
-  <p><span class="ui">Export…</span> and <span class="ui">Import…</span> save and load your shortcuts as an <code>.aerionkeys</code> file, to take them to another computer. <span class="ui">Reset to Defaults</span> restores the original keys. Mouse gestures are shown for reference but can't be changed.</p>
+  <p>Keys you change are kept on top of the preset; the dialog says <span class="ui">with your changes</span> next to it. <span class="ui">Reset to Preset</span> undoes your changes. <span class="ui">Export…</span> and <span class="ui">Import…</span> save and load your shortcuts, preset included, as an <code>.aerionkeys</code> file, to take them to another computer. Mouse gestures are shown for reference but can't be changed.</p>
   <p>The menus show the key each command is bound to, including keys you changed, on Windows and in the macOS menu bar.</p>
 </section>
 
@@ -1128,7 +1135,7 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
 <section class="chapter" id="shortcuts">
   <div class="eyebrow">Chapter 20</div>
   <h2>Shortcut reference</h2>
-  <p class="intro">The default keys. Change them in <span class="menu">Help › Keyboard Shortcuts…</span>. On macOS, <kbd>Ctrl</kbd> is <kbd>Cmd</kbd>, <kbd>Alt</kbd> is <kbd>Option</kbd>, <kbd>Delete</kbd> is the Mac's <kbd>Delete</kbd> key, and on a laptop <kbd>Home</kbd> is <kbd>fn</kbd> <kbd>←</kbd>.</p>
+  <p class="intro">The default keys (the Aerion preset). Change them, or switch to another DAW's keys, in <span class="menu">Help › Keyboard Shortcuts…</span>. On macOS, <kbd>Ctrl</kbd> is <kbd>Cmd</kbd>, <kbd>Alt</kbd> is <kbd>Option</kbd>, <kbd>Delete</kbd> is the Mac's <kbd>Delete</kbd> key, and on a laptop <kbd>Home</kbd> is <kbd>fn</kbd> <kbd>←</kbd>.</p>
 
   <h4>File &amp; Edit</h4>
   <div class="table-wrap"><table><tbody>
@@ -1137,6 +1144,7 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
     <tr><td><kbd>Ctrl</kbd> <kbd>S</kbd></td><td class="wrap">Save Project</td></tr>
     <tr><td><kbd>Ctrl</kbd> <kbd>Z</kbd></td><td class="wrap">Undo</td></tr>
     <tr><td><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>Z</kbd></td><td class="wrap">Redo</td></tr>
+    <tr><td><kbd>Ctrl</kbd> <kbd>G</kbd></td><td class="wrap">Snap to Grid on / off</td></tr>
     <tr><td><kbd>Ctrl</kbd> <kbd>,</kbd></td><td class="wrap">Audio Settings</td></tr>
   </tbody></table></div>
 
@@ -1144,9 +1152,21 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
   <div class="table-wrap"><table><tbody>
     <tr><td><kbd>Space</kbd></td><td class="wrap">Play / Stop</td></tr>
     <tr><td><kbd>Ctrl</kbd> <kbd>R</kbd></td><td class="wrap">Record</td></tr>
-    <tr><td><kbd>Home</kbd></td><td class="wrap">Go to Start</td></tr>
+    <tr><td><kbd>Home</kbd> / <kbd>End</kbd></td><td class="wrap">Go to Start / End</td></tr>
+    <tr><td><kbd>L</kbd></td><td class="wrap">Loop on / off</td></tr>
+    <tr><td><kbd>C</kbd></td><td class="wrap">Metronome on / off</td></tr>
     <tr><td><kbd>F</kbd></td><td class="wrap">Follow Playback on / off</td></tr>
+    <tr><td><kbd>H</kbd> / <kbd>G</kbd></td><td class="wrap">Zoom In / Out (time)</td></tr>
+    <tr><td><kbd>Shift</kbd> <kbd>H</kbd> / <kbd>G</kbd></td><td class="wrap">Zoom In / Out (track height)</td></tr>
+    <tr><td><kbd>Shift</kbd> <kbd>F</kbd></td><td class="wrap">Zoom to Project</td></tr>
+    <tr><td><kbd>Shift</kbd> <kbd>T</kbd></td><td class="wrap">Fit All Tracks</td></tr>
+    <tr><td><kbd>Shift</kbd> <kbd>L</kbd></td><td class="wrap">Zoom to Loop Range</td></tr>
     <tr><td><kbd>F6</kbd></td><td class="wrap">Focus Next Pane</td></tr>
+  </tbody></table></div>
+
+  <h4>Tools</h4>
+  <div class="table-wrap"><table><tbody>
+    <tr><td><kbd>1</kbd> / <kbd>2</kbd> / <kbd>3</kbd></td><td class="wrap">Select / Razor / Comp tool</td></tr>
   </tbody></table></div>
 
   <h4>Tracks &amp; clips</h4>
@@ -1156,6 +1176,7 @@ footer .fm { font-family: var(--display); letter-spacing: .2em; color: var(--fg)
     <tr><td><kbd>R</kbd></td><td class="wrap">Toggle Record Arm</td></tr>
     <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td class="wrap">Nudge Clip Left / Right</td></tr>
     <tr><td><kbd>Alt</kbd> <kbd>←</kbd> / <kbd>→</kbd></td><td class="wrap">Trim Clip Shorter / Longer</td></tr>
+    <tr><td><kbd>Ctrl</kbd> <kbd>E</kbd></td><td class="wrap">Split Clip at Playhead (the selected clip, or every clip under the playhead on the selected tracks)</td></tr>
     <tr><td><kbd>Delete</kbd></td><td class="wrap">Delete Clip / Track</td></tr>
     <tr><td><kbd>X</kbd></td><td class="wrap">Force Crossfade</td></tr>
   </tbody></table></div>

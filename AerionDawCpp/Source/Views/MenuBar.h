@@ -68,6 +68,9 @@ public:
     std::function<void()> onPlay, onStop, onRecord, onGoToStart;
     std::function<void()> onToggleLoop, onTogglePunch, onToggleFollowPlayback;
     std::function<void()> onToggleInspector, onToggleBrowser, onToggleMixerDetach;
+    std::function<void()> onGoToEnd;
+    /** A View › Zoom item, by its keymap action id ("view.zoomIn", ...). */
+    std::function<void(const juce::String&)> onViewAction;
     std::function<void(juce::String)> onApplyWorkspace;
     std::function<void()>             onSaveWorkspace;
     std::function<void(juce::String)> onDeleteWorkspace;
@@ -513,10 +516,10 @@ private:
         countInSub.addItem (22, "2 Bars", true, countInBars == 2);
 
         juce::PopupMenu m;
-        m.addItem (1, "Metronome",             true, metronomeOn);
+        m.addItem (1, "Metronome" + hint ("transport.metronome"), true, metronomeOn);
         m.addItem (2, "Metronome Settings...");
         m.addSeparator();
-        m.addItem (3, "Snap to Grid",          true, snapEnabled);
+        m.addItem (3, "Snap to Grid" + hint ("edit.snap"), true, snapEnabled);
         m.addSubMenu ("Snap Interval", snapSub);
         m.addSeparator();
         m.addSubMenu ("Count-In", countInSub);
@@ -642,9 +645,10 @@ private:
         m.addItem (3, "Record" + hint ("transport.record"));
         m.addSeparator();
         m.addItem (4, "Go to Start" + hint ("transport.goToStart"));
+        m.addItem (8, "Go to End" + hint ("transport.goToEnd"));
         m.addItem (7, "Follow Playback" + hint ("transport.follow"), true, followPlayback);
         m.addSeparator();
-        m.addItem (5, "Loop",         true, loopEnabled);
+        m.addItem (5, "Loop" + hint ("transport.loop"), true, loopEnabled);
         m.addItem (6, "Punch In/Out", true, punchEnabled);
         m.addSubMenu ("Count-In", countInSub);
         return m;
@@ -659,6 +663,7 @@ private:
         if (r == 5  && onToggleLoop)     onToggleLoop();
         if (r == 6  && onTogglePunch)    onTogglePunch();
         if (r == 7  && onToggleFollowPlayback) onToggleFollowPlayback();
+        if (r == 8  && onGoToEnd)        onGoToEnd();
         if (r == 10 && onCountInChanged) onCountInChanged (0);
         if (r == 11 && onCountInChanged) onCountInChanged (1);
         if (r == 12 && onCountInChanged) onCountInChanged (2);
@@ -672,6 +677,17 @@ private:
         m.addSeparator();
         m.addItem (3, mixerDetached ? "Dock Mixer" : "Detach Mixer");
         m.addItem (4, "Meters");
+        m.addSeparator();
+
+        // Ids 800 + index into kZoomActions; the footer sliders do the same.
+        juce::PopupMenu zoomSub;
+        for (int i = 0; i < (int) std::size (kZoomActions); ++i)
+        {
+            if (i == 4)
+                zoomSub.addSeparator();
+            zoomSub.addItem (800 + i, juce::String (kZoomActions[i].name) + hint (kZoomActions[i].id));
+        }
+        m.addSubMenu ("Zoom", zoomSub);
         m.addSeparator();
 
         juce::PopupMenu wsSub;
@@ -727,8 +743,23 @@ private:
         return m;
     }
 
+public:
+    /** View › Zoom, by keymap action id; MainComponent runs them for keys too. */
+    struct ZoomAction { const char* id; const char* name; };
+    static constexpr ZoomAction kZoomActions[] = {
+        { "view.zoomIn",           "Zoom In (Time)" },
+        { "view.zoomOut",          "Zoom Out (Time)" },
+        { "view.zoomInVertical",   "Zoom In (Track Height)" },
+        { "view.zoomOutVertical",  "Zoom Out (Track Height)" },
+        { "view.fitProject",       "Zoom to Project" },
+        { "view.fitTracks",        "Fit All Tracks" },
+        { "view.zoomToLoop",       "Zoom to Loop Range" } };
+
+private:
     void viewMenuResult (int r)
     {
+        if (r >= 800 && r < 800 + (int) std::size (kZoomActions) && onViewAction)
+            onViewAction (kZoomActions[r - 800].id);
         if (r >= 700 && r <= 708 && onUiSizeChanged)
             onUiSizeChanged (r == 700 ? 0 : (r - 700) * 25);
         if (r >= 500 && r <= 502 && onGraphicsEngineChanged)

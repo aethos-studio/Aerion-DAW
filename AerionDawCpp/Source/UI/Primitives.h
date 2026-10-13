@@ -65,23 +65,12 @@ inline void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
     int faderTop = area.getY() + 4;
     int faderH   = area.getHeight() - 24;
 
-    // Meter scale: compress the -inf..0 dB range so 0 dB sits closer to the top,
-    // while keeping the fader knob mapping unchanged.
+    // The meters use the fader's scale, so a level reads the same on both:
+    // a peak at 0 dB lines up with the 0 dB tick and with a fader cap at 0 dB.
+    // (A separate, compressed meter scale put the same level a few pixels apart.)
     auto meterPosFromDb = [] (float db) -> float
     {
-        constexpr float kMin = AudioEngineManager::kMinVolumeDb; // -60
-        constexpr float kMax = 6.0f;
-        db = juce::jlimit (kMin, kMax, db);
-
-        // -60..0 occupies 88% of the height; 0..+6 occupies the top 12%.
-        if (db <= 0.0f)
-        {
-            float t = (db - kMin) / (0.0f - kMin);   // 0..1
-            return juce::jlimit (0.0f, 1.0f, t * 0.88f);
-        }
-
-        float t = db / kMax;                         // 0..1
-        return juce::jlimit (0.0f, 1.0f, 0.88f + t * 0.12f);
+        return AudioEngineManager::getFaderPosFromDb (db);
     };
 
     int cx      = area.getCentreX();
@@ -142,10 +131,8 @@ inline void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
     float maxPeak = measuredMaxPeak + faderGainDb;
     bool  clipping = maxPeak > 0.0f;
 
-    const float zeroMeterPos = meterPosFromDb (0.0f);
-    const int   zeroMeterY   = faderTop + (int) std::round (faderH * (1.0f - zeroMeterPos));
-    const float maxPeakPos   = meterPosFromDb (maxPeak);
-    const int   maxPeakY     = faderTop + (int) std::round (faderH * (1.0f - maxPeakPos));
+    const int   zeroMeterY   = faderYForLinearPos (meterPosFromDb (0.0f));
+    const int   maxPeakY     = faderYForLinearPos (meterPosFromDb (maxPeak));
 
     auto drawMeter = [&] (int mx)
     {
@@ -162,7 +149,7 @@ inline void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
 
         if (pPos > 0.0f)
         {
-            int mY = faderTop + (int) (faderH * (1.0f - pPos));
+            int mY = faderYForLinearPos (pPos);
             juce::ColourGradient mg (Theme::meterRed,   0, (float) faderTop,
                                      Theme::meterGreen, 0, (float) (faderTop + faderH), false);
             mg.addColour (0.17, Theme::meterYellow);
@@ -182,7 +169,7 @@ inline void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
             static constexpr float kK14[] = { -20.0f, -17.0f, -14.0f, -11.0f, -8.0f };
             for (float db : kK14)
             {
-                const int y = faderTop + (int) std::round (faderH * (1.0f - meterPosFromDb (db)));
+                const int y = faderYForLinearPos (meterPosFromDb (db));
                 const bool ref = juce::approximatelyEqual (db, -14.0f);
                 g.setColour ((ref ? Theme::textMain : Theme::textMuted).withAlpha (ref ? 0.85f : 0.35f));
                 g.drawHorizontalLine (y, (float) mx + 0.5f, (float) (mx + meter_w - 0.5f));
@@ -205,7 +192,9 @@ inline void paintFader (juce::Graphics& g, juce::Rectangle<int> area,
     float db   = audioEngine.getTrackVolumeDb (track);
     float sPos = AudioEngineManager::getFaderPosFromDb (db);
     const int   capY  = faderYForLinearPos (sPos);
-    const float capYf = (float) capY;
+    // + 0.5: ticks and meter lines fill the pixel row [y, y + 1), so their
+    // centre is half a pixel below y; the indicator must be centred there too.
+    const float capYf = (float) capY + 0.5f;
     if (faderKnobDrawable != nullptr)
     {
         constexpr float kSvgW = 18.0f;

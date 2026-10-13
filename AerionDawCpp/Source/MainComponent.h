@@ -99,6 +99,10 @@ private:
 
     void updateTitleBar();
     void syncToolbarFromEngine();
+    void setActiveTool (EditTool);
+    /** Splits the selected clip at the playhead, or with no clip selected,
+        every clip under the playhead on the selected tracks. */
+    void splitClipsAtPlayhead();
     void syncMenuBarState();
     void attachToCurrentEditState();
     void detachFromObservedEditState();
@@ -107,10 +111,12 @@ private:
     struct MixerResizer : public juce::Component
     {
         MixerResizer (MainComponent& mc) : owner (mc) { setMouseCursor (juce::MouseCursor::UpDownResizeCursor); }
-        void mouseDown (const juce::MouseEvent&) override { startHeight = owner.mixerHeight; }
+        void mouseDown (const juce::MouseEvent&) override { startHeight = owner.shownMixerHeight; }
         void mouseDrag (const juce::MouseEvent& e) override
         {
-            owner.mixerHeight = juce::jlimit (100, owner.getHeight() - 400, startHeight - e.getDistanceFromDragStartY());
+            owner.mixerHeightChosen = true;
+            owner.mixerHeight = juce::jlimit (100, juce::jmax (140, owner.getHeight() - 400),
+                                              startHeight - e.getDistanceFromDragStartY());
             owner.resized();
         }
         MainComponent& owner;
@@ -179,7 +185,13 @@ private:
     Transport  transport { audioEngine, projectData };
     TimelinePlayheadOverlay playheadOverlay { timeline, audioEngine };
 
-    int mixerHeight = 320;
+    // The bottom panel (Mixer, Piano Roll, Console). Until the divider is
+    // dragged or a workspace is applied it takes kDefaultMixerShare of the
+    // window's height: 320 px in an 858 px window, on every screen size.
+    static constexpr float kDefaultMixerShare = 320.0f / 858.0f;
+    int  mixerHeight       = 320;    // the height asked for; resized() clamps it to the window
+    bool mixerHeightChosen = false;  // set by a drag or a workspace
+    int  shownMixerHeight  = 320;    // what resized() last laid out
     MixerResizer    mixerResizer    { *this };
     PanelCollapseBtn inspectorToggle { true  };
     PanelCollapseBtn browserToggle   { false };
