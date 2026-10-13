@@ -249,7 +249,11 @@ public:
             expect (km.matches ("file.save",        juce::KeyPress::createFromDescription ("command + S")),
                     "actions a preset leaves out keep Aerion's keys");
             expect (! km.get ("tool.comp").isValid(), "a preset can leave an action unassigned");
-            expect (! km.differsFromPreset());
+
+            // differsFromPreset compares with this platform's keys, so apply them here
+            // (above, the Windows keys were applied on every platform).
+            km.applyPreset ("cubase");
+            expect (! km.differsFromPreset(), "a preset just applied has no changes");
 
             // Logic records with R, so Aerion's R for record arm goes.
             km.applyPreset ("logic", false);
