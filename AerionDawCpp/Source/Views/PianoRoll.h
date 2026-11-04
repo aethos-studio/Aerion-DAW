@@ -87,10 +87,34 @@ public:
         const int x = juce::roundToInt (beatToX (beat));
         if (x != playheadX)
         {
-            repaint (playheadStrip (playheadX));
+            repaintPlayheadStrip (playheadX);
             playheadX = x;
-            repaint (playheadStrip (playheadX));
+            repaintPlayheadStrip (playheadX);
         }
+    }
+
+    /** The playhead is drawn over the cached layer (paintPlayhead), so moving
+        it redraws the strips from cached pixels without running paint(). */
+    void repaintPlayheadStrip (int x)
+    {
+        if (auto* layer = dynamic_cast<CachedLayer*> (getCachedComponentImage()))
+            layer->repaintOverlay (playheadStrip (x));
+        else
+            repaint (playheadStrip (x));
+    }
+
+    void paintPlayhead (juce::Graphics& g)
+    {
+        const auto ga = gridArea();
+        const auto va = velocityArea();
+        playheadX = juce::roundToInt (beatToX (playheadBeat));
+        if (playheadX < kKeyW || playheadX >= ga.getRight())
+            return;
+
+        juce::Graphics::ScopedSaveState s (g);
+        g.excludeClipRegion (ccTypeCombo.getBounds());
+        g.setColour (Theme::textMain.withAlpha (0.85f));
+        g.fillRect ((float) playheadX, (float) kToolbarH, 1.5f, (float) (va.getBottom() - kToolbarH));
     }
 
     /** What updatePlayhead repaints for a playhead at x (AerionBench measures it). */
@@ -160,6 +184,15 @@ public:
 
         setWantsKeyboardFocus (true);
         setMouseCursor (juce::MouseCursor::NormalCursor);
+
+        // Rendered into a cached layer with the playhead drawn over it, as the
+        // Timeline is: playback redraws two playhead strips from cached pixels
+        // instead of the notes and lanes under them. paint() fills every pixel.
+        setOpaque (true);
+        auto* layer = new CachedLayer (*this);
+        layer->setUnderlay (Theme::bgBase);
+        layer->paintOverlay = [this] (juce::Graphics& g) { paintPlayhead (g); };
+        setCachedComponentImage (layer);
     }
 
     ~PianoRollEditor() override
@@ -306,12 +339,7 @@ public:
         if (endX > (float) kKeyW && endX < (float) ga.getRight())
             g.fillRect (endX, (float) kGridTop, 2.0f, (float) (va.getBottom() - kGridTop));
 
-        playheadX = juce::roundToInt (beatToX (playheadBeat));
-        if (playheadX >= kKeyW && playheadX < ga.getRight())
-        {
-            g.setColour (Theme::textMain.withAlpha (0.85f));
-            g.fillRect ((float) playheadX, (float) kToolbarH, 1.5f, (float) (va.getBottom() - kToolbarH));
-        }
+        // The playhead is not drawn here: the cached layer draws it on top (paintPlayhead).
     }
 
     void resized() override

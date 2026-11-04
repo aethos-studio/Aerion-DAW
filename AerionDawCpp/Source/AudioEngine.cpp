@@ -1,4 +1,5 @@
 #include "AudioEngine.h"
+#include "AutomationLanes.h"
 #include "ScannerProcesses.h"
 #include "ProjectData.h"
 #include "Export/MixdownExportJob.h"
@@ -158,6 +159,11 @@ namespace
         // A plugin that crashes while being scanned takes down a child process
         // (started in Main.cpp), not the app, and is listed as failed.
         bool canScanPluginsOutOfProcess() override { return true; }
+
+        // The automation recorder that follows each track's automation mode
+        // (read / touch / latch / write) and writes into the curve while
+        // playing; see Patches/tracktion/0003-automation-write-mode.patch.
+        bool enableExperimentalAutomation() override { return true; }
 
         // Tracktion asks for high priority while an Edit plays (2, realtime,
         // only when its useRealtime setting is on), so other programs cannot
@@ -536,6 +542,7 @@ void AudioEngineManager::releaseEditResources()
     // these must go while the Edit is still alive, never after it is replaced.
     trackMeters.clear();
     thumbnails.clear();
+    paramsInGesture.clear();   // parameters of this Edit
     selectionManager.deselectAll();
 
     // Faults are keyed by plugin address, which a new Edit may reuse.
@@ -806,6 +813,11 @@ void AudioEngineManager::attachEditListenerToCurrentEdit()
         editListener = std::make_unique<EditListener> (*this);
 
     edit->addListener (editListener.get());
+
+    // Writing is switched per track by its automation mode (Read writes
+    // nothing), so Tracktion's global write switch stays on.
+    edit->getAutomationRecordManager().setReadingAutomation (true);
+    edit->getAutomationRecordManager().setWritingAutomation (true);
 }
 
 te::Track* AudioEngineManager::findTrackById (const juce::String& id) const
@@ -1380,9 +1392,26 @@ void AudioEngineManager::moveInsertDevice (te::Track* track, te::Plugin* plugin,
 // stopped or playing, so a fader or pan move would snap straight back. The move
 // overrides the curve instead (it is bypassed, and stays in the project) until
 // the user re-enables automation. With a single point Tracktion moves that point.
+// While playing in Touch, Latch or Write, the move is recorded into the curve
+// instead, which must then be on.
+static bool isWritingAutomationFor (te::AutomatableParameter& p)
+{
+    auto& edit = p.getEdit();
+    return edit.getTransport().isPlaying()
+        && edit.getAutomationRecordManager().isWritingAutomation()
+        && te::getAutomationMode (p) != te::AutomationMode::read;
+}
+
 static void overrideAutomationForManualMove (te::AutomatableParameter& p)
 {
     auto& curve = p.getCurve();
+
+    if (isWritingAutomationFor (p))
+    {
+        if (curve.bypass.get())
+            curve.bypass = false;
+        return;
+    }
 
     if (curve.getNumPoints() > 1 && ! curve.bypass.get())
         curve.bypass = true;
@@ -1450,6 +1479,295 @@ te::AutomatableParameter* AudioEngineManager::getAutomationParam (te::Track* tra
         return (kind == AutomationParamKind::Volume) ? vp->volParam.get() : vp->panParam.get();
 
     return nullptr;
+}
+
+juce::String AudioEngineManager::getAutomationParamKey (te::Track* track, te::AutomatableParameter* param)
+{
+    if (track == nullptr || param == nullptr)
+        return {};
+
+    if (param == getAutomationParam (track, AutomationParamKind::Volume)) return kVolumeParamKey;
+    if (param == getAutomationParam (track, AutomationParamKind::Pan))    return kPanParamKey;
+
+    if (auto* plugin = param->getPlugin())
+        return plugin->itemID.toString() + "/" + param->paramID;
+
+    return {};
+}
+
+te::AutomatableParameter* AudioEngineManager::findAutomationParam (te::Track* track, const juce::String& key)
+{
+    if (track == nullptr || key.isEmpty())
+        return nullptr;
+
+    if (key == kVolumeParamKey) return getAutomationParam (track, AutomationParamKind::Volume);
+    if (key == kPanParamKey)    return getAutomationParam (track, AutomationParamKind::Pan);
+
+    const auto pluginID = te::EditItemID::fromString (key.upToFirstOccurrenceOf ("/", false, false));
+    const auto paramID  = key.fromFirstOccurrenceOf ("/", false, false);
+
+    for (auto* plugin : track->pluginList)
+        if (plugin->itemID == pluginID)
+            return plugin->getAutomatableParameterByID (paramID).get();
+
+    return nullptr;
+}
+
+juce::String AudioEngineManager::getAutomationParamName (te::Track* track, const juce::String& key)
+{
+    if (key == kVolumeParamKey) return "Volume";
+    if (key == kPanParamKey)    return "Pan";
+
+    if (auto* p = findAutomationParam (track, key))
+    {
+        if (auto* plugin = p->getPlugin())
+            return plugin->getName() + ": " + p->getParameterName();
+        return p->getParameterName();
+    }
+
+    return {};
+}
+
+juce::Array<AudioEngineManager::AutomationParamGroup> AudioEngineManager::getAutomationParamGroups (te::Track* track)
+{
+    juce::Array<AutomationParamGroup> groups;
+    if (track == nullptr)
+        return groups;
+
+    auto* volume = getAutomationParam (track, AutomationParamKind::Volume);
+    auto* pan    = getAutomationParam (track, AutomationParamKind::Pan);
+
+    AutomationParamGroup mixer;
+    if (volume != nullptr) mixer.params.add (volume);
+    if (pan != nullptr)    mixer.params.add (pan);
+    if (! mixer.params.isEmpty())
+        groups.add (mixer);
+
+    for (auto* plugin : track->pluginList)
+    {
+        if (dynamic_cast<te::LevelMeterPlugin*> (plugin) != nullptr)
+            continue;
+        if (volume != nullptr && plugin == volume->getPlugin())
+            continue;
+
+        AutomationParamGroup g;
+        g.name = plugin->getName();
+        g.params = plugin->getAutomatableParameters();
+        if (! g.params.isEmpty())
+            groups.add (g);
+    }
+
+    return groups;
+}
+
+void AudioEngineManager::setTrackAutomationMode (te::Track* track, te::AutomationMode mode)
+{
+    if (track == nullptr || track->automationMode.get() == mode)
+        return;
+
+    // Read during playback stops writing at once (Tracktion can end only every
+    // pass together, so passes on other tracks end too and start again on
+    // their next move). Other modes take effect from the next pass.
+    if (mode == te::AutomationMode::read && isPlaying())
+        edit->getAutomationRecordManager().punchOut (false);
+
+    track->automationMode = mode;
+    broadcastChange();
+
+    if (mode == te::AutomationMode::write && isPlaying())
+        startWriteModePasses();
+}
+
+te::AutomationMode AudioEngineManager::getTrackAutomationMode (te::Track* track) const
+{
+    return track != nullptr ? track->automationMode.get() : te::AutomationMode::read;
+}
+
+juce::String AudioEngineManager::automationModeName (te::AutomationMode mode)
+{
+    switch (mode)
+    {
+        case te::AutomationMode::read:  return "Read";
+        case te::AutomationMode::touch: return "Touch";
+        case te::AutomationMode::latch: return "Latch";
+        case te::AutomationMode::write: return "Write";
+    }
+    return {};
+}
+
+void AudioEngineManager::beginTrackParamGesture (te::Track* track, AutomationParamKind kind)
+{
+    if (auto* p = getAutomationParam (track, kind); p != nullptr && ! paramsInGesture.contains (p))
+    {
+        paramsInGesture.add (p);
+        p->parameterChangeGestureBegin();
+    }
+}
+
+void AudioEngineManager::endTrackParamGesture (te::Track* track, AutomationParamKind kind)
+{
+    if (auto* p = getAutomationParam (track, kind); p != nullptr && paramsInGesture.contains (p))
+    {
+        paramsInGesture.removeObject (p);
+        p->parameterChangeGestureEnd();
+    }
+}
+
+void AudioEngineManager::startWriteModePasses()
+{
+    if (edit == nullptr)
+        return;
+
+    for (auto* t : te::getAllTracks (*edit))
+    {
+        if (t->automationMode.get() != te::AutomationMode::write)
+            continue;
+
+        for (auto& lane : AutomationLanes::get (*t))
+            if (auto* p = findAutomationParam (t, lane.param))
+            {
+                if (p->getCurve().bypass.get())
+                    p->getCurve().bypass = false;
+                p->startWritingAutomation();
+            }
+    }
+}
+
+float AudioEngineManager::automationLanePosition (te::AutomatableParameter& param, float value)
+{
+    if (auto* vp = dynamic_cast<te::VolumeAndPanPlugin*> (param.getPlugin()))
+    {
+        if (&param == vp->volParam.get())
+        {
+            // Tracktion's slider-position formula (natural log), as the lane draws it.
+            const float db = value > 0.0f ? 20.0f * std::log (value) + 6.0f : -100.0f;
+            return getFaderPosFromDb (db);
+        }
+        if (&param == vp->panParam.get())
+            return (juce::jlimit (-1.0f, 1.0f, value) + 1.0f) * 0.5f;
+    }
+
+    const auto& range = param.valueRange;
+    return range.convertTo0to1 (juce::jlimit (range.start, range.end, value));
+}
+
+int AudioEngineManager::thinAutomation (te::AutomatableParameter& param, float tolerance)
+{
+    auto& curve = param.getCurve();
+    const int n = curve.getNumPoints();
+    if (n < 3)
+        return 0;
+
+    // Step changes of a discrete parameter must stay exact.
+    if (param.isDiscrete())
+        tolerance = 1.0e-6f;
+
+    std::vector<double> times ((size_t) n);
+    std::vector<float>  pos ((size_t) n);
+    for (int i = 0; i < n; ++i)
+    {
+        times[(size_t) i] = curve.getPointTime (i).inSeconds();
+        pos[(size_t) i]   = automationLanePosition (param, curve.getPointValue (i));
+    }
+
+    // Ramer-Douglas-Peucker on the lane's scale: keep the point farthest
+    // (vertically) from the line between two kept points while that is more
+    // than the tolerance.
+    std::vector<bool> keep ((size_t) n, false);
+    keep.front() = keep.back() = true;
+    std::vector<std::pair<int, int>> spans { { 0, n - 1 } };
+
+    while (! spans.empty())
+    {
+        const auto [a, b] = spans.back();
+        spans.pop_back();
+
+        float farthest = 0.0f;
+        int index = -1;
+
+        for (int k = a + 1; k < b; ++k)
+        {
+            const double ta = times[(size_t) a], tb = times[(size_t) b];
+            const float  va = pos[(size_t) a],   vb = pos[(size_t) b], vk = pos[(size_t) k];
+            float d;
+
+            if (tb - ta < 1.0e-9)   // a step: points between its two values add nothing
+                d = (vk - va) * (vk - vb) <= 0.0f ? 0.0f : juce::jmin (std::abs (vk - va), std::abs (vk - vb));
+            else
+                d = std::abs (va + (float) ((times[(size_t) k] - ta) / (tb - ta)) * (vb - va) - vk);
+
+            if (d > farthest)
+            {
+                farthest = d;
+                index = k;
+            }
+        }
+
+        if (index >= 0 && farthest > tolerance)
+        {
+            keep[(size_t) index] = true;
+            spans.push_back ({ a, index });
+            spans.push_back ({ index, b });
+        }
+    }
+
+    edit->getUndoManager().beginNewTransaction ("Thin Automation");
+    int removed = 0;
+    for (int i = n - 2; i >= 1; --i)
+        if (! keep[(size_t) i])
+        {
+            curve.removePoint (i);
+            ++removed;
+        }
+
+    if (removed > 0)
+        broadcastChange();
+    return removed;
+}
+
+void AudioEngineManager::clearAutomation (te::AutomatableParameter& param)
+{
+    if (param.getCurve().getNumPoints() == 0)
+        return;
+
+    edit->getUndoManager().beginNewTransaction ("Clear Automation");
+    param.getCurve().clear();
+    param.getCurve().bypass = false;
+    broadcastChange();
+}
+
+bool AudioEngineManager::isAutomationFollowingClips()
+{
+    return appProperties.getUserSettings()->getBoolValue (kAutomationFollowsClipsKey, true);
+}
+
+void AudioEngineManager::setAutomationFollowsClips (bool shouldFollow)
+{
+    appProperties.getUserSettings()->setValue (kAutomationFollowsClipsKey, shouldFollow);
+    appProperties.getUserSettings()->saveIfNeeded();
+}
+
+void AudioEngineManager::moveClipAutomation (te::Track& from, te::TimeRange range,
+                                             te::Track& to, te::TimeDuration offset)
+{
+    if (offset == te::TimeDuration() && &from == &to)
+        return;
+
+    te::TrackAutomationSection section;
+    section.position = range;
+    section.src = &from;
+    section.dst = &to;
+    te::moveAutomation ({ section }, offset, false);
+}
+
+juce::StringArray AudioEngineManager::getAutomatedParamKeys (te::Track* track)
+{
+    juce::StringArray keys;
+    for (auto& g : getAutomationParamGroups (track))
+        for (auto* p : g.params)
+            if (p->getCurve().getNumPoints() > 0)
+                keys.add (getAutomationParamKey (track, p));
+    return keys;
 }
 
 void AudioEngineManager::setTrackVolumeDb (te::Track* track, float db)
@@ -2275,6 +2593,26 @@ juce::File AudioEngineManager::saveTrackAsTemplate (te::Track* track, const juce
     return root.writeTo (file) ? file : juce::File();
 }
 
+/** Points automation lane keys ("<plugin ID>/<param ID>") at the plugins'
+    new IDs, in a track and its sub-tracks. */
+static void remapAutomationLaneKeys (juce::XmlElement& xml, const te::EditItemID::IDMap& remapped)
+{
+    if (xml.hasTagName (AutomationLanes::kLane.toString()))
+    {
+        const auto key = xml.getStringAttribute (AutomationLanes::kParam.toString());
+        if (key.contains ("/"))
+        {
+            const auto oldID = te::EditItemID::fromString (key.upToFirstOccurrenceOf ("/", false, false));
+            if (auto it = remapped.find (oldID); it != remapped.end())
+                xml.setAttribute (AutomationLanes::kParam.toString(),
+                                  it->second.toString() + "/" + key.fromFirstOccurrenceOf ("/", false, false));
+        }
+    }
+
+    for (auto* child : xml.getChildIterator())
+        remapAutomationLaneKeys (*child, remapped);
+}
+
 te::Track* AudioEngineManager::insertTrackTemplate (const juce::File& file, te::Track* after)
 {
     auto xml = juce::XmlDocument::parse (file);
@@ -2286,8 +2624,11 @@ te::Track* AudioEngineManager::insertTrackTemplate (const juce::File& file, te::
         return nullptr;
 
     // New IDs for the track, its sub-tracks, plugins and clips; references
-    // between them (sidechain sources) follow.
-    te::EditItemID::remapIDs (*trackXml, *edit, nullptr);
+    // between them (sidechain sources) follow. So do automation lanes, whose
+    // keys name a plugin by its ID.
+    te::EditItemID::IDMap remapped;
+    te::EditItemID::remapIDs (*trackXml, *edit, &remapped);
+    remapAutomationLaneKeys (*trackXml, remapped);
 
     auto state = juce::ValueTree::fromXml (*trackXml);
     if (! state.isValid())
@@ -3468,6 +3809,11 @@ void AudioEngineManager::timerCallback()
         loudnessMeter.update (loudnessAnalyser, isPlaying());
         spectrumAnalyser.update();
         correlationMeter.update();
+
+        const bool playing = isPlaying();
+        if (playing && ! wasPlayingForAutomation)
+            startWriteModePasses();
+        wasPlayingForAutomation = playing;
     }
 
     if (!punchEnabled || !isRecording()) return;

@@ -777,6 +777,7 @@ public:
                     activePanArea   = hit.panArea;
                     dragStartY      = e.y;
                     panAtDragStart  = audioEngine.getTrackPan (hit.track);
+                    audioEngine.beginTrackParamGesture (hit.track, AudioEngineManager::AutomationParamKind::Pan);
                     return;
                 }
 
@@ -796,6 +797,7 @@ public:
                         return;
                     }
                     activeFaderTrack = hit.track;
+                    audioEngine.beginTrackParamGesture (hit.track, AudioEngineManager::AutomationParamKind::Volume);
                     return;
                 }
             }
@@ -857,6 +859,10 @@ public:
         }
 
         juce::ignoreUnused (e);
+        if (activePanTrack != nullptr)
+            audioEngine.endTrackParamGesture (activePanTrack, AudioEngineManager::AutomationParamKind::Pan);
+        if (activeFaderTrack != nullptr)
+            audioEngine.endTrackParamGesture (activeFaderTrack, AudioEngineManager::AutomationParamKind::Volume);
         activePanTrack   = nullptr;
         activeFaderTrack = nullptr;
     }

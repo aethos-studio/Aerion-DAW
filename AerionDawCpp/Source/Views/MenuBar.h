@@ -16,6 +16,7 @@ public:
     bool   snapEnabled      = false;
     double snapInterval     = 0.25;
     bool   autoCrossfadeOn  = true;
+    bool   automationFollowsClipsOn = true;
     int    autoCrossfadeMaxMs = 120;
     bool   metronomeOn      = false;
     int    countInBars      = 0;
@@ -64,6 +65,7 @@ public:
     std::function<void()> onRescanPlugins, onTogglePdc;
     std::function<void()> onToggleMidiLearn, onShowMidiMappings, onShowLoudnessMeter;
     std::function<void()> onToggleAutoCrossfade;
+    std::function<void()> onToggleAutomationFollowsClips;
     std::function<void(int)> onAutoCrossfadeMaxChanged;
     std::function<void()> onPlay, onStop, onRecord, onGoToStart;
     std::function<void()> onToggleLoop, onTogglePunch, onToggleFollowPlayback;
@@ -615,6 +617,7 @@ private:
         for (auto ms : { 10, 25, 50, 80, 120, 200, 500 })
             xfadeLen.addItem (1000 + ms, juce::String (ms) + " ms", true, autoCrossfadeMaxMs == ms);
         m.addSubMenu ("Auto Crossfade Length", xfadeLen, autoCrossfadeOn);
+        m.addItem (7, "Automation Follows Clips",  true, automationFollowsClipsOn);
         m.addSeparator();
         m.addItem (5, "MIDI Learn", true, midiLearnOn);
         m.addItem (6, "MIDI Mappings...");
@@ -629,6 +632,7 @@ private:
         if (r == 4 && onToggleAutoCrossfade) onToggleAutoCrossfade();
         if (r == 5 && onToggleMidiLearn)     onToggleMidiLearn();
         if (r == 6 && onShowMidiMappings)    onShowMidiMappings();
+        if (r == 7 && onToggleAutomationFollowsClips) onToggleAutomationFollowsClips();
         if (r >= 1000 && onAutoCrossfadeMaxChanged) onAutoCrossfadeMaxChanged (r - 1000);
     }
 

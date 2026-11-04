@@ -641,6 +641,8 @@ namespace
 
             editor = std::make_unique<PianoRollEditor> (*clip, ae.getEdit(), pd, ae);
             editor->setBounds (0, 0, width, height);
+            host.setBounds (0, 0, width, height);
+            host.addAndMakeVisible (*editor);
             wheel (*editor, 18.0f);   // from near C1, where it opens, up to C6 at the top
         }
 
@@ -664,6 +666,9 @@ namespace
         AudioEngineManager& audioEngine;
         tracktion::AudioTrack* track = nullptr;
         tracktion::MidiClip* clip = nullptr;
+        // The editor's parent, as in the app: painting it draws the editor
+        // from its cached layer, with the playhead over it.
+        juce::Component host;
         std::unique_ptr<PianoRollEditor> editor;
     };
 }
@@ -983,6 +988,31 @@ int main (int argc, char* argv[])
                         audioEngine.toggleTrackMute (t);
                 }
                 else check ("Space on Mute toggles mute", false, "no mute control");
+
+                // An automation lane's header: its parameter, + and x.
+                timeline.showAutomationLane (*t);
+                auto syncTimeline = [&]
+                {
+                    juce::Image img (juce::Image::ARGB, timeline.getWidth(), timeline.getHeight(), true);
+                    juce::Graphics g (img);
+                    timeline.paintEntireComponent (g, false);
+                    timeline.syncAccessibleControlsNow();
+                };
+                syncTimeline();
+                auto& controls = timeline.getAccessibleControls();
+                auto* laneParam  = controls.find (id + ":lane0:param");
+                auto* laneRemove = controls.find (id + ":lane0:remove");
+                check ("automation lane header labelled",
+                       laneParam != nullptr && laneParam->getTitle().contains ("Volume") && laneRemove != nullptr,
+                       laneParam != nullptr ? laneParam->getTitle() : juce::String ("no lane controls"));
+                if (laneRemove != nullptr)
+                {
+                    laneRemove->keyPressed (juce::KeyPress (juce::KeyPress::spaceKey));
+                    check ("Space on x removes the lane", AutomationLanes::get (*t).empty() && ! AutomationLanes::isShown (*t),
+                           juce::String ((int) AutomationLanes::get (*t).size()) + " lanes left");
+                }
+                AutomationLanes::setShown (*t, false);
+                syncTimeline();
             }
         }
 
@@ -1136,6 +1166,20 @@ int main (int argc, char* argv[])
             writeSnapshot (timeline, scale, dir.getChildFile (scale > 1.0f ? "timeline_compact_150.png" : "timeline_compact_100.png"));
         timeline.setVerticalZoom (1.0);
 
+        // Automation lanes: volume with a curve, and a shorter pan lane.
+        if (tracks.size() > 1)
+        {
+            if (auto* vol = audioEngine.getAutomationParam (tracks[0], AudioEngineManager::AutomationParamKind::Volume))
+                for (int i = 0; i < 6; ++i)
+                    vol->getCurve().addPoint (tracktion::TimePosition::fromSeconds (0.5 + i * 1.5),
+                                              0.3f + 0.12f * (float) (i % 4), 0.0f);
+            timeline.showAutomationLane (*tracks[0]);
+            timeline.showAutomationLane (*tracks[0], AudioEngineManager::kPanParamKey);
+            AutomationLanes::setHeight (*tracks[0], 1, AutomationLanes::kMinHeight);
+            for (float scale : { 1.0f, 1.5f })
+                writeSnapshot (timeline, scale, dir.getChildFile (scale > 1.0f ? "timeline_automation_150.png" : "timeline_automation_100.png"));
+        }
+
         sourceFile.deleteFile();
         return 0;
     }
@@ -1194,6 +1238,14 @@ int main (int argc, char* argv[])
                                                     0.2f + 0.6f * (float) ((i * 5) % 7) / 6.0f, 0.0f);
 
                 timeline.showAutomationLane (*tracks[2]);
+
+                // A second lane, pan, with a curve and a height of its own.
+                if (auto* pan = audioEngine.getAutomationParam (tracks[2], AudioEngineManager::AutomationParamKind::Pan))
+                    for (int i = 0; i < 8; ++i)
+                        pan->getCurve().addPoint (tracktion::TimePosition::fromSeconds (0.4 + i * 1.9f),
+                                                  (float) ((i * 3) % 5) / 2.0f - 1.0f, 0.0f);
+                timeline.showAutomationLane (*tracks[2], AudioEngineManager::kPanParamKey);
+                AutomationLanes::setHeight (*tracks[2], 1, 56);
 
                 // Rows of different heights, as resized tracks give.
                 timeline.setLaneHeights ({ tracks[2] }, 140);
@@ -1612,8 +1664,11 @@ int main (int argc, char* argv[])
                 juce::RectangleList<int> moved;
                 moved.add (editor.getPlayheadStrip (width / 2));
                 moved.add (editor.getPlayheadStrip (width / 2 + 1));
-                report ("piano roll playhead move",
+                report ("piano roll strip, no cache",
                         timePaint (editor, width, pianoRollH, frames, moved, *renderer.type));
+                // What playback costs: the strips come from the cached layer.
+                report ("piano roll playhead move",
+                        timePaint (scene.host, width, pianoRollH, frames, moved, *renderer.type));
             }
 
             scene.selectAll();

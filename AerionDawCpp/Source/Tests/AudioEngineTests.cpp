@@ -1,5 +1,6 @@
 #include <JuceHeader.h>
 #include "../AudioEngine.h"
+#include "../AutomationLanes.h"
 #include "../ProjectData.h"
 #include "../ScannerProcesses.h"
 
@@ -482,6 +483,112 @@ public:
             file.deleteFile();
         }
 
+        beginTest ("every track and plugin parameter has an automation key that finds it again");
+        {
+            auto* track = engine.addAudioTrack();
+            auto plugin = engine.getEdit().getPluginCache()
+                              .createNewPlugin (tracktion::ReverbPlugin::xmlTypeName, {});
+            track->pluginList.insertPlugin (plugin, 0, nullptr);
+
+            using Kind = AudioEngineManager::AutomationParamKind;
+            auto* volume = engine.getAutomationParam (track, Kind::Volume);
+            expectEquals (engine.getAutomationParamKey (track, volume), juce::String (AudioEngineManager::kVolumeParamKey));
+            expect (engine.findAutomationParam (track, AudioEngineManager::kPanParamKey)
+                    == engine.getAutomationParam (track, Kind::Pan));
+            expectEquals (engine.getAutomationParamName (track, AudioEngineManager::kVolumeParamKey), juce::String ("Volume"));
+
+            // Groups: volume and pan first, then the reverb; the meter is left out.
+            auto groups = engine.getAutomationParamGroups (track);
+            expect (groups.size() >= 2);
+            if (groups.size() >= 2)
+            {
+                expect (groups[0].name.isEmpty());
+                expectEquals (groups[0].params.size(), 2);
+                expectEquals (groups[1].name, plugin->getName());
+            }
+            for (auto& g : groups)
+                for (auto* p : g.params)
+                {
+                    expect (dynamic_cast<tracktion::LevelMeterPlugin*> (p->getPlugin()) == nullptr);
+                    expect (engine.findAutomationParam (track, engine.getAutomationParamKey (track, p)) == p);
+                }
+
+            auto* room = plugin->getAutomatableParameter (0).get();
+            const auto roomKey = engine.getAutomationParamKey (track, room);
+            expect (roomKey.startsWith (plugin->itemID.toString() + "/"));
+            expect (engine.getAutomationParamName (track, roomKey).startsWith (plugin->getName() + ": "));
+
+            expect (engine.getAutomatedParamKeys (track).isEmpty());
+            room->getCurve().addPoint (tracktion::TimePosition::fromSeconds (1.0), 0.5f, 0.0f);
+            expect (engine.getAutomatedParamKeys (track).contains (roomKey));
+
+            // A removed plugin's key finds nothing.
+            engine.removePlugin (plugin.get());
+            plugin = nullptr;
+            expect (engine.findAutomationParam (track, roomKey) == nullptr);
+            expect (engine.findAutomationParam (track, "nonsense") == nullptr);
+            engine.deleteTrack (track);
+        }
+
+        beginTest ("automation lanes and their curves are saved with the project");
+        {
+            auto* track = engine.addAudioTrack();
+            auto plugin = engine.getEdit().getPluginCache()
+                              .createNewPlugin (tracktion::ReverbPlugin::xmlTypeName, {});
+            track->pluginList.insertPlugin (plugin, 0, nullptr);
+            auto* room = plugin->getAutomatableParameter (0).get();
+            const auto roomKey = engine.getAutomationParamKey (track, room);
+            room->getCurve().addPoint (tracktion::TimePosition::fromSeconds (2.0), 0.25f, 0.0f);
+            plugin = nullptr;
+
+            AutomationLanes::add (*track, AudioEngineManager::kVolumeParamKey);
+            AutomationLanes::add (*track, roomKey);
+            AutomationLanes::add (*track, AudioEngineManager::kPanParamKey, 1);   // between the two
+            AutomationLanes::setHeight (*track, 2, 120);
+            expect (AutomationLanes::isShown (*track));
+
+            auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                            .getChildFile ("aerion_automation_lanes_test.aerion");
+            engine.saveProject (file);
+            engine.createNewProject();
+            engine.loadProject (file);
+
+            auto tracks = engine.getAudioTracks();
+            expectEquals (tracks.size(), 1);
+            if (! tracks.isEmpty())
+            {
+                auto* reloaded = tracks.getFirst();
+                auto lanes = AutomationLanes::get (*reloaded);
+                expect (AutomationLanes::isShown (*reloaded));
+                expectEquals ((int) lanes.size(), 3);
+                if (lanes.size() == 3)
+                {
+                    expectEquals (lanes[0].param, juce::String (AudioEngineManager::kVolumeParamKey));
+                    expectEquals (lanes[1].param, juce::String (AudioEngineManager::kPanParamKey));
+                    expectEquals (lanes[2].param, roomKey);
+                    expectEquals (lanes[0].height, AutomationLanes::kDefaultHeight);
+                    expectEquals (lanes[2].height, 120);
+                }
+
+                auto* reloadedRoom = engine.findAutomationParam (reloaded, roomKey);
+                expect (reloadedRoom != nullptr);
+                if (reloadedRoom != nullptr)
+                    expectEquals (reloadedRoom->getCurve().getNumPoints(), 1);
+
+                // Hiding keeps the lanes; removing the last one hides them.
+                AutomationLanes::setShown (*reloaded, false);
+                expect (AutomationLanes::getVisible (*reloaded).empty());
+                expectEquals ((int) AutomationLanes::get (*reloaded).size(), 3);
+                AutomationLanes::setShown (*reloaded, true);
+                for (int i = 2; i >= 0; --i)
+                    AutomationLanes::remove (*reloaded, i);
+                expect (! AutomationLanes::isShown (*reloaded));
+            }
+
+            engine.createNewProject();
+            file.deleteFile();
+        }
+
         // The master's inserts used to be unreachable once added.
         beginTest ("a plugin on the master can be removed");
         {
@@ -641,7 +748,11 @@ public:
             // A sidechain from a track outside the template is dropped.
             auto* kick = engine.addAudioTrack();
             if (auto* reverb = track->pluginList.getPluginsOfType<tracktion::ReverbPlugin>().getFirst())
+            {
                 engine.setPluginSidechainSource (*reverb, kick);
+                // An automation lane on a reverb parameter follows the plugin's new ID.
+                AutomationLanes::add (*track, engine.getAutomationParamKey (track, reverb->getAutomatableParameter (0).get()));
+            }
 
             const juce::String name = "Aerion smoke test track template " + juce::String (juce::Random::getSystemRandom().nextInt());
             const auto file = engine.saveTrackAsTemplate (track, name, false);
@@ -672,6 +783,17 @@ public:
                 auto otherReverbs = second->pluginList.getPluginsOfType<tracktion::ReverbPlugin>();
                 if (! reverbs.isEmpty() && ! otherReverbs.isEmpty())
                     expect (reverbs.getFirst()->itemID != otherReverbs.getFirst()->itemID);
+
+                for (auto* inserted : { first, second })
+                {
+                    auto lanes = AutomationLanes::get (*inserted);
+                    expectEquals ((int) lanes.size(), 1);
+                    if (! lanes.empty())
+                    {
+                        auto* p = engine.findAutomationParam (inserted, lanes[0].param);
+                        expect (p != nullptr && p->getTrack() == inserted);
+                    }
+                }
             }
 
             engine.createNewProject();
@@ -845,6 +967,176 @@ public:
                 ScannerProcesses::endChildren (program);
                 expect (child.waitForProcessToFinish (5000), "the child was still running");
             }
+        }
+
+        beginTest ("thinning keeps a curve's shape with fewer points, and clearing empties it");
+        {
+            using Kind = AudioEngineManager::AutomationParamKind;
+            auto* track = engine.addAudioTrack();
+            auto* pan = engine.getAutomationParam (track, Kind::Pan);
+            auto& curve = pan->getCurve();
+
+            // A straight ramp of 41 points, then a sharp corner and a level stretch.
+            for (int i = 0; i <= 40; ++i)
+                curve.addPoint (tracktion::TimePosition::fromSeconds (i * 0.1), -1.0f + i * 0.05f, 0.0f);
+            curve.addPoint (tracktion::TimePosition::fromSeconds (4.5), -0.5f, 0.0f);
+            for (int i = 0; i < 10; ++i)
+                curve.addPoint (tracktion::TimePosition::fromSeconds (5.0 + i * 0.2), -0.5f, 0.0f);
+
+            const int before = curve.getNumPoints();
+            const auto valueAt = [&] (double s) { return curve.getValueAt (tracktion::TimePosition::fromSeconds (s)); };
+            const float atRamp = valueAt (1.25), atCorner = valueAt (4.5), atLevel = valueAt (6.0);
+
+            const int removed = engine.thinAutomation (*pan);
+            expectEquals (curve.getNumPoints(), before - removed);
+            expectEquals (curve.getNumPoints(), 4);   // ramp start and end, the corner, the level's end
+            expectWithinAbsoluteError (valueAt (1.25), atRamp, 0.01f);
+            expectWithinAbsoluteError (valueAt (4.5), atCorner, 0.01f);
+            expectWithinAbsoluteError (valueAt (6.0), atLevel, 0.01f);
+            expectEquals (engine.thinAutomation (*pan), 0);
+
+            engine.clearAutomation (*pan);
+            expectEquals (curve.getNumPoints(), 0);
+            engine.deleteTrack (track);
+        }
+
+        beginTest ("moving a clip's automation follows it in time and to another track");
+        {
+            using Kind = AudioEngineManager::AutomationParamKind;
+            auto* a = engine.addAudioTrack();
+            auto* b = engine.addAudioTrack();
+            auto* volA = engine.getAutomationParam (a, Kind::Volume);
+            auto* volB = engine.getAutomationParam (b, Kind::Volume);
+            const auto at = [] (double s) { return tracktion::TimePosition::fromSeconds (s); };
+
+            // A bump under a clip from 2 to 4 s.
+            auto& curve = volA->getCurve();
+            curve.addPoint (at (0.0), 0.5f, 0.0f);
+            curve.addPoint (at (2.0), 0.5f, 0.0f);
+            curve.addPoint (at (3.0), 0.9f, 0.0f);
+            curve.addPoint (at (4.0), 0.5f, 0.0f);
+            curve.addPoint (at (8.0), 0.5f, 0.0f);
+
+            const tracktion::TimeRange clip (at (2.0), at (4.0));
+            engine.moveClipAutomation (*a, clip, *a, tracktion::TimeDuration::fromSeconds (3.0));
+            expectWithinAbsoluteError (curve.getValueAt (at (6.0)), 0.9f, 0.01f);   // the bump, 3 s later
+            expectWithinAbsoluteError (curve.getValueAt (at (3.0)), 0.5f, 0.01f);   // gone from where it was
+
+            const tracktion::TimeRange moved (at (5.0), at (7.0));
+            engine.moveClipAutomation (*a, moved, *b, {});
+            expectWithinAbsoluteError (volB->getCurve().getValueAt (at (6.0)), 0.9f, 0.01f);
+            expectWithinAbsoluteError (curve.getValueAt (at (6.0)), 0.5f, 0.01f);
+
+            engine.deleteTrack (a);
+            engine.deleteTrack (b);
+        }
+
+        beginTest ("a track's automation mode is saved with the project, and Read is the default");
+        {
+            using Mode = tracktion::AutomationMode;
+            auto* track = engine.addAudioTrack();
+            expect (engine.getTrackAutomationMode (track) == Mode::read);
+            expect (engine.getEdit().getAutomationRecordManager().isWritingAutomation());
+            engine.setTrackAutomationMode (track, Mode::latch);
+
+            auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                            .getChildFile ("aerion_automation_mode_test.aerion");
+            engine.saveProject (file);
+            engine.createNewProject();
+            engine.loadProject (file);
+
+            auto tracks = engine.getAudioTracks();
+            expectEquals (tracks.size(), 1);
+            if (! tracks.isEmpty())
+                expect (engine.getTrackAutomationMode (tracks.getFirst()) == Mode::latch);
+            expect (engine.getEdit().getAutomationRecordManager().isWritingAutomation());
+            expectEquals (AudioEngineManager::automationModeName (Mode::write), juce::String ("Write"));
+
+            engine.createNewProject();
+            file.deleteFile();
+        }
+
+        // Last: plays the Edit through Tracktion's hosted audio interface (no
+        // hardware), pulling blocks by hand. The recorder's 10 Hz flush timer
+        // never fires without a message loop; ending a pass flushes it.
+        beginTest ("Touch, Read and Write record fader moves while playing");
+        {
+            using Mode = tracktion::AutomationMode;
+            using Kind = AudioEngineManager::AutomationParamKind;
+            auto& edit = engine.getEdit();
+            auto& arm = edit.getAutomationRecordManager();
+            auto* track = engine.addAudioTrack();
+            auto* vol = engine.getAutomationParam (track, Kind::Volume);
+            auto* pan = engine.getAutomationParam (track, Kind::Pan);
+
+            auto& io = edit.engine.getDeviceManager().getHostedAudioDeviceInterface();
+            tracktion::HostedAudioDeviceInterface::Parameters params;
+            params.sampleRate = 48000.0;
+            params.blockSize = 512;
+            params.inputChannels = 0;
+            params.outputChannels = 2;
+            io.initialise (params);
+            io.prepareToPlay (params.sampleRate, params.blockSize);
+            edit.engine.getDeviceManager().dispatchPendingUpdates();
+
+            juce::AudioBuffer<float> buffer (2, params.blockSize);
+            juce::MidiBuffer midi;
+            auto process = [&] (int blocks)
+            {
+                for (int i = 0; i < blocks; ++i)
+                {
+                    buffer.clear();
+                    io.processBlock (buffer, midi);
+                }
+            };
+
+            auto& transport = edit.getTransport();
+            auto startPlaying = [&]
+            {
+                transport.setPosition (tracktion::TimePosition());
+                transport.ensureContextAllocated (true);
+                transport.play (false);
+                process (10);
+            };
+
+            startPlaying();
+            expect (transport.isPlaying());
+
+            // Touch: written while held, not after release.
+            engine.setTrackAutomationMode (track, Mode::touch);
+            engine.beginTrackParamGesture (track, Kind::Volume);
+            engine.setTrackVolumeDb (track, -12.0f);
+            process (20);
+            engine.setTrackVolumeDb (track, -6.0f);
+            process (20);
+            engine.endTrackParamGesture (track, Kind::Volume);
+            expect (vol->getCurve().getNumPoints() > 0, "Touch wrote nothing");
+            expect (! arm.isParameterRecording (vol), "Touch kept writing after release");
+            expect (! vol->getCurve().bypass.get());
+
+            // Read: a move overrides, nothing is written.
+            engine.setTrackAutomationMode (track, Mode::read);
+            engine.setTrackPan (track, 0.5f);
+            process (10);
+            expectEquals (pan->getCurve().getNumPoints(), 0);
+            expect (! arm.isParameterRecording (pan));
+
+            // Write: the lanes are written from the start of playback, untouched.
+            transport.stop (false, true);
+            arm.punchOut (false);
+            AutomationLanes::add (*track, AudioEngineManager::kPanParamKey);
+            engine.setTrackAutomationMode (track, Mode::write);
+            startPlaying();
+            engine.startWriteModePasses();
+            process (30);
+            expect (arm.isParameterRecording (pan), "Write did not start on the pan lane");
+            arm.punchOut (false);
+            expect (pan->getCurve().getNumPoints() > 0, "Write wrote nothing");
+
+            transport.stop (false, true);
+            transport.freePlaybackContext();
+            edit.engine.getDeviceManager().removeHostedAudioDeviceInterface();
+            engine.deleteTrack (track);
         }
 
         // Unsaved-changes tracking (hasUnsavedEdits / markEditSaved) is checked by

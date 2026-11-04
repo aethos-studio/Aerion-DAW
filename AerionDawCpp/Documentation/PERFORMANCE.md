@@ -234,6 +234,17 @@ Fixed: `paint()` now works out the selection once (`prepareSelectionForPaint`: a
 
 The move is within budget (6 % of a frame with the software renderer) but costs 17 % of a full repaint for under 1 % of the area: the strip redraws the full height of keys, grid, notes and lanes. A cached layer like the Timeline's would bring it near 0.1 ms; not done yet. Direct2D figures are CPU submission time (see [Caveats](#caveats)).
 
+### Piano Roll playhead on a cached layer (2026-10-25, v0.5.4)
+
+`PianoRollEditor` now renders into a `CachedLayer`, and the playhead is drawn over the cached pixels by the layer's new `paintOverlay` instead of by `paint()`. `updatePlayhead` repaints the old and new strips with `CachedLayer::repaintOverlay`, which keeps the cached pixels valid, so a playback frame copies two strips and draws a line. (A child overlay component would not do: a child's repaint invalidates its parent's cache.) `AerionBench` now reports both "piano roll strip, no cache" (painting the editor directly, the old cost) and "piano roll playhead move" (painting its parent, as the window does). Debug build, 1920 × 600, 2000 notes:
+
+| Scenario | Software | Direct2D |
+|---|---|---|
+| Strip, no cache (before) | 8.97 ms | 7.05 ms |
+| Playhead move, cached layer | 0.50 ms | 1.24 ms |
+
+Release figures still to be taken with a profiling build. `--verify` passes; `--snapshots` paint the editor directly and so no longer show the playhead (it sits at the left edge there).
+
 ### Fixed along the way: crash when releasing the Edit
 
 `AudioEngineManager` kept each track's LevelMeterPlugin alive in `trackMeters` and released it only after the Edit was destroyed or replaced. If that was the last reference, the plugin's destructor called into the dead Edit (`Edit::getParameterChangeHandler`). This affected quitting, opening a project and creating a new one. It showed up as the benchmark crashing on exit in about half of its runs, and it now releases meters and thumbnails before the Edit goes away (0 crashes in 10 runs).

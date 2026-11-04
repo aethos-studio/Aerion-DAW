@@ -1,0 +1,76 @@
+diff --git a/modules/tracktion_engine/model/automation/tracktion_AutomatableParameter.cpp b/modules/tracktion_engine/model/automation/tracktion_AutomatableParameter.cpp
+index 3049212..c0cb097 100644
+--- a/modules/tracktion_engine/model/automation/tracktion_AutomatableParameter.cpp
++++ b/modules/tracktion_engine/model/automation/tracktion_AutomatableParameter.cpp
+@@ -1240,6 +1240,26 @@ void AutomatableParameter::parameterChangeGestureEnd()
+     listeners.call (&Listener::parameterChangeGestureEnd, *this);
+ }
+ 
++void AutomatableParameter::startWritingAutomation()
++{
++    TRACKTION_ASSERT_MESSAGE_THREAD
++    auto& ed = getEdit();
++
++    if (auto epc = ed.getTransport().getCurrentPlaybackContext())
++    {
++        auto& arm = ed.getAutomationRecordManager();
++
++        if (epc->isPlaying() && arm.isWritingAutomation() && ! isRecording)
++        {
++            auto value = currentValue.load();
++            isRecording = true;
++            arm.postFirstAutomationChange (*this, value, AutomationTrigger::touch);
++            listeners.call (&Listener::recordingStatusChanged, *this);
++            arm.postAutomationChange (*this, epc->getPosition(), value);
++        }
++    }
++}
++
+ //==============================================================================
+ void AutomatableParameter::midiControllerMoved (float newPosition)
+ {
+diff --git a/modules/tracktion_engine/model/automation/tracktion_AutomatableParameter.h b/modules/tracktion_engine/model/automation/tracktion_AutomatableParameter.h
+index d11cf30..de7de86 100644
+--- a/modules/tracktion_engine/model/automation/tracktion_AutomatableParameter.h
++++ b/modules/tracktion_engine/model/automation/tracktion_AutomatableParameter.h
+@@ -86,6 +86,11 @@ public:
+     /** Call to indicate this parameter has stopped being to be changed. */
+     void parameterChangeGestureEnd();
+ 
++    /** Starts recording this parameter at its current value, as a touch would,
++        when the edit is playing and writing automation. Used for the write
++        mode, which records from the start of playback until it stops. */
++    void startWritingAutomation();
++
+     bool hasAutomationPoints() const noexcept                   { return getCurve().getNumPoints() > 0; }
+ 
+     //==============================================================================
+diff --git a/modules/tracktion_engine/model/automation/tracktion_AutomationRecordManager.cpp b/modules/tracktion_engine/model/automation/tracktion_AutomationRecordManager.cpp
+index 60567c5..038093d 100644
+--- a/modules/tracktion_engine/model/automation/tracktion_AutomationRecordManager.cpp
++++ b/modules/tracktion_engine/model/automation/tracktion_AutomationRecordManager.cpp
+@@ -649,7 +649,7 @@ namespace tracktion::inline engine
+             {
+                 // Touch: Punch out
+                 // Latch: Do nothing until play stops (continue writing existing value)
+-                // Write: Punch out - change to latch mode
++                // Write: Do nothing until play stops
+                 const juce::ScopedLock sl (lock);
+ 
+                 for (int i = recordedParams.size(); --i >= 0;)
+@@ -670,14 +670,8 @@ namespace tracktion::inline engine
+                                 case latch:
+                                     break;
+                                 case write:
+-                                {
+-                                    punchOut (param, false);
+-
+-                                    if (auto t = param.getTrack())
+-                                        t->automationMode = latch;
+-
++                                    // Keeps writing until playback stops.
+                                     break;
+-                                }
+                             };
+                         }
+                     }

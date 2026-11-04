@@ -14,6 +14,7 @@ behind the hook a patch adds.
 |---|---|
 | `0001-external-plugin-process-hook.patch` | Adds `EngineBehaviour::processExternalPluginBlock`, which `ExternalPlugin` calls instead of calling the hosted plugin's `processBlock` directly. Aerion overrides it to catch plugin crashes (`Source/PluginFaultGuard.h`). |
 | `0002-external-plugin-call-hook.patch` | Adds `EngineBehaviour::callExternalPlugin`, through which `ExternalPlugin` makes its other calls into the hosted plugin: creating the instance (synchronous path), `getStateInformation` when flushing its state and `setStateInformation` when restoring it. When the call reports failure, the plugin's saved state is left as it was. Aerion overrides it to catch crashes there too. |
+| `0003-automation-write-mode.patch` | For the automation modes (`EngineBehaviour::enableExperimentalAutomation`, the v2 `AutomationRecordManager`): the write mode keeps writing until playback stops instead of punching out and switching the track to latch when a control is let go, and `AutomatableParameter::startWritingAutomation` starts recording a parameter at its current value, which Aerion calls for the parameters of a track in write mode when playback starts. |
 
 Patches apply in file-name order, each on top of the ones before it. Keep their
 hunks at least four lines apart: the configure step tests each patch on its own

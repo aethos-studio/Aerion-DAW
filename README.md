@@ -4,7 +4,7 @@
 
 **Aerion DAW** is a native digital audio workstation built in **C++20** with **JUCE 8** and the **Tracktion Engine v3.2**. It targets serious home and project-studio production on **Windows 11** first, with **macOS** builds supported through CI and release packaging.
 
-**Current version:** v0.5.3 Alpha · **Active milestone:** [M6 — Complete Core](AerionDawCpp/Documentation/ROADMAP.md) · **[User Manual](Aerion-DAW-Manual.html)**
+**Current version:** v0.5.4 Alpha · **Active milestone:** [M6 — Complete Core](AerionDawCpp/Documentation/ROADMAP.md) · **[User Manual](Aerion-DAW-Manual.html)**
 
 [![Build & Smoke Tests](https://github.com/aethos-studio/Aerion-DAW/actions/workflows/build-test.yml/badge.svg)](https://github.com/aethos-studio/Aerion-DAW/actions/workflows/build-test.yml)
 
@@ -12,7 +12,7 @@
 
 ## What Aerion is today
 
-Aerion is a **working alpha DAW**, not a demo shell. You can record, edit, mix, and export a complete song session on Windows today. Milestones 1–5 — editing, mixing, recording, project workflow, and polish & stability — are complete. Milestone 6 fills the remaining gaps to a modern DAW baseline; sidechain routing, clip gain / normalise / reverse and project templates shipped in v0.5.1, and full automation, time-stretch and controller mapping are next. Aerion works with your own instrument and effect plugins; it doesn't ship built-in ones.
+Aerion is a **working alpha DAW**, not a demo shell. You can record, edit, mix, and export a complete song session on Windows today. Milestones 1–5 — editing, mixing, recording, project workflow, and polish & stability — are complete. Milestone 6 fills the remaining gaps to a modern DAW baseline; sidechain routing, clip gain / normalise / reverse and project templates shipped in v0.5.1, controller mapping and analysis metering in v0.5.2 and v0.5.3, and full parameter automation in v0.5.4; time-stretch and control surfaces are next. Aerion works with your own instrument and effect plugins; it doesn't ship built-in ones.
 
 The long-term vision includes AI-assisted workflows and cloud project sync, but those are **scaffolding only** right now. The current focus is making the core DAW fast, stable, and trustworthy.
 
@@ -29,7 +29,7 @@ The long-term vision includes AI-assisted workflows and cloud project sync, but 
 - **Follow Playback** (on by default) in the timeline and piano roll
 - **Piano roll** with note editing, velocity lane, MIDI CC / pitch-bend lanes, quantize, and snap
 - **Tempo map** and **time signature** changes on the timeline ruler
-- **Automation** lanes for volume and pan
+- **Automation** of volume, pan, sends and any plugin parameter, in several lanes per track, drawn or recorded (Read / Touch / Latch / Write), following clips when they move
 
 ### Record
 
@@ -88,6 +88,8 @@ What comes next is in the [roadmap](AerionDawCpp/Documentation/ROADMAP.md).
 ---
 
 ## Recent progress (October 2026)
+
+**v0.5.4 Alpha** ([release notes](AerionDawCpp/Documentation/releases/v0.5.4.md)) completes **Full Parameter Automation** (Milestone 6): automate volume, pan, sends and any plugin parameter in several lanes per track; record it while playing with per-track Read / Touch / Latch / Write modes, from the mixer, a plugin's own window or a MIDI controller; thin or clear a lane; and let automation follow clips when they move. The piano roll's playhead now costs a fraction of what it did during playback.
 
 **v0.5.3 Alpha** ([release notes](AerionDawCpp/Documentation/releases/v0.5.3.md)) completes three more Milestone 6 items: a spectrum analyser and phase correlation meter (View > Meters), default MIDI mappings for new projects and tracks, and the CLAP hosting spike ([verdict: not now](AerionDawCpp/Documentation/CLAP_SPIKE.md)). From tester feedback it adds separate horizontal and vertical zoom for the timeline, and keyboard shortcut presets for Cubase, Pro Tools, Logic Pro, Ableton Live, Studio One and REAPER. It also fixes meters that read on a different scale from their fader, the Inspector after a plugin drop, a stray focus frame and a freeze in the Export Mixdown preview.
 

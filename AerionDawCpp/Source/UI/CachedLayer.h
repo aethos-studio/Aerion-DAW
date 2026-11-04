@@ -79,6 +79,19 @@ public:
         owner's main background so the share is invisible. */
     void setUnderlay (juce::Colour c) noexcept   { underlay = c; }
 
+    /** Drawn over the cached pixels on every paint and never into the cache:
+        something that moves often (a playhead) without the owner's paint()
+        running again. Coordinates are the owner's. */
+    std::function<void (juce::Graphics&)> paintOverlay;
+
+    /** Shows the overlay again in `area` (where it was and where it is now)
+        without discarding cached pixels there. */
+    void repaintOverlay (juce::Rectangle<int> area)
+    {
+        const juce::ScopedValueSetter<bool> keep (keepContents, true);
+        owner.repaint (area);
+    }
+
     void paint (juce::Graphics& g) override
     {
         const float scale = physicalScaleOf (g);
@@ -138,6 +151,9 @@ public:
             g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
             g.drawImageTransformed (image, juce::AffineTransform::scale (1.0f / scale));
         }
+
+        if (paintOverlay != nullptr)
+            paintOverlay (g);
     }
 
     /** The smallest step, in logical pixels, that is a whole number of

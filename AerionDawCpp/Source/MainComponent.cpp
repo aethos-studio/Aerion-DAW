@@ -392,6 +392,12 @@ MainComponent::MainComponent()
                           nullptr);
     };
 
+    menuBar.onToggleAutomationFollowsClips = [this]
+    {
+        audioEngine.setAutomationFollowsClips (! audioEngine.isAutomationFollowingClips());
+        syncMenuBarState();
+    };
+
     menuBar.onAutoCrossfadeMaxChanged = [this] (int ms)
     {
         auto& tree = projectData.getProjectTree();
@@ -1319,7 +1325,8 @@ void MainComponent::syncMenuBarState()
     menuBar.snapInterval     = (double) projectData.getProjectTree().getProperty (IDs::snapInterval, 0.25);
     menuBar.autoCrossfadeOn  = (bool)   projectData.getProjectTree().getProperty (IDs::autoCrossfadeEnabled, true);
     menuBar.autoCrossfadeMaxMs = (int)  projectData.getProjectTree().getProperty (IDs::autoCrossfadeMaxMs, 120);
-    menuBar.metronomeOn      = audioEngine.isMetronomeEnabled();
+    menuBar.automationFollowsClipsOn = audioEngine.isAutomationFollowingClips();
+    menuBar.metronomeOn     = audioEngine.isMetronomeEnabled();
     menuBar.countInBars      = audioEngine.getCountInBars();
     menuBar.punchEnabled     = audioEngine.isPunchEnabled();
     menuBar.pdcEnabled       = audioEngine.isLatencyCompensationEnabled();
@@ -1778,6 +1785,7 @@ void MainComponent::onDisplayFrame (double nowSec)
         return;
 
     lastMeterFrameSec = nowSec;
+    timeline.updateAutomationRecording();
 
     // Keep meters running briefly after the transport stops so they fall back
     // to silence instead of freezing at their last level.

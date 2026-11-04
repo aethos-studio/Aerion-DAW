@@ -326,6 +326,63 @@ public:
     enum class AutomationParamKind { Volume, Pan };
     tracktion::AutomatableParameter* getAutomationParam (tracktion::Track* track, AutomationParamKind kind);
 
+    // Any parameter a track can automate, named by a key that is saved with
+    // the project (automation lanes): "volume" and "pan" for the track's own
+    // fader and pan, "<plugin ID>/<parameter ID>" for a send or a plugin.
+    static constexpr const char* kVolumeParamKey = "volume";
+    static constexpr const char* kPanParamKey    = "pan";
+    juce::String getAutomationParamKey (tracktion::Track* track, tracktion::AutomatableParameter* param);
+    /** The parameter `key` names on `track`, or nullptr (e.g. its plugin was removed). */
+    tracktion::AutomatableParameter* findAutomationParam (tracktion::Track* track, const juce::String& key);
+    /** Display name for `key`: "Volume", "Pan", or "<plugin>: <parameter>". */
+    juce::String getAutomationParamName (tracktion::Track* track, const juce::String& key);
+
+    /** The track's automatable parameters, grouped as the lane chooser shows
+        them: its volume and pan first, then each send and plugin in order.
+        Meters are left out. */
+    struct AutomationParamGroup
+    {
+        juce::String name;                      // empty for the track's volume and pan
+        juce::Array<tracktion::AutomatableParameter*> params;
+    };
+    juce::Array<AutomationParamGroup> getAutomationParamGroups (tracktion::Track* track);
+    /** Keys of the track's parameters that have automation points, in group order. */
+    juce::StringArray getAutomatedParamKeys (tracktion::Track* track);
+
+    // Automation modes, per track (Tracktion's Track::automationMode, saved
+    // with the project). Read plays the curves back. While playing, Touch
+    // writes while a control is held, Latch from its first move until playback
+    // stops, and Write from the start of playback until it stops, for the
+    // parameters in the track's automation lanes and anything else moved.
+    void setTrackAutomationMode (tracktion::Track* track, tracktion::AutomationMode mode);
+    tracktion::AutomationMode getTrackAutomationMode (tracktion::Track* track) const;
+    static juce::String automationModeName (tracktion::AutomationMode mode);
+    /** Aerion's own faders and pan controls call these around a drag, so
+        Touch stops writing when the control is let go. */
+    void beginTrackParamGesture (tracktion::Track* track, AutomationParamKind kind);
+    void endTrackParamGesture (tracktion::Track* track, AutomationParamKind kind);
+    /** Starts writing the lanes of tracks in Write mode; runs when playback starts. */
+    void startWriteModePasses();
+
+    /** Where `value` sits on its lane, 0 (bottom) to 1 (top): the fader's
+        scale for volume, -1..1 for pan, the parameter's own range otherwise. */
+    static float automationLanePosition (tracktion::AutomatableParameter& param, float value);
+    /** Removes points the curve does not need: those that move it by less than
+        `tolerance` of the lane's height when left out. Undoable; returns how many. */
+    int thinAutomation (tracktion::AutomatableParameter& param, float tolerance = 0.01f);
+    void clearAutomation (tracktion::AutomatableParameter& param);
+
+    // Automation follows clips (user setting, on by default): moving a clip
+    // in time or to another track takes the automation under it along.
+    bool isAutomationFollowingClips();
+    void setAutomationFollowsClips (bool shouldFollow);
+    static constexpr const char* kAutomationFollowsClipsKey = "automationFollowsClips";
+    /** Moves the automation of `from` within `range` by `offset`, onto `to`
+        (Tracktion's moveAutomation; on another track, curves are matched by
+        plugin name and parameter). */
+    void moveClipAutomation (tracktion::Track& from, tracktion::TimeRange range,
+                             tracktion::Track& to, tracktion::TimeDuration offset);
+
     // MIDI learn, through Tracktion's ParameterControlMappings (saved in the
     // Edit). While learn is on, the last parameter touched (a fader, a knob in
     // a plugin's window) is mapped to the next controller moved; learn then
@@ -478,6 +535,9 @@ private:
         AudioEngineManager& owner;
     };
     std::unique_ptr<EditListener> editListener;
+
+    bool wasPlayingForAutomation = false;   // timerCallback: start Write passes when play starts
+    juce::ReferenceCountedArray<tracktion::AutomatableParameter> paramsInGesture;
 
     struct MidiLearnWatcher : public tracktion::MidiLearnState::Listener
     {

@@ -382,6 +382,8 @@ public:
         {
             if (dynamic_cast<tracktion::AudioTrack*> (selectedTrack) != nullptr || isMasterSelected())
             {
+                faderGestureTrack = selectedTrack;
+                audioEngine.beginTrackParamGesture (selectedTrack, AudioEngineManager::AutomationParamKind::Volume);
                 ::setFaderFromY (audioEngine, selectedTrack, faderArea, e.y);
                 return;
             }
@@ -537,11 +539,17 @@ public:
     void mouseUp (const juce::MouseEvent& e) override
     {
         juce::ignoreUnused (e);
+        if (faderGestureTrack != nullptr)
+        {
+            audioEngine.endTrackParamGesture (faderGestureTrack, AudioEngineManager::AutomationParamKind::Volume);
+            faderGestureTrack = nullptr;
+        }
         handleInsertRowMouseUp (audioEngine, selectedTrack, insertRowHits, insertDragState, [this] { repaint(); });
     }
 
 private:
     AudioEngineManager& audioEngine;
+    tracktion::Track* faderGestureTrack = nullptr;   // a fader drag in progress (Touch automation)
     ProjectData& projectData;
     juce::Array<InsertRowHitAreas> insertRowHits;
     InsertRowDragState insertDragState;
